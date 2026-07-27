@@ -39,7 +39,8 @@ const WelcomeQuickReplies: React.FC<{
 }> = ({ c, onPick, onPickBuilder }) => {
   const [expanded, setExpanded] = React.useState<string | null>(null);
   // Onboarding v3's prep wrote starters about THIS user's machine and apps; they lead, generic categories demote to "More ideas". Show the top 3 tailored + the always-present anchor = 4 options (prep returns 4, so we keep the strongest three and let the anchor be the fourth).
-  const personalized = useAppSelector((s) => (s.settings.data.personalized_starters ?? []).slice(0, 3));
+  const starters = useAppSelector((s) => s.settings.data.personalized_starters);
+  const personalized = React.useMemo(() => (starters ?? []).slice(0, 3), [starters]);
   const [showCategories, setShowCategories] = React.useState(personalized.length === 0);
   const currentCategory = STARTER_CATEGORIES.find((cat) => cat.id === expanded);
   const isAppBuilder = currentCategory?.target === 'app-builder';
