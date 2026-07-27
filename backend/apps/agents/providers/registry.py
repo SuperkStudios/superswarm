@@ -92,7 +92,21 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
     ],
 
     "OpenAI": [
-        # GPT-5.5 subscription entry PULLED: cx/gpt-5.5 404s on 9Router 0.3.60 (our pin), so a Codex user who picked it (the newest, top OpenAI option) 404'd every turn = "codex is broken". Same treatment as gemini-3.1-pro (no working lane = not offered). The API-key route (gpt-5.5-api below) works; restore a cx entry only after the pin moves and cx/gpt-5.5 resolves.
+        # Codex sub lanes re-probed 2026-07-26: cx/gpt-5.6-{sol,terra,luna} AND the previously pulled
+        # cx/gpt-5.5 all return real completions on the pinned 0.3.60 (the old 404 healed upstream;
+        # the cx translator forwards to the ChatGPT Responses backend, which now serves them).
+        {"value": "gpt-5.6", "label": "GPT-5.6 Sol",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-sol",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.6-terra", "label": "GPT-5.6 Terra",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-terra",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.6-luna", "label": "GPT-5.6 Luna",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-luna",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.5", "label": "GPT-5.5",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.5",
+         "api": "codex", "subscription_only": True, "reasoning": True},
         {"value": "gpt-5.4", "label": "GPT-5.4",
          "context_window": 1_000_000, "router_model_id": "cx/gpt-5.4",
          "api": "codex", "subscription_only": True, "reasoning": True},
@@ -104,9 +118,7 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
         # so the old Responses-only HOLD is lifted for the API-key lane: the ids ride the proven
         # cp-openai passthrough, whose scrubs prefix-match "gpt-5" (max_tokens rename, sampling strip,
         # and the reasoning_effort-with-tools drop that 5.6 still requires on /chat/completions).
-        # 1M+ ctx, 128k out; $5/$30 Sol, $2.50/$15 Terra, $1/$6 Luna per 1M. The cx SUBSCRIPTION
-        # entries stay pulled: 0.3.60's cx registry predates 5.6 (same 404 class as gpt-5.5's pulled
-        # cx row); restore them with the 9router bump.
+        # 1M+ ctx, 128k out; $5/$30 Sol, $2.50/$15 Terra, $1/$6 Luna per 1M.
         {"value": "gpt-5.6-api", "label": "GPT-5.6 Sol (API key)",
          "context_window": 1_000_000, "router_model_id": "cp-openai/gpt-5.6-sol", "model_id": "gpt-5.6-sol",
          "api": "openai", "reasoning": True, "route": "api"},
@@ -405,6 +417,9 @@ COST_PER_1M_TOKENS: dict[tuple[str, str], tuple[float, float]] = {
     ("OpenAI", "gpt-5.6-terra-api"): (2.5, 15.0),
     ("OpenAI", "gpt-5.6-luna-api"): (1.0, 6.0),
     # OpenAI; Codex subscription path, user pays nothing per token
+    ("OpenAI", "gpt-5.6"): (0.0, 0.0),
+    ("OpenAI", "gpt-5.6-terra"): (0.0, 0.0),
+    ("OpenAI", "gpt-5.6-luna"): (0.0, 0.0),
     ("OpenAI", "gpt-5.5"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4-mini"): (0.0, 0.0),
