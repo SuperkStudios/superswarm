@@ -59,8 +59,15 @@ export const ARC_CHIP_SX: Record<string, unknown> = {
 
 function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTileMenu }: WindowControlsProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
+  // Menu DOM (12 tiles + labels, ~30 nodes) mounts on first green-dot hover, not per card at boot.
+  const [menuHot, setMenuHot] = useState(false);
   const closeTimer = useRef<number | null>(null);
-  const openMenu = (): void => { if (noTileMenu) return; if (closeTimer.current) window.clearTimeout(closeTimer.current); setMenuOpen(true); };
+  const openMenu = (): void => {
+    if (noTileMenu) return;
+    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    if (!menuHot) { setMenuHot(true); requestAnimationFrame(() => setMenuOpen(true)); return; }
+    setMenuOpen(true);
+  };
   const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 180); };
   const stop = (e: React.PointerEvent | React.MouseEvent): void => { e.stopPropagation(); };
 
@@ -99,7 +106,12 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTile
 
   return (
     <Box className="osw-window-lights" onPointerDown={stop}
-      sx={{ display: 'flex', gap: '8px', alignItems: 'center', flex: 'none', '&:hover span': { opacity: 1 } }}>
+      sx={{
+        display: 'flex', gap: '8px', alignItems: 'center', flex: 'none', '&:hover span': { opacity: 1 },
+        // Inert until the card is hovered: crossing a card can't hit-test or fire React enter/leave
+        // through the dots, and you can't aim at a dot without hovering its card first anyway.
+        pointerEvents: 'none', '.osw-card:hover &': { pointerEvents: 'auto' },
+      }}>
       {btn(RED, '×', onClose, 'Close')}
       {btn(YELLOW, '–', onMinimize, 'Minimize')}
       <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
@@ -109,7 +121,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTile
           onPointerDown={stop} sx={dotSx(GREEN)}>
           <span>{tiled ? '–' : '+'}</span>
         </Box>
-        <Box className="osw-tilemenu" onPointerDown={stop} onClick={stop}
+        {menuHot && <Box className="osw-tilemenu" onPointerDown={stop} onClick={stop}
           onMouseEnter={openMenu} onMouseLeave={scheduleClose}
           sx={{
             position: 'absolute', top: 19, left: -8, width: 216, background: '#FFFFFF',
@@ -135,7 +147,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTile
               </Box>
             </Box>
           ))}
-        </Box>
+        </Box>}
       </Box>
     </Box>
   );
