@@ -59,6 +59,8 @@ declare global {
     voiceTranscribe?: (wav: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
     voiceInject?: (text: string) => Promise<{ ok: boolean; pasted?: boolean; error?: string }>;
     onVoiceToggle?: (cb: () => void) => () => void;
+    voiceHoldCapable?: () => Promise<boolean>;
+    voiceRequestHoldPermission?: () => Promise<boolean>;
     onAuthUrl?: (cb: (url: string) => void) => () => void;
     onOauthClaim?: (cb: (url: string) => void) => () => void;
   }

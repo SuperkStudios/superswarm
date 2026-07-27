@@ -104,12 +104,18 @@ const GeneralInterface: React.FC<{
       <Box sx={inlineRowSx} {...settingSelectAttrs('voice_hold_to_talk', 'Dictation', 'Interface', 'Hold to talk, or tap to start and stop.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Dictation</Typography>
-          <Typography sx={descSx}>How the mic button works. The mic key (F5) starts and stops.</Typography>
+          <Typography sx={descSx}>How the mic button and the mic key (F5) work.</Typography>
         </Box>
         <ToggleButtonGroup
           value={form.voice_hold_to_talk ?? true}
           exclusive
-          onChange={(_, v) => { if (v !== null) setForm({ ...form, voice_hold_to_talk: v }); }}
+          onChange={(_, v) => {
+            if (v === null) return;
+            setForm({ ...form, voice_hold_to_talk: v });
+            // Keyboard hold needs the native key tap; picking Hold on a Mac without the Accessibility
+            // grant fires the system prompt so the choice can actually take effect after a relaunch.
+            if (v) void window.openswarm?.voiceRequestHoldPermission?.();
+          }}
           size="small"
           sx={{
             '& .MuiToggleButton-root': {

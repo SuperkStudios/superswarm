@@ -47,20 +47,18 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
     }
   }, [holdMode, stop]);
 
-  // The hotkey (Cmd/Ctrl+Shift+D) is press-to-start / press-to-stop, NOT hold: macOS delivers
-  // NEITHER the letter keyup nor the modifier releases to any Chromium layer while Cmd is held
-  // (proven empirically: DOM saw zero events, main's before-input-event saw only the first keyDown),
-  // so a keyboard hold-release is undetectable without a native event tap (uiohook class, the real
-  // fix, needs a packaged native module). Hold-to-talk lives on the mic buttons, which DO see
-  // pointerup. In-app presses arrive via main's before-input relay (works with webview focus and
-  // swallows the 'd' so it never types into a field); background presses via the global shortcut.
+  // Keyboard hotkey channels, matched to what the source can actually see:
+  // voice:hold-down/up come ONLY from main's native uiohook tap (real global key-up, so the keyboard
+  // gets the same hold-vs-toggle press semantics as the mic buttons); voice:toggle comes from the
+  // fallback tier (globalShortcut / before-input relay), where key-ups are undetectable, so each
+  // press toggles. Whichever tier main activated, the renderer just honors the channel it hears.
   useEffect(() => {
-    const off = (window as unknown as { openswarm?: { onVoiceHold?: (d: () => void, u: () => void) => () => void } }).openswarm?.onVoiceHold?.(
-      () => toggle(),
-      () => {},
-    );
-    return () => { off?.(); };
-  }, [toggle]);
+    const bridge = window as unknown as {
+      openswarm?: { onVoiceHold?: (d: () => void, u: () => void) => () => void };
+    };
+    const offHold = bridge.openswarm?.onVoiceHold?.(pressStart, pressEnd);
+    return () => { offHold?.(); };
+  }, [pressStart, pressEnd]);
 
   return (
     <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, toggle, pressStart, pressEnd, holdMode, volumeRef }}>

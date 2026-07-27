@@ -75,7 +75,11 @@ contextBridge.exposeInMainWorld('openswarm', {
   },
   // Reveal a diagnostics folder in Finder/Explorer (path validated in main; diagnostics dir only).
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
-  // Main-process hold relay (before-input-event): fires down/up for the combo regardless of DOM focus.
+  // True keyboard hold-to-talk needs the native key tap; renderers ask so Settings copy stays honest,
+  // and request triggers the macOS Accessibility prompt when the tap is blocked on permission.
+  voiceHoldCapable: () => ipcRenderer.invoke('voice:hold-capable'),
+  voiceRequestHoldPermission: () => ipcRenderer.invoke('voice:request-hold-permission'),
+  // Native-tap hold relay: real global key-down/key-up for the voice combo, focus-independent.
   onVoiceHold: (onDown, onUp) => {
     const down = () => onDown();
     const up = () => onUp();

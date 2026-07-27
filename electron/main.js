@@ -57,6 +57,7 @@ const os = require('os');
 const fs = require('fs');
 const hiddenBrowser = require('./hiddenBrowser');
 const usageHarvest = require('./usageHarvest');
+const { installVoiceHotkey } = require('./voiceHotkey');
 const getPort = require('get-port');
 const http = require('http');
 const affiliateTracking = require('./affiliateTracking');
@@ -1788,51 +1789,10 @@ app.whenReady().then(async () => {
   // Off-window mouse-release crash dodge (macOS). Safe to call before windows exist.
   installMacMouseClamp();
 
-  // Voice dictation hotkey. globalShortcut can't see key-up, so hold-to-talk is impossible through it;
-  // the shortcut is only registered while OUR window is unfocused (background toggle). When the app is
-  // focused, MAIN watches before-input-event (sees every keyDown/keyUp incl. modifiers, regardless of
-  // which element or webview has focus, and immune to macOS's letter-keyup-under-Cmd suppression at the
-  // DOM layer) and relays voice:hold-down / voice:hold-up; the renderer maps those to hold-vs-toggle.
-  // F5 is the mic/dictation key printed on Mac keyboards (the fn/globe key itself is invisible to
-  // Electron without a native event tap), so it's the simple primary; the old combo stays as backup.
-  const VOICE_COMBOS = ['F5', 'CommandOrControl+Shift+D'];
-  const registerVoiceShortcut = () => {
-    for (const combo of VOICE_COMBOS) {
-      try {
-        if (!globalShortcut.isRegistered(combo)) {
-          globalShortcut.register(combo, () => {
-            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice:toggle');
-          });
-        }
-      } catch (_) { /* a taken shortcut just means no global hotkey; the pill still works */ }
-    }
-  };
-  registerVoiceShortcut();
-  app.on('browser-window-focus', () => { for (const combo of VOICE_COMBOS) { try { globalShortcut.unregister(combo); } catch (_) {} } });
-  app.on('browser-window-blur', registerVoiceShortcut);
-
-  // Every discrete combo press relays (autorepeat filtered); the renderer toggles record state.
-  // No held/release tracking: macOS delivers neither the letter keyup nor modifier releases to ANY
-  // Chromium layer while Cmd is down (verified empirically), so keyboard hold-release is undetectable
-  // without a native event tap. Keyboard = press to start/stop; the mic buttons own true hold-to-talk.
-  const installVoiceHoldRelay = (contents) => {
-    contents.on('before-input-event', (event, input) => {
-      if (input.type !== 'keyDown' || input.isAutoRepeat) return;
-      const isD = (input.code === 'KeyD' || (input.key || '').toLowerCase() === 'd');
-      const combo = (isD && (input.meta || input.control) && input.shift) || input.code === 'F5';
-      if (combo) {
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice:hold-down');
-        event.preventDefault();
-      }
-    });
-  };
-  // Installed via web-contents-created (not directly on mainWindow): createWindow() runs LATER in this
-  // whenReady sequence, so mainWindow is still undefined here. The hook catches the main window when it
-  // is born, and every webview guest too (guests swallow keys when a page has focus).
-  app.on('web-contents-created', (event, contents) => {
-    const t = contents.getType();
-    if (t === 'window' || t === 'webview') installVoiceHoldRelay(contents);
-  });
+  // Voice dictation hotkey (F5 / Cmd-Ctrl+Shift+D). Native uiohook key tap = true keyboard
+  // hold-to-talk on every platform; falls back to the old press-to-toggle when the tap can't run
+  // (module missing, or macOS without the Accessibility grant). Tiers live in voiceHotkey.js.
+  installVoiceHotkey(() => mainWindow);
 
   // PASSKEY SPIKE (macOS only): turn on the Secure-Enclave/Touch ID WebAuthn authenticator that Electron 42 added. Without this, isUserVerifyingPlatformAuthenticatorAvailable() is hardwired false (why the old reject-shim existed). keychainAccessGroup MUST match the keychain-access-groups entitlement (Y26NUZH4NG.<bundle>.webauthn) or this throws. Windows has no equivalent, so the reject-shim still runs there.
   if (process.platform === 'darwin' && typeof app.configureWebAuthn === 'function') {
