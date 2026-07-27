@@ -504,7 +504,10 @@ export const handleApproval = createAsyncThunk(
 export const closeSession = createAsyncThunk(
   'agents/closeSession',
   async ({ sessionId }: { sessionId: string }) => {
-    await fetch(`${AGENTS_API}/sessions/${sessionId}/close`, { method: 'POST' });
+    // Drafts are client-only; the server has no such session and would 404.
+    if (!sessionId.startsWith('draft-')) {
+      await fetch(`${AGENTS_API}/sessions/${sessionId}/close`, { method: 'POST' });
+    }
     return sessionId;
   }
 );
