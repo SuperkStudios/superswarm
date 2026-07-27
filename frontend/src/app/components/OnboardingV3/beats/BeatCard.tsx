@@ -52,6 +52,8 @@ const BeatCard: React.FC<{
 }> = ({ c, identity, onFinish, onBack }) => {
   const { accent, gradient } = useThemeAccent();
   const [name, setName] = useState(() => nameFromIdentity(identity));
+  // finish() can legitimately wait up to PREP_WAIT_CAP_MS on prep; the button must say so, once.
+  const [submitting, setSubmitting] = useState(false);
   const seed = useMemo(() => Math.floor(Math.random() * EPITHETS.length), []);
   const [roll, setRoll] = useState(0);
   const epithet = EPITHETS[(seed + roll) % EPITHETS.length];
@@ -184,8 +186,9 @@ const BeatCard: React.FC<{
       c={c}
       title={name ? `Welcome to OpenSwarm, ${name}` : 'Welcome to OpenSwarm'}
       body={"Here's your Swarm Card. Show it off to the world or keep it to yourself.\n\nAnd with that, you're ready to run your new OS."}
-      nextLabel="Get started"
-      onNext={() => onFinish(name.trim() || null)}
+      nextLabel={submitting ? 'Setting up...' : 'Get started'}
+      nextDisabled={submitting}
+      onNext={() => { if (submitting) return; setSubmitting(true); onFinish(name.trim() || null); }}
       onBack={onBack}
       stageDark
     >

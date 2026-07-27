@@ -29,6 +29,7 @@ export function useOnboardingV3Pipeline() {
   // greeting/starters the instant they're ready (the common case, prep finishes during the beats) without
   // awaiting, so the curtain never blocks behind a spinner.
   const prepReadyRef = useRef<PrepResponse | null>(null);
+  const finishingRef = useRef(false);
   const scanResultRef = useRef<ScanResult | null>(null);
   const usageSummaryRef = useRef<string>('');
   const usageReadRef = useRef<Promise<void> | null>(null);
@@ -72,6 +73,9 @@ export function useOnboardingV3Pipeline() {
   }, []);
 
   const finish = useCallback(async (outcome: 'done' | 'skipped') => {
+    // Double-fire guard: repeated Get-started clicks during the prep wait must not stage twice.
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     if (outcome === 'skipped') {
       dispatch(setFlowActive(false));
       dispatch(updateSettingsPatch({ onboarding_v3: 'skipped', accent_color: accent, accent_gradient: gradient, theme: mode }));
