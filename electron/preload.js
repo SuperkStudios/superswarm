@@ -1,7 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// eslint-disable-next-line no-console
-console.log('[diag][preload] start, ua=', navigator.userAgent);
 
 // E2E gate: set the renderer flag BEFORE any page script parses so the
 // production-build store-on-window expose fires deterministically when
