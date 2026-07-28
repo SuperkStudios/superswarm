@@ -47,6 +47,16 @@ interface UseDashboardInteractionsArgs {
   setFocusedCardId: Dispatch<SetStateAction<string | null>>;
 }
 
+// Run fn AFTER the next paint (rAF fires just before paint, the timeout lands after it), with a
+// plain-timer fallback because rAF freezes in occluded windows. Expanding a chat mounts the whole
+// transcript; doing that inside the click handler blocked the pressed frame ~400ms (the INP tail).
+function afterPaint(fn: () => void): void {
+  let fired = false;
+  const run = (): void => { if (!fired) { fired = true; fn(); } };
+  window.requestAnimationFrame(() => window.setTimeout(run, 0));
+  window.setTimeout(run, 80);
+}
+
 export function useDashboardInteractions({
   canvas,
   selection,
@@ -87,7 +97,7 @@ export function useDashboardInteractions({
 
     // Expand (if not already) + center + zoom + bring to front
     if (type === 'agent') {
-      dispatch(expandSession(id));
+      afterPaint(() => dispatch(expandSession(id)));
     }
     setFocusedCardId(id);
     // The capture-phase select fires on pointer DOWN; if the press became a drag (or marquee),
@@ -227,7 +237,7 @@ export function useDashboardInteractions({
       clickTimerRef.current = null;
     }
     if (type === 'agent') {
-      dispatch(expandSession(id));
+      afterPaint(() => dispatch(expandSession(id)));
     }
     dispatch(bringToFront({ id, type }));
     setFocusedCardId(id);
