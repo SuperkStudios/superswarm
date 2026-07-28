@@ -64,34 +64,23 @@ const GeneralAdvanced: React.FC<{
 
       <Box sx={rowSx}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>
-            <Typography sx={labelSx}>Version</Typography>
-            <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>
-              {appVersion ?? '-'}
-            </Typography>
-          </Box>
+          <Typography sx={labelSx}>Version</Typography>
+          <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>{appVersion ?? '-'}</Typography>
         </Box>
+        {buildLabel && (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+            <Typography sx={labelSx}>Build</Typography>
+            <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>{buildLabel}</Typography>
+          </Box>
+        )}
       </Box>
-
-      {buildLabel && (
-        <Box sx={rowSx}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography sx={labelSx}>Build</Typography>
-              <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>
-                {buildLabel}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-      )}
 
       <SoftwareUpdateRow styles={styles} />
 
       <TrustedFilePatterns />
 
-      <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box>
+      <Box sx={inlineRowLastSx}>
+        <Box sx={{ mr: 3 }}>
           <Typography sx={{ ...labelSx, mb: 0.25 }}>Onboarding tour</Typography>
           <Typography sx={{ ...descSx, mb: 0 }}>
             Re-run the Show me walkthrough at any time.

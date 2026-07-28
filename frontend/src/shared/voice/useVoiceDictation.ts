@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/shared/config';
 import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
+import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
@@ -117,6 +118,7 @@ export function useVoiceDictation() {
       node.connect(ctx.destination);
       recRef.current = { ctx, stream, node, source, chunks };
       setState('recording');
+      playVoiceCue('start');
       // Warm the model the moment recording begins so transcription is instant on stop.
       void window.openswarm?.voiceWarmup?.();
     } catch (err) {
@@ -131,6 +133,7 @@ export function useVoiceDictation() {
   const stop = useCallback(async (): Promise<void> => {
     if (stateRef.current !== 'recording') return;
     const samples = teardown();
+    playVoiceCue('stop');
     setState('transcribing');
     try {
       if (!samples || samples.length < VOICE_SAMPLE_RATE * 0.2) { setState('idle'); return; } // < 0.2s = a misfire
@@ -139,7 +142,12 @@ export function useVoiceDictation() {
       if (res?.ok && res.text) {
         // WhisperFlow-style cleanup: punctuation + filler words via the cheap aux tier, fail-open to
         // the raw transcript on any error/timeout so dictation never breaks with the aux down.
-        const text = await polishText(res.text);
+        // Latency: short phrases don't need the aux cleanup (whisper's raw output is fine), and a
+        // slow aux must never hold the cursor hostage; 900ms is the most polish is allowed to cost.
+        const raw = res.text.trim();
+        const text = raw.split(/\s+/).length <= 6
+          ? raw
+          : await Promise.race([polishText(raw), new Promise<string>((r) => window.setTimeout(() => r(raw), 900))]);
         setLastText(text);
         // Land the text where the user's cursor is: focused field, then focused browser page, then
         // the OS paste fallback (other apps). The floating bubble is just confirmation, not the output.

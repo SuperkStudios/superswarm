@@ -98,6 +98,67 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
   );
 };
 
+// WhisperFlow's signature: a small capsule drops from the TOP edge while the mic is hot, carrying a
+// live waveform. Canvas bars driven straight off the mic level ring buffer, imperative rAF only.
+const BAR_COUNT = 26;
+
+const VoiceTab: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ volumeRef }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const history = useRef<number[]>(new Array(BAR_COUNT).fill(0.06));
+  useEffect(() => {
+    let raf = 0;
+    let frame = 0;
+    const draw = (): void => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const g = canvas.getContext('2d');
+        if (g) {
+          // Shift one bar every other frame so the wave scrolls readably at 60Hz input.
+          frame += 1;
+          if (frame % 2 === 0) {
+            history.current.push(Math.min(1, 0.08 + volumeRef.current * 1.6));
+            history.current.shift();
+          }
+          const w = canvas.width;
+          const h = canvas.height;
+          g.clearRect(0, 0, w, h);
+          const bw = w / BAR_COUNT;
+          for (let i = 0; i < BAR_COUNT; i++) {
+            const level = history.current[i];
+            const bh = Math.max(3, level * (h - 4));
+            const x = i * bw + bw * 0.25;
+            g.fillStyle = `rgba(255,255,255,${0.35 + level * 0.6})`;
+            const bwid = bw * 0.5;
+            const y = (h - bh) / 2;
+            g.beginPath();
+            g.roundRect(x, y, bwid, bh, bwid / 2);
+            g.fill();
+          }
+        }
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [volumeRef]);
+  return (
+    <Box
+      sx={{
+        position: 'fixed', top: 10, left: '50%', zIndex: 2147483001, pointerEvents: 'none',
+        display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.75, borderRadius: 999,
+        background: 'rgba(18,12,26,0.88)',
+        backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+        boxShadow: '0 8px 28px rgba(0,0,0,0.4)',
+        '@keyframes vtab-in': { from: { opacity: 0, transform: 'translate(-50%, -14px)' }, to: { opacity: 1, transform: 'translate(-50%, 0)' } },
+        animation: 'vtab-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both',
+      }}
+    >
+      <MicIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }} />
+      <canvas ref={canvasRef} width={132} height={22} style={{ display: 'block', width: 132, height: 22 }} />
+    </Box>
+  );
+};
+
 // The whole point: dictation must never look like "nothing happened." This floats a small status
 // card above the composer for every phase (listening, transcribing, downloading the model) and shows
 // the transcript + whether it was pasted or just copied. Non-interactive, auto-dismisses.
@@ -124,7 +185,12 @@ const VoiceOverlay: React.FC = () => {
   const live = state !== 'idle';
   const visible = live || (showFeedback && !!feedback);
   if (!visible) return null;
-  const aurora = state === 'recording' ? <VoiceAurora volumeRef={volumeRef} /> : null;
+  const aurora = state === 'recording' ? (
+    <>
+      <VoiceAurora volumeRef={volumeRef} />
+      <VoiceTab volumeRef={volumeRef} />
+    </>
+  ) : null;
 
   let content: React.ReactElement | null;
   if (state === 'recording') {
