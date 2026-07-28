@@ -18,14 +18,33 @@ import { createDraftSession, launchAndSendFirstMessage, type AgentConfig } from 
 import { getLastDashboardId } from '@/shared/lastDashboardId';
 import { API_BASE } from '@/shared/config';
 
+// The Ask chat is a DEDICATED help chat, not a general agent: it knows the app's surfaces and stays
+// in support mode instead of launching into open-ended work.
+const HELP_SYSTEM_PROMPT = [
+  "You are OpenSwarm's help assistant, a dedicated support chat inside the app.",
+  'Answer questions about using OpenSwarm clearly and briefly, with the exact clicks or keys.',
+  'What you know about the app:',
+  '- Dashboards work like macOS Spaces: resting the cursor on the very top edge of the window reveals the spaces bar to switch dashboards or add one with +.',
+  '- The canvas holds cards: agent chats, browsers, notes, built apps, and workflows. Cards have mac-style traffic lights; the green dot goes full screen, hovering it offers halves, quarters, and thirds.',
+  '- The dark dock on the left creates chats, browsers, workflows, and notes, and opens History, Settings, and Apps.',
+  '- Cmd+K searches everything. Dictation: hold the mic in the Help pill (or the mic key) to talk; the words land where the cursor is.',
+  '- Settings (gear in the dock): Account, General (agent defaults), Appearance (theme, accent colors, text size), Privacy, Advanced, plus Models (connect Claude, ChatGPT, or Gemini subscriptions or API keys), Skills, Tools, Commands, and Usage.',
+  '- Workflows run agents on a schedule; open them from the dock calendar icon.',
+  'Behavior rules:',
+  '- Stay a help chat. Never start unrelated agent work or long tasks from here.',
+  '- You may read settings with the settings tools to answer questions about their setup; ask before changing anything.',
+  '- If something sounds like a bug, point them to Help then Report a bug, which packages diagnostics automatically.',
+  '- If they want real work done, tell them to start a regular chat from the dock or by typing on the canvas.',
+].join('\n');
+
 const REPO_ISSUES_URL = 'https://github.com/openswarm-ai/openswarm/issues/new';
 const DOCS_URL = 'https://docs.openswarm.com';
 const DISCORD_URL = 'https://discord.com/channels/1486442924391796896/1486442927554170892';
 
 const WHATS_NEW: Array<{ text: string }> = [
-  { text: 'Dictation lands where your cursor is, with AI cleanup' },
-  { text: 'Sign in keeps your setup tied to your account' },
-  { text: 'Text size setting + a cleaner canvas composer' },
+  { text: 'Dashboards are Spaces: hover the top edge to switch' },
+  { text: 'Arc-style full screen with one set of window lights' },
+  { text: 'Starters tailored to you, in every category' },
 ];
 
 function openExternal(url: string): void {
@@ -64,7 +83,7 @@ const HelpPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     const p = prompt.trim();
     if (!p) return;
     const dashboardId = getLastDashboardId() ?? undefined;
-    const config: AgentConfig = { name: 'Help', model, mode: 'agent', dashboard_id: dashboardId };
+    const config: AgentConfig = { name: 'Help', model, mode: 'agent', dashboard_id: dashboardId, system_prompt: HELP_SYSTEM_PROMPT };
     const draftId = dispatch(createDraftSession({ mode: 'agent', model, dashboardId: dashboardId ?? '', setActive: true })).payload.draftId;
     void dispatch(launchAndSendFirstMessage({ draftId, config, prompt: p, mode: 'agent', model, expand: true }));
     onClose();
