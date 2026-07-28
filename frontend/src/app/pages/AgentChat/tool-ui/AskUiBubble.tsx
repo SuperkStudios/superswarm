@@ -37,6 +37,9 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
   const [submitted, setSubmitted] = useState(false);
   const [orphaned, setOrphaned] = useState(false);
   const [freeText, setFreeText] = useState('');
+  // The choice captured at click time, so the component flips to its receipt the INSTANT the user
+  // answers instead of staying clickable until the agent's tool result lands seconds later.
+  const [localChoice, setLocalChoice] = useState<unknown>(undefined);
   const answered = parseResultResponse(pair);
   const freeTextAnswer =
     answered?.action === 'free_text' && answered.value && typeof answered.value === 'object'
@@ -49,6 +52,9 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
     (response: Record<string, unknown>) => {
       if (submitted) return;
       setSubmitted(true);
+      if (response.action !== 'free_text') {
+        setLocalChoice(response.choice ?? response.value ?? undefined);
+      }
       void fetch(`${API_BASE}/ui-requests/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAuthToken()}` },
@@ -58,10 +64,11 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
           if (!r.ok) {
             // Nothing parked server-side (agent gone or this is a replayed transcript): say so instead of silently swallowing the click.
             setSubmitted(false);
+            setLocalChoice(undefined);
             setOrphaned(true);
           }
         })
-        .catch(() => setSubmitted(false));
+        .catch(() => { setSubmitted(false); setLocalChoice(undefined); });
     },
     [submitted, sessionId, componentId],
   );
@@ -79,7 +86,7 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
             onConfirm: () => respond({ action: 'confirm', choice: 'approved' }),
             onCancel: () => respond({ action: 'cancel', choice: 'denied' }),
           }
-        : { choice: (answered?.choice as string) || undefined };
+        : { choice: (answered?.choice as string) ?? (localChoice as string | undefined) };
     }
     if (waiting) {
       return {
@@ -91,8 +98,10 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
     }
     // A free-text answer isn't an option id; passing it as `choice` would fail their contract.
     if (freeTextAnswer !== null) return {};
-    return answered && 'value' in answered ? { choice: answered.value } : {};
-  }, [payload, waiting, respond, answered, freeTextAnswer]);
+    if (answered && 'value' in answered) return { choice: answered.value };
+    // Result not landed yet but the user already clicked: the captured choice renders the receipt now.
+    return localChoice !== undefined ? { choice: localChoice } : {};
+  }, [payload, waiting, respond, answered, freeTextAnswer, localChoice]);
 
   const submitFreeText = useCallback(() => {
     const text = freeText.trim();

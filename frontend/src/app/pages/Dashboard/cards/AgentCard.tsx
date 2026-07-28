@@ -39,7 +39,7 @@ import WindowControls, { ARC_CHIP_SX } from './WindowControls';
 import { useTiledStyle } from './tileZones';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { extractLatestTodos } from '../desktop/agentTodos';
-import { extractLatestShowUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
+import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { getWebview } from '@/shared/browserRegistry';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
@@ -679,6 +679,10 @@ const AgentCard: React.FC<Props> = ({
     const artifact = extractLatestShowUi(session.messages || []);
     return artifact ? freezeIfDone(artifact, session.status === 'running') : null;
   }, [session.messages, session.status]);
+  const pillAskPair = useMemo(
+    () => (session.status === 'running' ? extractPendingAskUi(session.messages || []) : null),
+    [session.messages, session.status],
+  );
   const pillMode = !expanded && !hasPending && !isDraft && !tileZone;
   const pillLabel = session.turn_label?.label || displayChatTitle(session);
   const pillRunning = session.status === 'running';
@@ -980,6 +984,8 @@ const AgentCard: React.FC<Props> = ({
             running={pillRunning}
             todos={todos}
             artifact={pillArtifact}
+            askPair={pillAskPair}
+            sessionId={session.id}
             browserShot={browserShot}
             selected={isSelected}
             highlighted={isHighlighted}

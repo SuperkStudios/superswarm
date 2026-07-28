@@ -76,6 +76,21 @@ export function isAskUiPair(pair: ToolPair): boolean {
 }
 
 /** Latest ShowUI payload anywhere in a transcript; the collapsed card pins this artifact under its pill. */
+/** The newest UNANSWERED AskUI call, so a collapsed card can surface the live question under its
+    pill (a blocking question beats every other artifact; the agent is literally waiting on it). */
+export function extractPendingAskUi(messages: Array<{ id: string; role: string; content: unknown }>): ToolPair | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== 'tool_call') continue;
+    const body = (typeof msg.content === 'object' && msg.content !== null ? msg.content : {}) as { tool?: unknown };
+    if (!/(^|__)AskUI$/.test(String(body.tool || ''))) continue;
+    const next = messages[i + 1];
+    if (next && next.role === 'tool_result') return null;
+    return { type: 'tool_pair', id: msg.id, call: msg as ToolPair['call'], result: null };
+  }
+  return null;
+}
+
 export function extractLatestShowUi(messages: Array<{ role: string; content: unknown }>): ShowUiPayload | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];

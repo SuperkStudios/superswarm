@@ -4,6 +4,8 @@ import Typography from '@mui/material/Typography';
 import CheckIcon from '@mui/icons-material/Check';
 import DashboardGlyph from '../canvas/DashboardGlyph';
 import ShowUiWidgetView from '@/app/pages/AgentChat/tool-ui/ShowUiWidgetView';
+import AskUiBubble from '@/app/pages/AgentChat/tool-ui/AskUiBubble';
+import type { ToolPair } from '@/app/pages/AgentChat/tool-bubbles/ToolCallBubble';
 import type { ShowUiPayload } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import type { AgentTodoItem } from './agentTodos';
 
@@ -12,6 +14,8 @@ interface AgentNarratorPillProps {
   running: boolean;
   todos: AgentTodoItem[] | null;
   artifact: ShowUiPayload | null;
+  askPair?: ToolPair | null;
+  sessionId?: string;
   browserShot: string | null;
   selected: boolean;
   highlighted: boolean;
@@ -21,13 +25,14 @@ const GLASS = 'rgba(24,14,32,0.8)';
 const GLASS_BLUR = 'blur(18px) saturate(150%)';
 const MAX_VISIBLE_TODOS = 4;
 
-/** Collapsed agent as the desktop narrator pill; below it, the best artifact wins: widget > browser shot > plan > Thinking. */
-function AgentNarratorPill({ label, running, todos, artifact, browserShot, selected, highlighted }: AgentNarratorPillProps): React.ReactElement {
+/** Collapsed agent as the desktop narrator pill; below it, the best artifact wins: live question > widget > browser shot > plan > Thinking. */
+function AgentNarratorPill({ label, running, todos, artifact, askPair, sessionId, browserShot, selected, highlighted }: AgentNarratorPillProps): React.ReactElement {
   const visibleTodos = (todos || []).slice(0, MAX_VISIBLE_TODOS);
   const hiddenCount = (todos?.length || 0) - visibleTodos.length;
   const ring = selected || highlighted ? { outline: '2px solid #3b82f6', outlineOffset: '2px' } : undefined;
+  const liveAsk = askPair && sessionId ? askPair : null;
   // One key per ladder state so a state CHANGE remounts the artifact and replays the one-shot entrance; nothing loops.
-  const artifactKey = artifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : running ? 'thinking' : 'none';
+  const artifactKey = liveAsk ? `ask-${liveAsk.id}` : artifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : running ? 'thinking' : 'none';
 
   return (
     <Box
@@ -71,7 +76,11 @@ function AgentNarratorPill({ label, running, todos, artifact, browserShot, selec
         </Typography>
       </Box>
 
-      {artifact ? (
+      {liveAsk ? (
+        <Box key={artifactKey} className="osw-artifact" sx={{ width: 340, maxWidth: '80vw' }}>
+          <AskUiBubble pair={liveAsk} sessionId={sessionId!} isPending suppressReveal />
+        </Box>
+      ) : artifact ? (
         <Box key={artifactKey} className="osw-artifact">
           <ShowUiWidgetView payload={artifact} ambient />
         </Box>
