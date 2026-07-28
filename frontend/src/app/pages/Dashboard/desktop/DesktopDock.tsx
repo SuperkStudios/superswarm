@@ -7,17 +7,13 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import HistoryIcon from '@mui/icons-material/History';
-import { pickIcon } from '../canvas/DashboardGlyph';
-import { MessageCircle } from 'lucide-react';
 import { openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
-import EditNoteIcon from '@mui/icons-material/EditNote';
-import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { useAppDispatch } from '@/shared/hooks';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { getWebview } from '@/shared/browserRegistry';
-import { displayChatTitle } from '@/shared/state/sessionDisplay';
+import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -27,25 +23,6 @@ import type {
   WorkflowCardPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
-
-interface CardRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface DockEntry {
-  id: string;
-  label: string;
-  rect: CardRect;
-  tileBg: string;
-  icon: React.ReactNode;
-  faviconUrl?: string;
-  thumbnail?: string | null;
-  browserId?: string;
-  snippet?: string;
-}
 
 interface DesktopDockProps {
   sessions: Record<string, AgentSession>;
@@ -65,21 +42,6 @@ interface DesktopDockProps {
 
 const TILE = 30;
 const PREVIEW_W = 190;
-
-// Frames show a colorful per-card dock, not uniform tiles; hues rotate by name so two agents rarely match.
-const AGENT_TILE_HUES = [
-  'linear-gradient(135deg, #4a7dd6, #2b4fa8)',
-  'linear-gradient(135deg, #8a5bd6, #5b34a8)',
-  'linear-gradient(135deg, #3aa88f, #1f7a64)',
-  'linear-gradient(135deg, #d6754a, #a8492b)',
-  'linear-gradient(135deg, #c94a7d, #96305c)',
-];
-
-function hueFor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
-  return AGENT_TILE_HUES[Math.abs(h) % AGENT_TILE_HUES.length];
-}
 
 /** Left-edge desktop dock: one tile per open card, hover previews, click focuses the window. */
 function DesktopDock({
@@ -133,72 +95,10 @@ function DesktopDock({
   const [liveShot, setLiveShot] = useState<{ id: string; dataUrl: string } | null>(null);
   const hoverTimer = useRef<number | null>(null);
 
-  const entries = useMemo<DockEntry[]>(() => {
-    const list: DockEntry[] = [];
-    for (const card of Object.values(cards)) {
-      const session = sessions[card.session_id];
-      if (!session) continue;
-      const title = displayChatTitle(session);
-      const ChatIcon = pickIcon(title) || MessageCircle;
-      list.push({
-        id: card.session_id,
-        label: title,
-        rect: card,
-        tileBg: hueFor(title),
-        icon: <ChatIcon size={16} strokeWidth={1.75} color="#fff" />,
-        snippet: session.turn_label?.label || undefined,
-      });
-    }
-    for (const bc of Object.values(browserCards)) {
-      const activeTab = bc.tabs.find((t) => t.id === bc.activeTabId) || bc.tabs[0];
-      list.push({
-        id: bc.browser_id,
-        label: activeTab?.title || 'Browser',
-        rect: bc,
-        tileBg: 'linear-gradient(135deg, #4f9fe8, #2f6ed4)',
-        icon: <LanguageIcon sx={{ fontSize: 17, color: '#fff' }} />,
-        faviconUrl: activeTab?.favicon,
-        browserId: bc.browser_id,
-      });
-    }
-    for (const [cardKey, vc] of Object.entries(viewCards)) {
-      const output = outputs[vc.output_id];
-      const appName = output?.name || 'App';
-      list.push({
-        id: cardKey,
-        label: appName,
-        rect: vc,
-        tileBg: 'linear-gradient(135deg, #ef9552, #d96a2b)',
-        icon: (
-          <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#fff', lineHeight: 1 }}>
-            {appName.charAt(0).toUpperCase()}
-          </Typography>
-        ),
-        thumbnail: output?.thumbnail,
-      });
-    }
-    for (const note of Object.values(notes)) {
-      const firstLine = (note.content || '').split('\n')[0].trim();
-      list.push({
-        id: note.note_id,
-        label: firstLine || 'Note',
-        rect: note,
-        tileBg: 'linear-gradient(135deg, #f2d270, #e0b23e)',
-        icon: <EditNoteIcon sx={{ fontSize: 18, color: '#7a5d10' }} />,
-        snippet: (note.content || '').slice(0, 140),
-      });
-    }
-    for (const [cardKey, wf] of Object.entries(workflowCards)) {
-      list.push({
-        id: cardKey,
-        label: 'Workflow',
-        rect: wf,
-        tileBg: 'linear-gradient(135deg, #ef7a70, #d94f45)',
-        icon: <CalendarMonthIcon sx={{ fontSize: 16, color: '#fff' }} />,
-      });
-    }
-    return list;
-  }, [sessions, cards, viewCards, browserCards, notes, workflowCards, outputs]);
+  const entries = useMemo<DockEntry[]>(
+    () => buildDockEntries({ sessions, cards, viewCards, browserCards, notes, workflowCards, outputs }),
+    [sessions, cards, viewCards, browserCards, notes, workflowCards, outputs],
+  );
 
   const beginHover = useCallback(
     (entry: DockEntry, target: HTMLElement) => {
@@ -304,72 +204,40 @@ function DesktopDock({
       {entries.length > 0 && (
         <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
       )}
-      {/* The og toolbar's actions, dock-resident: chat, browser, workflow, note, history. */}
+      {/* The og toolbar's actions, dock-resident: chat, browser, workflow, note, history, then settings + apps below their own divider. */}
       {([
         { label: 'New chat', icon: <ChatBubbleOutlineIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: onNewAgent },
         { label: 'New browser', icon: <LanguageIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: onAddBrowser },
         { label: 'Workflows', icon: <EventRepeatIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
         { label: 'New note', icon: <StickyNote2OutlinedIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: onAddNote },
         { label: 'History', icon: <HistoryIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: () => window.dispatchEvent(new CustomEvent('openswarm:open-history')) },
-      ] as const).map((a) => (
-        <Tooltip key={a.label} title={a.label} placement="right">
-          <Box
-            className="osw-dock-tile"
-            onClick={a.act}
-            onMouseEnter={endHover}
-            sx={{
-              width: TILE,
-              height: TILE,
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, #5a5a62, #34343c)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              flexShrink: 0,
-            }}
-          >
-            {a.icon}
-          </Box>
-        </Tooltip>
+        { label: 'Settings', icon: <SettingsIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: () => dispatch(openSettingsModal(undefined)), divider: true },
+        { label: 'Applications', icon: <AppsRoundedIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
+      ] as { label: string; icon: React.ReactNode; act: () => void; divider?: boolean; bg?: string }[]).map((a) => (
+        <React.Fragment key={a.label}>
+          {a.divider && <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />}
+          <Tooltip title={a.label} placement="right">
+            <Box
+              className="osw-dock-tile"
+              onClick={a.act}
+              onMouseEnter={endHover}
+              sx={{
+                width: TILE,
+                height: TILE,
+                borderRadius: '12px',
+                background: a.bg ?? 'linear-gradient(135deg, #5a5a62, #34343c)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              {a.icon}
+            </Box>
+          </Tooltip>
+        </React.Fragment>
       ))}
-      <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
-      <Box
-        className="osw-dock-tile"
-        onClick={() => dispatch(openSettingsModal(undefined))}
-        onMouseEnter={endHover}
-        sx={{
-          width: TILE,
-          height: TILE,
-          borderRadius: '12px',
-          background: 'linear-gradient(135deg, #5a5a62, #34343c)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          flexShrink: 0,
-        }}
-      >
-        <SettingsIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />
-      </Box>
-      <Box
-        className="osw-dock-tile"
-        onClick={onApplications}
-        onMouseEnter={endHover}
-        sx={{
-          width: TILE,
-          height: TILE,
-          borderRadius: '12px',
-          background: 'linear-gradient(135deg, #3d3d46, #232329)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          flexShrink: 0,
-        }}
-      >
-        <AppsRoundedIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />
-      </Box>
 
       {hoveredEntry && (
         <Box
