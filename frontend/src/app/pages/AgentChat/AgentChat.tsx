@@ -337,7 +337,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   // Holds the last non-empty suggestions so the docked banner's exit fade renders them instead of going blank the instant the array is cleared.
   const mcpSnapshotRef = useRef<Array<{ id: string; title: string; description: string; reason?: string }>>([]);
   const [mode, setMode] = useState('agent');
-  const [model, setModel] = useState('sonnet');
+  const [model, setModel] = useState('opus-5');
   // Workflow build chat only: brief "this model now runs the workflow" notice when the user switches models, so the run-model change isn't silent.
   const [workflowModelNotice, setWorkflowModelNotice] = useState<string | null>(null);
   const workflowModelNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from backend.apps.swarm.exportable import DepRef, ExportContext, RemapTable
 from backend.apps.swarm.models import EntityType, Requirement, RequirementKind
+from backend.apps.settings.models import DEFAULT_MODEL
 
 P_BUILTIN_MODES = {"agent", "ask", "plan", "view-builder", "skill-builder"}
 # Transcript fields ride along so the shared agent keeps its history; ids inside (message ids, branch ids, their parent/fork refs) are self-consistent within the one session file, so they carry verbatim with no remap.
@@ -95,7 +96,7 @@ class SessionExportable:
             "name": payload.get("name") or "Agent",
             "status": "completed",
             "provider": payload.get("provider") or "anthropic",
-            "model": payload.get("model") or "sonnet",
+            "model": payload.get("model") or DEFAULT_MODEL,
             "mode": payload.get("mode") or "agent",
             "system_prompt": payload.get("system_prompt"),
             "allowed_tools": payload.get("allowed_tools") or [],

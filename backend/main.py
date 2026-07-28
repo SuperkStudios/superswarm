@@ -503,7 +503,8 @@ async def browser_agent_run(request: Request):
 
     body = await request.json()
     tasks = body.get("tasks", [])
-    model = body.get("model", "sonnet")
+    from backend.apps.settings.models import DEFAULT_MODEL
+    model = body.get("model", DEFAULT_MODEL)
     dashboard_id = body.get("dashboard_id", "")
     pre_selected_browser_ids = body.get("pre_selected_browser_ids", [])
     parent_session_id = body.get("parent_session_id", "")

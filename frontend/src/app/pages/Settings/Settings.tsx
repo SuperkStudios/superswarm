@@ -44,6 +44,7 @@ let lastOpenTab: string | null = null;
 
 // Shown only in the brief window before the live model list loads from the backend. Keep the flagship current so the default-model dropdown isn't stale.
 const DEFAULT_MODEL_FALLBACK = [
+  { value: 'opus-5', label: 'Claude Opus 5' },
   { value: 'opus-4-8', label: 'Claude Opus 4.8' },
   { value: 'sonnet', label: 'Claude Sonnet 4.6' },
   { value: 'opus', label: 'Claude Opus 4.6' },

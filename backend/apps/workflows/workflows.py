@@ -20,6 +20,7 @@ from backend.apps.workflows.models import (
     GenerateMetadataResponse,
 )
 from backend.apps.workflows import storage, scheduler, executor, audit, escalation
+from backend.apps.settings.models import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +266,7 @@ async def create_workflow(body: WorkflowCreate):
         permissions=body.permissions or [],
         source_session_id=body.source_session_id,
         dashboard_id=body.dashboard_id,
-        model=body.model or "sonnet",
+        model=body.model or DEFAULT_MODEL,
         mode=body.mode or "agent",
         provider=body.provider or "anthropic",
         cost_cap_usd_monthly=body.cost_cap_usd_monthly,
@@ -313,7 +314,7 @@ async def create_workflow(body: WorkflowCreate):
 @workflows.router.post("/generate-metadata")
 async def generate_workflow_metadata(body: GenerateMetadataRequest) -> GenerateMetadataResponse:
     # Preview-time naming for the convert-to-workflow draft. Generates without persisting so the card can show a real title before the user saves.
-    wf = Workflow(steps=body.steps, model=body.model or "sonnet")
+    wf = Workflow(steps=body.steps, model=body.model or DEFAULT_MODEL)
     title, description, labels = await _generate_workflow_metadata(wf)
     return GenerateMetadataResponse(title=title, description=description, step_labels=labels)
 
@@ -1017,7 +1018,7 @@ async def edit_agent_session(workflow_id: str):
     edit_dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
     config = AgentConfig(
         name=f"Edit Agent: {wf.title}",
-        model=wf.model or "sonnet",
+        model=wf.model or DEFAULT_MODEL,
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
@@ -1256,7 +1257,7 @@ async def test_run_workflow(workflow_id: str, body: dict):
     resolved_allowed_tools = executor._resolve_allowed_tools(wf)
     config = AgentConfig(
         name=f"{wf.title or 'Workflow'} (test)",
-        model=wf.model or "sonnet",
+        model=wf.model or DEFAULT_MODEL,
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=executor._resolve_system_prompt(wf),
@@ -1395,7 +1396,7 @@ async def schedule_agent_session(workflow_id: str):
     )
     config = AgentConfig(
         name=f"Scheduling: {wf.title}",
-        model=wf.model or "sonnet",
+        model=wf.model or DEFAULT_MODEL,
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
