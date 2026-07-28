@@ -91,6 +91,8 @@ export interface AppSettings {
   personalized_headline?: string | null;
   personalized_starters?: PersonalizedStarter[];
   personalized_automations?: PersonalizedAutomation[];
+  /** The hero's two-level menu: 4 general categories, each with 4 starters tailored to this user. */
+  personalized_menu?: PersonalizedMenu | null;
   personalized_usage_summary?: string | null;
 }
 
@@ -104,6 +106,13 @@ export interface PersonalizedAutomation {
   title: string;
   prompt: string;
   cadence: 'daily' | 'weekday' | 'weekly';
+}
+
+export interface PersonalizedMenu {
+  computer: PersonalizedStarter[];
+  research: PersonalizedStarter[];
+  web: PersonalizedStarter[];
+  build: PersonalizedStarter[];
 }
 
 export interface ActivateSubscriptionPayload {

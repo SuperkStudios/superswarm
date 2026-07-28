@@ -39,6 +39,8 @@ class AppSettings(BaseModel):
     default_max_turns: Optional[int] = None
     default_thinking_level: Literal["off", "low", "medium", "high", "auto"] = "auto"
     zoom_sensitivity: float = 50.0
+    # Root font-size multiplier (0.9/1/1.1/1.2 from Settings > Interface); the whole rem type scale rides it.
+    ui_font_scale: float = 1.0
     theme: str = "light"
     # Shared across App Builder workspaces (each runs its own vite port / localStorage origin); null = follow system.
     app_template_theme_override: Optional[Literal["light", "dark"]] = None
@@ -72,6 +74,8 @@ class AppSettings(BaseModel):
     personalized_headline: Optional[str] = None
     personalized_starters: list["PersonalizedStarter"] = Field(default_factory=list)
     personalized_automations: list["PersonalizedAutomation"] = Field(default_factory=list)
+    # The hero's two-level menu: 4 general categories, each holding 4 starters tailored to this user.
+    personalized_menu: Optional["PersonalizedMenu"] = None
     # Distilled from the user's provider chat history the first time they open ChatGPT/Claude in-app; re-feeds prep to sharpen suggestions.
     personalized_usage_summary: Optional[str] = None
     # Suppresses preflight suggestion modal entries the user dismissed; keyed by ToolDefinition.name, value ISO timestamp.
@@ -124,3 +128,10 @@ class PersonalizedAutomation(BaseModel):
     prompt: str
     # 'daily' | 'weekday' | 'weekly'; the frontend maps this to a workflow schedule.
     cadence: str = "weekly"
+
+
+class PersonalizedMenu(BaseModel):
+    computer: list[PersonalizedStarter] = Field(default_factory=list)
+    research: list[PersonalizedStarter] = Field(default_factory=list)
+    web: list[PersonalizedStarter] = Field(default_factory=list)
+    build: list[PersonalizedStarter] = Field(default_factory=list)

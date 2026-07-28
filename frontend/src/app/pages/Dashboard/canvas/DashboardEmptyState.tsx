@@ -1,8 +1,8 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { motion } from 'framer-motion';
-import { Search, Hammer, Globe, CalendarClock, FolderGit2, Sparkles, ArrowUp, Image as ImageIcon } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Hammer, Globe, CalendarClock, FolderGit2, Sparkles, ArrowUp, ArrowLeft, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useAppSelector } from '@/shared/hooks';
@@ -10,15 +10,11 @@ import {
   hasModelConnected,
   hasFreeTrialActive,
 } from '@/app/components/Onboarding/steps/skipPredicates';
+import { HERO_CATEGORIES, heroMenuFor, type HeroCategoryId } from './heroMenu';
 
-// Empty canvas, styled after ChatGPT / Claude / Manus: a short question, a centered composer as the HERO, then a few TAILORED, icon-led suggestions (the onboarding scan wrote them), never abstract category buttons. Font sizes come from the shared type scale so it reads clean.
-type Suggestion = { title: string; prompt: string };
-
-const FALLBACK_SUGGESTIONS: Suggestion[] = [
-  { title: 'Research something and give me a clear comparison', prompt: 'Research a topic I care about and give me a tight, current comparison with dated sources. Ask me the topic first if you need to.' },
-  { title: 'Build me a small app I can use right now', prompt: 'Build me a simple, useful app I can use right now, and drop it on my canvas.' },
-  { title: 'Send an agent to find something on the web', prompt: 'Open a real website and do a multi-step task for me, then report what you found.' },
-];
+// Empty canvas, styled after ChatGPT / Claude / Manus: a short question, a centered composer as the
+// HERO, then a two-level menu: 4 GENERAL things OpenSwarm can do, each drilling into 4 SPECIFIC
+// starters tailored to this user (onboarding prep wrote them). Font sizes ride the shared type scale.
 
 // Give each suggestion a leading icon inferred from what it does, so the list reads like real actions (the way ChatGPT tags suggestions with app icons) instead of a wall of identical rows.
 function iconForStarter(text: string): LucideIcon {
@@ -71,9 +67,12 @@ const DashboardEmptyState: React.FC<{
   const mode = useAppSelector((s) => s.settings.data.default_mode);
   const canRun = useAppSelector((s) => hasFreeTrialActive(s) || hasModelConnected(s));
   const personalized = useAppSelector((s) => s.settings.data.personalized_starters ?? []);
+  const personalizedMenu = useAppSelector((s) => s.settings.data.personalized_menu ?? null);
   const userName = useAppSelector((s) => s.settings.data.user_name ?? null);
   const [text, setText] = React.useState('');
   const [launching, setLaunching] = React.useState(false);
+  const [openCat, setOpenCat] = React.useState<HeroCategoryId | null>(null);
+  const menu = React.useMemo(() => heroMenuFor(personalizedMenu, personalized), [personalizedMenu, personalized]);
   const firstName = (userName ?? '').trim().split(/\s+/)[0] || null;
   const headline = firstName ? `What should we get done, ${firstName}?` : 'What do you want done?';
   const ghostLines = React.useMemo(
@@ -89,9 +88,7 @@ const DashboardEmptyState: React.FC<{
     if (onStarter) onStarter(p);
   };
 
-  const suggestions: Suggestion[] = personalized.length > 0
-    ? personalized.slice(0, 4).map((s) => ({ title: s.title, prompt: s.prompt }))
-    : FALLBACK_SUGGESTIONS;
+  const openCategory = openCat ? HERO_CATEGORIES.find((cat) => cat.id === openCat) ?? null : null;
 
   return (
     <Box
@@ -162,35 +159,92 @@ const DashboardEmptyState: React.FC<{
               </Box>
             </Box>
 
-            {/* Tailored, icon-led suggestions. */}
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {suggestions.map((s, i) => {
-                const Ic = iconForStarter(`${s.title} ${s.prompt}`);
-                return (
+            {/* Two levels: 4 general things it can do, each opening 4 starters tailored to this user. */}
+            <AnimatePresence mode="wait" initial={false}>
+              {openCategory === null ? (
+                <motion.div
+                  key="categories"
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  transition={{ duration: 0.16 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+                >
+                  {HERO_CATEGORIES.map((cat, i) => (
+                    <Box
+                      key={cat.id}
+                      component={motion.button}
+                      onClick={() => setOpenCat(cat.id)}
+                      disabled={launching}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.25, delay: 0.05 + i * 0.05 }}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.5, textAlign: 'left', width: '100%',
+                        px: 1.75, py: 1.25, borderRadius: '12px',
+                        border: `1px solid transparent`, background: 'transparent',
+                        color: c.text.secondary, fontFamily: 'inherit', fontSize: c.font.size.base,
+                        cursor: launching ? 'default' : 'pointer',
+                        transition: 'background 150ms, border-color 150ms',
+                        '&:hover': launching ? {} : { background: c.bg.surface, borderColor: c.border.subtle, '& .osw-hero-chev': { opacity: 1, transform: 'none' } },
+                      }}
+                    >
+                      <cat.Icon size={17} style={{ color: c.text.muted, flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{cat.label}</span>
+                      <ChevronRight className="osw-hero-chev" size={15} style={{ color: c.text.ghost, flexShrink: 0, opacity: 0, transform: 'translateX(-4px)', transition: 'opacity 150ms, transform 150ms' }} />
+                    </Box>
+                  ))}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={openCategory.id}
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 12 }}
+                  transition={{ duration: 0.16 }}
+                  style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+                >
                   <Box
-                    key={s.title}
-                    component={motion.button}
-                    onClick={() => launch(s.prompt)}
-                    disabled={launching}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25, delay: 0.05 + i * 0.05 }}
+                    component="button"
+                    onClick={() => setOpenCat(null)}
                     sx={{
-                      display: 'flex', alignItems: 'center', gap: 1.5, textAlign: 'left', width: '100%',
-                      px: 1.75, py: 1.25, borderRadius: '12px',
-                      border: `1px solid transparent`, background: 'transparent',
-                      color: c.text.secondary, fontFamily: 'inherit', fontSize: c.font.size.base,
-                      cursor: launching ? 'default' : 'pointer',
-                      transition: 'background 150ms, border-color 150ms',
-                      '&:hover': launching ? {} : { background: c.bg.surface, borderColor: c.border.subtle },
+                      display: 'inline-flex', alignItems: 'center', gap: 0.75, alignSelf: 'flex-start',
+                      px: 1.75, py: 0.5, border: 'none', background: 'transparent',
+                      color: c.text.ghost, fontFamily: 'inherit', fontSize: c.font.size.sm,
+                      cursor: 'pointer', '&:hover': { color: c.text.secondary },
                     }}
                   >
-                    <Ic size={17} style={{ color: c.text.muted, flexShrink: 0 }} />
-                    {s.title}
+                    <ArrowLeft size={14} /> {openCategory.label}
                   </Box>
-                );
-              })}
-            </Box>
+                  {menu[openCategory.id].map((s, i) => {
+                    const Ic = iconForStarter(`${s.title} ${s.prompt}`);
+                    return (
+                      <Box
+                        key={s.title}
+                        component={motion.button}
+                        onClick={() => launch(s.prompt)}
+                        disabled={launching}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.22, delay: 0.03 + i * 0.045 }}
+                        sx={{
+                          display: 'flex', alignItems: 'center', gap: 1.5, textAlign: 'left', width: '100%',
+                          px: 1.75, py: 1.25, borderRadius: '12px',
+                          border: `1px solid transparent`, background: 'transparent',
+                          color: c.text.secondary, fontFamily: 'inherit', fontSize: c.font.size.base,
+                          cursor: launching ? 'default' : 'pointer',
+                          transition: 'background 150ms, border-color 150ms',
+                          '&:hover': launching ? {} : { background: c.bg.surface, borderColor: c.border.subtle },
+                        }}
+                      >
+                        <Ic size={17} style={{ color: c.text.muted, flexShrink: 0 }} />
+                        {s.title}
+                      </Box>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </>
         ) : (
           <Typography sx={{ color: c.text.ghost, fontSize: c.font.size.base, textAlign: 'center' }}>

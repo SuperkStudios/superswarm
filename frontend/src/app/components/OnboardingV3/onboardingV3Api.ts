@@ -1,5 +1,5 @@
 import { API_BASE } from '@/shared/config';
-import type { PersonalizedStarter, PersonalizedAutomation } from '@/shared/state/settingsSlice';
+import type { PersonalizedStarter, PersonalizedAutomation, PersonalizedMenu } from '@/shared/state/settingsSlice';
 
 export interface ProviderIdentity {
   provider: string;
@@ -37,6 +37,7 @@ export interface PrepResponse {
   browser_prompt: string;
   browser_reason: string;
   automations: PersonalizedAutomation[];
+  menu?: PersonalizedMenu | null;
 }
 
 export async function fetchIdentity(): Promise<ProviderIdentity[]> {

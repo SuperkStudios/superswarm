@@ -4,6 +4,7 @@ One cheap aux call on whatever lane the user just connected; every failure path
 returns the static fallback so the reveal can never be an error card.
 """
 
+import asyncio
 import json
 import re
 from typing import List, Optional
@@ -11,7 +12,9 @@ from typing import List, Optional
 from typeguard import typechecked
 
 from backend.apps.agents.core.aux_llm import aux_max_tokens_for, safe_resp_text
+from backend.apps.onboarding.menu import build_menu
 from backend.apps.onboarding.models import PrepRequest, PrepResponse, ScanResult
+from backend.apps.onboarding.parse_helpers import build_starters, load_json_object, normalize_json_text, salvage_flat_objects, strip_dashes
 from backend.apps.settings.models import AppSettings, PersonalizedAutomation, PersonalizedStarter
 
 VALID_CADENCE = {"daily", "weekday", "weekly"}
@@ -134,73 +137,6 @@ P_SYSTEM = (
 )
 
 
-P_CURLY_QUOTES = {"“": '"', "”": '"', "‘": "'", "’": "'"}
-
-
-@typechecked
-def p_normalize_json_text(text: str) -> str:
-    for bad, good in P_CURLY_QUOTES.items():
-        text = text.replace(bad, good)
-    return text
-
-
-@typechecked
-def p_strip_trailing_commas(s: str) -> str:
-    return re.sub(r",(\s*[}\]])", r"\1", s)
-
-
-@typechecked
-def p_strip_dashes(s: str) -> str:
-    """The house style bans em/en dashes and the model slips them into the greeting anyway, so
-    guarantee it in code: turn a dash-clause into a comma-clause, then tidy any doubled punctuation."""
-    s = s.replace(" — ", ", ").replace("—", ", ").replace(" – ", ", ").replace("–", ", ")
-    s = re.sub(r"\s+([,.;:])", r"\1", s)
-    s = re.sub(r",\s*,", ", ", s)
-    s = re.sub(r"\s{2,}", " ", s)
-    return s.strip()
-
-
-@typechecked
-def p_load_object(text: str) -> dict:
-    """Best-effort load of the outermost JSON object: strict first, then a
-    trailing-comma repair. Returns {} if neither parses (salvage handles the rest)."""
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
-        return {}
-    for candidate in (match.group(0), p_strip_trailing_commas(match.group(0))):
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-        except Exception:
-            continue
-    return {}
-
-
-@typechecked
-def p_salvage_flat_objects(text: str) -> List[dict]:
-    """Pull every complete flat {..} object out of a truncated/malformed blob so a
-    cut-off response still yields the starters it did finish (partial > generic)."""
-    out: List[dict] = []
-    for m in re.finditer(r"\{[^{}]*\}", text):
-        try:
-            obj = json.loads(p_strip_trailing_commas(m.group(0)))
-        except Exception:
-            continue
-        if isinstance(obj, dict):
-            out.append(obj)
-    return out
-
-
-@typechecked
-def p_build_starters(rows: List[dict]) -> List[PersonalizedStarter]:
-    return [
-        PersonalizedStarter(title=p_strip_dashes(str(s.get("title", ""))), prompt=p_strip_dashes(str(s.get("prompt", ""))), reason=p_strip_dashes(str(s.get("reason", ""))))
-        for s in rows
-        if isinstance(s, dict) and str(s.get("title", "")).strip() and str(s.get("prompt", "")).strip() and "cadence" not in s
-    ]
-
-
 @typechecked
 def p_extract_string_field(text: str, name: str) -> str:
     """Pull a top-level "name": "value" string straight out of the raw blob, for the fields that
@@ -213,8 +149,8 @@ def p_extract_string_field(text: str, name: str) -> str:
 def p_build_automations(rows: List[dict]) -> List[PersonalizedAutomation]:
     return [
         PersonalizedAutomation(
-            title=p_strip_dashes(str(a.get("title", ""))),
-            prompt=p_strip_dashes(str(a.get("prompt", ""))),
+            title=strip_dashes(str(a.get("title", ""))),
+            prompt=strip_dashes(str(a.get("prompt", ""))),
             cadence=(str(a.get("cadence", "weekly")).strip().lower() if str(a.get("cadence", "")).strip().lower() in VALID_CADENCE else "weekly"),
         )
         for a in rows
@@ -224,9 +160,9 @@ def p_build_automations(rows: List[dict]) -> List[PersonalizedAutomation]:
 
 @typechecked
 def parse_prep(text: str) -> Optional[PrepResponse]:
-    text = p_normalize_json_text(text)
-    data = p_load_object(text)
-    starters = p_build_starters(data.get("starters") if isinstance(data.get("starters"), list) else [])
+    text = normalize_json_text(text)
+    data = load_json_object(text)
+    starters = build_starters(data.get("starters") if isinstance(data.get("starters"), list) else [])
     automations = p_build_automations(data.get("automations") if isinstance(data.get("automations"), list) else [])
     headline = str(data.get("headline", "")).strip()
     greeting = str(data.get("greeting", "")).strip()
@@ -243,9 +179,9 @@ def parse_prep(text: str) -> Optional[PrepResponse]:
     # Truncation / trailing comma / smart quotes broke the strict load: salvage the complete pieces
     # rather than throwing the whole personalized reveal away for one bad character.
     if not starters or not automations:
-        objs = p_salvage_flat_objects(text)
+        objs = salvage_flat_objects(text)
         if not starters:
-            starters = p_build_starters([o for o in objs if "cadence" not in o])
+            starters = build_starters([o for o in objs if "cadence" not in o])
         if not automations:
             automations = p_build_automations([o for o in objs if "cadence" in o])
     # Top-level string fields don't live in the flat objects above, so recover them by name when the
@@ -276,18 +212,18 @@ def parse_prep(text: str) -> Optional[PrepResponse]:
     if not starters:
         return None
     return PrepResponse(
-        headline=p_strip_dashes(headline),
-        greeting=p_strip_dashes(greeting),
+        headline=strip_dashes(headline),
+        greeting=strip_dashes(greeting),
         starters=starters[:4],
-        app_title=p_strip_dashes(app_title),
-        app_prompt=p_strip_dashes(app_prompt),
-        app_reason=p_strip_dashes(app_reason),
-        research_title=p_strip_dashes(research_title),
-        research_prompt=p_strip_dashes(research_prompt),
-        research_reason=p_strip_dashes(research_reason),
-        browser_title=p_strip_dashes(browser_title),
-        browser_prompt=p_strip_dashes(browser_prompt),
-        browser_reason=p_strip_dashes(browser_reason),
+        app_title=strip_dashes(app_title),
+        app_prompt=strip_dashes(app_prompt),
+        app_reason=strip_dashes(app_reason),
+        research_title=strip_dashes(research_title),
+        research_prompt=strip_dashes(research_prompt),
+        research_reason=strip_dashes(research_reason),
+        browser_title=strip_dashes(browser_title),
+        browser_prompt=strip_dashes(browser_prompt),
+        browser_reason=strip_dashes(browser_reason),
         automations=automations[:3],
     )
 
@@ -411,7 +347,7 @@ async def p_distill_profile(settings: AppSettings, usage_text: str) -> str:
             messages=[{"role": "user", "content": usage_text[:P_PROFILE_INPUT_CAP]}],
             timeout=45.0,
         )
-        return p_strip_dashes(safe_resp_text(resp).strip())
+        return strip_dashes(safe_resp_text(resp).strip())
     except Exception:
         return ""
 
@@ -432,6 +368,8 @@ async def build_prep(settings: AppSettings, request: PrepRequest) -> PrepRespons
         profile = await p_distill_profile(settings, usage)
         if profile:
             facts["usage_summary"] = profile
+    # The hero's 4x4 drill-in menu rides its own parallel aux call; build_menu never raises.
+    menu_task = asyncio.create_task(build_menu(settings, facts, request.scan))
     try:
         from backend.apps.agents.providers.registry import resolve_aux_model
         from backend.apps.settings.credentials import get_anthropic_client_for_model
@@ -451,9 +389,12 @@ async def build_prep(settings: AppSettings, request: PrepRequest) -> PrepRespons
         )
         parsed = parse_prep(safe_resp_text(resp))
         if parsed is not None:
+            parsed.menu = await menu_task
             return parsed
     except Exception:
         pass
     # Aux unusable (empty gemini/codex response on 0.3.60, provider down, no anthropic lane): still
     # ground the reveal in the real scan rather than shipping generic stubs.
-    return p_scan_grounded_fallback(request)
+    fallback = p_scan_grounded_fallback(request)
+    fallback.menu = await menu_task
+    return fallback

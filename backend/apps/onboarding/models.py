@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.apps.settings.models import PersonalizedAutomation, PersonalizedStarter
+from backend.apps.settings.models import PersonalizedAutomation, PersonalizedMenu, PersonalizedStarter
 
 
 class ProviderIdentity(BaseModel):
@@ -73,3 +73,5 @@ class PrepResponse(BaseModel):
     browser_prompt: str = ""
     browser_reason: str = ""
     automations: List[PersonalizedAutomation] = Field(default_factory=list)
+    # The hero's two-level menu (4 categories x 4 tailored starters); None only if prep never ran.
+    menu: Optional[PersonalizedMenu] = None

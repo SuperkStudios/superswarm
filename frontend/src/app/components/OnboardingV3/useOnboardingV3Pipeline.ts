@@ -98,6 +98,7 @@ export function useOnboardingV3Pipeline() {
       personalized_greeting: prep?.greeting?.trim() || null,
       personalized_headline: prep?.headline?.trim() || null,
       personalized_starters: prep?.starters ?? [],
+      personalized_menu: prep?.menu ?? null,
       personalized_automations: prep?.automations ?? [],
     }));
     dispatch(stageReveal({
