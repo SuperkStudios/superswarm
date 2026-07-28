@@ -279,6 +279,8 @@ export function useTethers({
       if (s.status !== 'running' && s.status !== 'waiting_approval') continue;
       if (!s.browser_id || !s.parent_session_id) continue;
       if (glowTethers.has(s.browser_id)) continue;
+      // Docked browsers live INSIDE the chat; an arrow to them points at nothing.
+      if (browserCards[s.browser_id]?.docked_to) continue;
       // A browser docked below the hub keeps a "Browser" pointer so the link reads at a glance; the right-docked agent/run cases stay label-free (their glow already said it on spawn).
       const parent = sessionById.get(s.parent_session_id);
       const t = cardTether(

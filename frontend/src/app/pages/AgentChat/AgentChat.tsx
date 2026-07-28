@@ -2406,8 +2406,13 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 <Box
                   data-browser-slot={id}
                   sx={{
-                    flexShrink: 0,
-                    height: 'clamp(240px, 42%, 560px)',
+                    // Percentage heights resolve against a NESTED wrapper here, not the card, which
+                    // pushed the slot (and the docked browser riding it) clean out of the chat.
+                    // Viewport units are the only stable yardstick in this column; shrink allowed so
+                    // a short card squeezes the slot instead of overflowing.
+                    flex: '0 1 auto',
+                    height: 'min(360px, 38vh)',
+                    minHeight: 180,
                     mx: 1.5,
                     mb: 1,
                     borderRadius: '10px',
