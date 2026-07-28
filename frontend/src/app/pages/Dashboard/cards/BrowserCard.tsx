@@ -559,7 +559,8 @@ const BrowserCard: React.FC<Props> = ({
     const park = (): void => { if (parked) return; parked = true; dispatch(toggleMinimizeCard({ cardId: browserId })); };
     if (capture && typeof (capture as Promise<unknown>).then === 'function') {
       // capturePage can hang forever on off-screen guests (Electron 42); the timer guarantees the park.
-      window.setTimeout(park, 800);
+      // 250ms: captures land in ~100-200ms when visible, and a snappy minimize beats a perfect thumbnail.
+      window.setTimeout(park, 250);
       (capture as Promise<{ toDataURL(): string }>)
         .then((img) => { saveMinimizedShot(browserId, img.toDataURL()); })
         .catch(() => undefined)
