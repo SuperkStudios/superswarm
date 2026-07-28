@@ -34,7 +34,7 @@ def p_recent_topics(limit: int = MAX_TOPICS) -> List[str]:
     )
     topics: List[str] = []
     seen = set()
-    for _sid, d in data:
+    for _, d in data:
         name = (d.get("name") or "").strip()
         low = name.lower()
         if low in P_SKIP_NAMES or low in seen:

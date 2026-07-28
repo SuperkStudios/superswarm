@@ -49,8 +49,3 @@ def respond_to_ui_request(session_id: str, component_id: str, response: Dict[str
     pending.response = response
     pending.event.set()
     return True
-
-
-@typechecked
-def has_pending_ui_request(session_id: str, component_id: str) -> bool:
-    return (session_id, component_id) in p_pending

@@ -3,7 +3,6 @@ FULL_TOOLS list that prunes dead preset built-ins WITHOUT dropping anything Open
 manifest MUST keep every built-in in effective_allowed's source set + ToolSearch (so deferred MCP
 loading survives); MCP tools ride mcp_servers, not this list."""
 
-import os
 
 from backend.apps.agents.manager.prompt.tool_catalog import (
     FULL_TOOLS,

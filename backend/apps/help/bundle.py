@@ -13,7 +13,7 @@ import re
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List
 
 from pydantic import BaseModel, ConfigDict, Field
 from typeguard import typechecked

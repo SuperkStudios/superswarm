@@ -4,10 +4,8 @@ evidence so a zero-config user never boots a router with nothing to route."""
 
 import asyncio
 import json
-import os
 from unittest.mock import patch
 
-import pytest
 
 import backend.apps.nine_router.process as proc
 from backend.apps.settings.models import AppSettings

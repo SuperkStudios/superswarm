@@ -6,7 +6,7 @@ import asyncio
 import json
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from pytest import MonkeyPatch, raises
 

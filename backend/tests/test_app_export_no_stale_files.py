@@ -4,7 +4,6 @@ exists. output.files is frozen at creation (v1); the agent edits land on disk
 imported app reverted every edited file (new files survived since they were never
 in the snapshot). With a workspace, disk is the single source of truth; only true
 flat apps (no workspace) still carry the inline copy."""
-import os
 import uuid
 
 import pytest

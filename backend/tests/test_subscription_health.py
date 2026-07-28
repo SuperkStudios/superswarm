@@ -4,7 +4,7 @@ subscription lanes, and results are cached so a double boot-fetch can't double-s
 
 import asyncio
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import backend.apps.nine_router.subscription_health as sh
 
