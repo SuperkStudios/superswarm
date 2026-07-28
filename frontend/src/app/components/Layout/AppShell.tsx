@@ -1,40 +1,22 @@
-import React, { useState, useEffect, useRef, useCallback, startTransition, useMemo } from 'react';
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, startTransition, useMemo } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { getLastInteractedBrowser, getKeepAliveBrowserIds, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import Box from '@mui/material/Box';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
 import { VoiceDictationProvider } from '@/shared/voice/VoiceDictationContext';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
 import Collapse from '@mui/material/Collapse';
 import Button from '@mui/material/Button';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import InputBase from '@mui/material/InputBase';
-// One outlined icon language for the sidebar: thin monoline glyphs (not the filled Material clip-art) so the rail reads as designed, not assembled.
-import { LayoutDashboard } from 'lucide-react';
-import { LayoutGrid } from 'lucide-react';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Settings as LucideSettings } from 'lucide-react';
-import { ArrowLeft, ArrowRight, Plus, Clock, Search as SearchGlyph, X as CloseGlyph } from 'lucide-react';
-import ButtonBase from '@mui/material/ButtonBase';
-import { AnimatedPanelLeft } from './animatedIcons';
+import { Clock } from 'lucide-react';
 
-const SEARCH_HOTKEY_LABEL = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl+K';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import CloseIcon from '@mui/icons-material/Close';
-import EditIcon from '@mui/icons-material/Edit';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import LinearProgress from '@mui/material/LinearProgress';
 import CircularProgress from '@mui/material/CircularProgress';
 // Settings modal lazy-loaded so its 2.3K LOC + Stripe/OAuth helpers don't ship on first paint.
@@ -46,13 +28,11 @@ import { useLastDashboardId } from '@/shared/hooks/useLastDashboardId';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { hasModelConnected as selectHasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 import { shallowEqual } from 'react-redux';
-import { fetchDashboards, createDashboard, renameDashboard, deleteDashboard, duplicateDashboard } from '@/shared/state/dashboardsSlice';
-import { Typewriter } from '@/app/components/feedback/Animated';
+import { fetchDashboards, createDashboard } from '@/shared/state/dashboardsSlice';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard } from '@/shared/state/dashboardLayoutSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
-import { fetchOutputs, deleteOutput, updateOutput } from '@/shared/state/outputsSlice';
-import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
@@ -61,11 +41,6 @@ import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
 import { washBackgroundUrl } from '@/shared/styles/washBackground';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
-const SIDEBAR_MIN = 160;
-const SIDEBAR_MAX = 400;
-// 260 matches Claude.ai's nav-sidebar width: roomy enough that names don't truncate.
-const SIDEBAR_DEFAULT = 260;
-const SIDEBAR_WIDTH_KEY = 'openswarm-sidebar-width';
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
 const AppShell: React.FC = () => {
@@ -83,42 +58,9 @@ const AppShell: React.FC = () => {
   }, [navigateRaw]);
   const location = useLocation();
   // React Router (HashRouter) stores a monotonic index in history state. location re-renders on every nav, by which point window.history.state.idx is updated.
-  const historyIdx = (window.history.state?.idx as number | undefined) ?? 0;
-  const maxHistoryIdx = useRef(0);
-  maxHistoryIdx.current = Math.max(maxHistoryIdx.current, historyIdx);
-  const canGoBack = historyIdx > 0;
-  const canGoForward = historyIdx < maxHistoryIdx.current;
-  const [dashboardsExpanded, setDashboardsExpanded] = useState(true);
-  const [appsExpanded, setAppsExpanded] = useState(true);
   // Desktop shell: the wallpaper canvas IS the home surface, so the sidebar starts docked away
   // (left-edge hover peeks it; the pin toggle brings it back full-time).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [renamingDashboardId, setRenamingDashboardId] = useState<string | null>(null);
-  const [renamingAppId, setRenamingAppId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  // Arc-style delete: the row vanishes at once but the real delete waits behind an Undo toast.
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
-  const [rowMenu, setRowMenu] = useState<{ top: number; left: number; kind: 'dashboard' | 'app'; id: string; name: string } | null>(null);
-  const pendingDeleteRef = useRef<{ id: string; name: string } | null>(null);
-  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Arc-style peek: hovering an app row (with intent, not a fly-by) floats a preview beside the sidebar.
-  const [peek, setPeek] = useState<{ name: string; description: string; thumbnail: string | null; top: number } | null>(null);
-  const peekTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Arc-style Space switching: a horizontal two-finger swipe over the sidebar flips dashboards. Kept OFF
-  // the canvas (which owns horizontal pan) so the two never fight. accum + cooldown = one flip per swipe.
-  const swipeAccumRef = useRef(0);
-  const swipeCooldownRef = useRef(false);
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-      if (stored) {
-        const w = Number(stored);
-        if (w >= SIDEBAR_MIN && w <= SIDEBAR_MAX) return w;
-      }
-    } catch {}
-    return SIDEBAR_DEFAULT;
-  });
-  const isResizing = useRef(false);
 
   const updateStatus = useAppSelector((state) => state.update.status);
   const availableVersion = useAppSelector((state) => state.update.availableVersion);
@@ -244,15 +186,6 @@ const AppShell: React.FC = () => {
   const dashboardList = React.useMemo(
     () => Object.values(dashboardItems).sort(byPreviewRecency),
     [dashboardItems],
-  );
-
-  const outputItems = useAppSelector(
-    (state) => state.outputs.items,
-    shallowEqual,
-  );
-  const appsList = React.useMemo(
-    () => Object.values(outputItems).sort(byPreviewRecency),
-    [outputItems],
   );
 
   useEffect(() => {
@@ -409,10 +342,6 @@ const AppShell: React.FC = () => {
   }, [dispatch]);
 
   useEffect(() => {
-    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)); } catch {}
-  }, [sidebarWidth]);
-
-  useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const { sessionId, dashboardId } = detail as { sessionId?: string; dashboardId?: string };
@@ -426,33 +355,6 @@ const AppShell: React.FC = () => {
     return () => window.removeEventListener('openswarm:notification-click', handler as EventListener);
   }, [navigate, dispatch]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return;
-      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX)));
-    };
-
-    const onMouseUp = () => {
-      isResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, []);
-
-  const handleResizeDoubleClick = useCallback(() => {
-    setSidebarWidth(SIDEBAR_DEFAULT);
-  }, []);
-
   const isDashboardRoute = location.pathname === '/' || location.pathname.startsWith('/dashboard/');
   const isDashboardViewActive = location.pathname.startsWith('/dashboard/');
   // macOS full screen: a fullscreen-tiled card owns the window, so every shell chrome piece hides. Gated on the dashboard view so navigating away restores the chrome even mid-fullscreen.
@@ -464,8 +366,6 @@ const AppShell: React.FC = () => {
   // unpinned fullscreen keeps the hover-peek overlay.
   const [fsSidebarPinned, setFsSidebarPinned] = useState(false);
   const sidebarAway = (sidebarCollapsed || (fsActive && !fsSidebarPinned)) && isDashboardViewActive;
-  const [sidePeek, setSidePeek] = useState(false);
-  useEffect(() => { if (!sidebarAway) setSidePeek(false); }, [sidebarAway]);
   // When the sidebar docks away, the canvas runs flush to the window's left edge, so the floating
   // dashboard header would sit right under the macOS traffic lights. Publish an inset the header reads
   // (only on macOS, where the lights exist) so it clears them; the sidebar carries its own clearance.
@@ -491,42 +391,8 @@ const AppShell: React.FC = () => {
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('openswarm:chrome-docked', { detail: { docked: !sidebarAway } }));
   }, [sidebarAway]);
-  // Close-on-leave with a grace delay (cancelled on re-enter): a bare mouseLeave closed the peek the
-  // instant the cursor dipped past the panel edge while reaching for an item, so clicks never landed.
-  const peekCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelPeekClose = useCallback(() => {
-    if (peekCloseTimerRef.current) { clearTimeout(peekCloseTimerRef.current); peekCloseTimerRef.current = null; }
-  }, []);
-  const schedulePeekClose = useCallback(() => {
-    cancelPeekClose();
-    peekCloseTimerRef.current = setTimeout(() => setSidePeek(false), 260);
-  }, [cancelPeekClose]);
-  // Reliable window-level close: the panel's own mouseLeave can get eaten (webview/overlay capture),
-  // leaving the peek stuck open. This fires on every move and closes ONLY when the cursor is clearly
-  // to the right of the floating panel (generous 130px buffer so reaching for an item never closes it).
-  useEffect(() => {
-    if (!sidePeek) return undefined;
-    const onMove = (e: MouseEvent): void => {
-      if (e.clientX > 10 + sidebarWidth + 130) schedulePeekClose();
-      else cancelPeekClose();
-    };
-    // A cursor gliding over a webview GUEST sends the host zero mousemoves, so the move-based close
-    // above never fires and the peek looks stuck. Guest interactions bubble up as these app events;
-    // any of them means the cursor left the panel. Window blur (app switch) likewise must not park it.
-    const closeNow = (): void => setSidePeek(false);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('openswarm:browser-guest-select', closeNow);
-    window.addEventListener('blur', closeNow);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('openswarm:browser-guest-select', closeNow);
-      window.removeEventListener('blur', closeNow);
-    };
-  }, [sidePeek, sidebarWidth, schedulePeekClose, cancelPeekClose]);
   // Fullscreen still hides the top-center island anchor + banners; the sidebar floats in on peek.
   const fsHideChrome = fsActive;
-  // In overlay mode the panel stays MOUNTED (so it can slide out, not vanish); sidePeek only drives the slide.
-  const sideOverlay = sidebarAway;
   const isAppsRoute = false;  // /apps route removed; app cards live on the dashboard now.
   const activeDashboardId = location.pathname.startsWith('/dashboard/')
     ? location.pathname.split('/dashboard/')[1]
@@ -541,18 +407,6 @@ const AppShell: React.FC = () => {
     const next = Math.min(dashboardList.length - 1, Math.max(0, idx + dir));
     if (next !== idx) navigate(`/dashboard/${dashboardList[next].id}`);
   }, [dashboardList, activeDashboardId, navigate]);
-
-  const handleSidebarSwipe = useCallback((e: React.WheelEvent) => {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) { swipeAccumRef.current = 0; return; }  // vertical = list scroll
-    if (swipeCooldownRef.current) return;
-    swipeAccumRef.current += e.deltaX;
-    if (Math.abs(swipeAccumRef.current) >= 80) {
-      switchDashboard(swipeAccumRef.current > 0 ? 1 : -1);
-      swipeAccumRef.current = 0;
-      swipeCooldownRef.current = true;
-      setTimeout(() => { swipeCooldownRef.current = false; }, 450);
-    }
-  }, [switchDashboard]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -577,136 +431,7 @@ const AppShell: React.FC = () => {
       navigate(`/dashboard/${lastDashboardId}`);
     }
   }, [dispatch, navigate, lastDashboardId, location.pathname, fullscreenCardId]);
-  // The real delete, run only once Undo has lapsed: tear the live view card down cleanly (never rip a
-  // webview GPU surface mid-composite), then delete the output for good.
-  const commitDeleteApp = useCallback((id: string) => {
-    void removeViewCardCleanly(id, dispatch);
-    dispatch(deleteOutput(id));
-  }, [dispatch]);
 
-  // Arc-style delete: the row hides immediately and an Undo toast holds for 6s. Undo restores it;
-  // silence commits it. A second delete flushes the first (only one pending at a time).
-  const handleDeleteApp = useCallback((e: React.MouseEvent, id: string, name: string) => {
-    e.stopPropagation();
-    if (deleteTimerRef.current) clearTimeout(deleteTimerRef.current);
-    const prev = pendingDeleteRef.current;
-    if (prev && prev.id !== id) commitDeleteApp(prev.id);
-    const entry = { id, name };
-    pendingDeleteRef.current = entry;
-    setPendingDelete(entry);
-    deleteTimerRef.current = setTimeout(() => {
-      commitDeleteApp(id);
-      pendingDeleteRef.current = null;
-      setPendingDelete(null);
-      deleteTimerRef.current = null;
-    }, 6000);
-  }, [commitDeleteApp]);
-
-  const handleUndoDeleteApp = useCallback(() => {
-    if (deleteTimerRef.current) { clearTimeout(deleteTimerRef.current); deleteTimerRef.current = null; }
-    pendingDeleteRef.current = null;
-    setPendingDelete(null);
-  }, []);
-
-  // Leaving the app while a delete is still pending shouldn't strand a half-deleted ghost: commit it.
-  useEffect(() => () => {
-    if (deleteTimerRef.current) { clearTimeout(deleteTimerRef.current); }
-    if (pendingDeleteRef.current) commitDeleteApp(pendingDeleteRef.current.id);
-    if (peekTimerRef.current) clearTimeout(peekTimerRef.current);
-  }, [commitDeleteApp]);
-
-  const handleStartAppRename = (id: string, currentName: string) => {
-    setRenamingDashboardId(null);
-    setRenamingAppId(id);
-    setRenameValue(currentName);
-  };
-
-  const handleAppRenameSubmit = (id: string) => {
-    const trimmed = renameValue.trim();
-    const previousName = outputItems[id]?.name;
-    if (trimmed && trimmed !== previousName) {
-      dispatch(updateOutput({ id, name: trimmed }));
-    }
-    setRenamingAppId(null);
-  };
-  // With the /apps route gone, an app row is "active" when its card is open on the dashboard, not from the URL.
-  const openViewCardOutputIds = useAppSelector((s) =>
-    new Set(Object.values(s.dashboardLayout.viewCards).map((vc) => vc.output_id)),
-  );
-
-  const handleDashboardsClick = () => {
-    if (isDashboardRoute && location.pathname === '/') {
-      setDashboardsExpanded((prev) => !prev);
-    } else {
-      navigate('/');
-      setDashboardsExpanded(true);
-    }
-  };
-
-  const handleDashboardItemClick = (dashboardId: string) => {
-    if (renamingDashboardId === dashboardId) return;
-    // In fullscreen, clicking the dashboard you are already on means "show me the canvas": exit the
-    // pinned view. A different dashboard exits via the resetLayout tile clear on switch.
-    if (fullscreenCardId && activeDashboardId === dashboardId) {
-      dispatch(clearTiledCard(fullscreenCardId));
-      return;
-    }
-    navigate(`/dashboard/${dashboardId}`);
-  };
-
-  const handleStartDashboardRename = (id: string, currentName: string) => {
-    setRenamingAppId(null);
-    setRenamingDashboardId(id);
-    setRenameValue(currentName);
-  };
-
-  // Right-click a sidebar row for the same actions the Dashboards grid offers, Mac-style at the cursor.
-  const openRowMenu = (e: React.MouseEvent, kind: 'dashboard' | 'app', id: string, name: string): void => {
-    e.preventDefault();
-    e.stopPropagation();
-    setRowMenu({ top: e.clientY, left: e.clientX, kind, id, name });
-  };
-  const closeRowMenu = (): void => setRowMenu(null);
-  const rowMenuRename = (): void => {
-    const m = rowMenu;
-    closeRowMenu();
-    if (!m) return;
-    // Defer so the menu's focus trap releases before the inline field autofocuses.
-    setTimeout(() => (m.kind === 'dashboard' ? handleStartDashboardRename(m.id, m.name) : handleStartAppRename(m.id, m.name)), 150);
-  };
-  const rowMenuDelete = (e: React.MouseEvent): void => {
-    const m = rowMenu;
-    closeRowMenu();
-    if (!m) return;
-    if (m.kind === 'dashboard') dispatch(deleteDashboard(m.id));
-    else handleDeleteApp(e, m.id, m.name);
-  };
-  const rowMenuDuplicate = (): void => {
-    const m = rowMenu;
-    closeRowMenu();
-    if (m?.kind === 'dashboard') dispatch(duplicateDashboard(m.id));
-  };
-
-  const handleDashboardRenameSubmit = (id: string) => {
-    const trimmed = renameValue.trim();
-    const previousName = dashboardItems[id]?.name;
-    if (trimmed && trimmed !== previousName) {
-      dispatch(renameDashboard({ id, name: trimmed, previousName }));
-    }
-    setRenamingDashboardId(null);
-  };
-
-  const handleCreateDashboard = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const result = await dispatch(createDashboard('Untitled Dashboard'));
-    if (createDashboard.fulfilled.match(result)) {
-      navigate(`/dashboard/${result.payload.id}`);
-    }
-  };
-
-  const handleAppsClick = () => {
-    setAppsExpanded((prev) => !prev);
-  };
 
   return (
     <Box sx={{
@@ -1040,95 +765,7 @@ const AppShell: React.FC = () => {
         </Alert>
       </Snackbar>
 
-      {/* Arc-style peek: a live-thumbnail preview beside the sidebar while hovering an app row. Non-interactive so it never steals the hover. */}
-      {peek && !sidebarCollapsed && (
-        <Box
-          sx={{
-            position: 'fixed',
-            left: sidebarWidth + 8,
-            top: Math.min(Math.max(peek.top - 8, 12), window.innerHeight - 232),
-            width: 264,
-            zIndex: 1400,
-            pointerEvents: 'none',
-            borderRadius: `${c.radius.lg}px`,
-            overflow: 'hidden',
-            bgcolor: c.bg.surface,
-            border: `1px solid ${c.border.medium}`,
-            boxShadow: c.shadow.lg,
-            '@keyframes peekIn': { from: { opacity: 0, transform: 'translateX(-6px)' }, to: { opacity: 1, transform: 'none' } },
-            animation: 'peekIn 0.14s ease-out',
-          }}
-        >
-          {peek.thumbnail ? (
-            <Box component="img" src={peek.thumbnail} alt="" sx={{ width: '100%', height: 150, objectFit: 'cover', objectPosition: 'top left', display: 'block' }} />
-          ) : (
-            <Box sx={{ width: '100%', height: 92, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: `${c.text.tertiary}0A`, color: c.text.ghost, fontSize: '0.75rem' }}>
-              No preview yet
-            </Box>
-          )}
-          <Box sx={{ p: 1.25 }}>
-            <Typography sx={{ fontWeight: 600, fontSize: '0.875rem', color: c.text.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{peek.name}</Typography>
-            {peek.description && (
-              <Typography sx={{ fontSize: '0.75rem', color: c.text.muted, mt: 0.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                {peek.description}
-              </Typography>
-            )}
-          </Box>
-        </Box>
-      )}
 
-      {/* Right-click a dashboard or app row: the same actions as the Dashboards grid, at the cursor. */}
-      <Menu
-        anchorReference="anchorPosition"
-        anchorPosition={rowMenu ? { top: rowMenu.top, left: rowMenu.left } : undefined}
-        open={!!rowMenu}
-        onClose={closeRowMenu}
-        slotProps={{ paper: { sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, boxShadow: c.shadow.lg, minWidth: 160 } } }}
-      >
-        <MenuItem onClick={rowMenuRename}>
-          <ListItemIcon><EditIcon sx={{ fontSize: 18 }} /></ListItemIcon>
-          <ListItemText>Rename</ListItemText>
-        </MenuItem>
-        {rowMenu?.kind === 'dashboard' && (
-          <MenuItem onClick={rowMenuDuplicate}>
-            <ListItemIcon><ContentCopyIcon sx={{ fontSize: 18 }} /></ListItemIcon>
-            <ListItemText>Duplicate</ListItemText>
-          </MenuItem>
-        )}
-        <MenuItem onClick={rowMenuDelete} sx={{ color: c.status.error }}>
-          <ListItemIcon><DeleteOutlineIcon sx={{ fontSize: 18, color: c.status.error }} /></ListItemIcon>
-          <ListItemText>Delete</ListItemText>
-        </MenuItem>
-      </Menu>
-
-      {/* Arc-style Undo for a just-deleted app. Open while the delete is pending; our own 6s timer commits it and closes this. */}
-      <Snackbar
-        open={!!pendingDelete}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <Alert
-          severity="info"
-          icon={false}
-          action={
-            <Button
-              size="small"
-              onClick={handleUndoDeleteApp}
-              sx={{ color: c.accent.primary, textTransform: 'none', fontWeight: 700, fontSize: '0.8125rem', minWidth: 'auto' }}
-            >
-              Undo
-            </Button>
-          }
-          sx={{
-            bgcolor: c.bg.surface,
-            color: c.text.primary,
-            border: `1px solid ${c.border.medium}`,
-            boxShadow: c.shadow.md,
-            '& .MuiAlert-action': { alignItems: 'center', pt: 0 },
-          }}
-        >
-          {`Deleted "${pendingDelete?.name ?? ''}"`}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 };

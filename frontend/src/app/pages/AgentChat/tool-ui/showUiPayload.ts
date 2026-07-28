@@ -76,13 +76,13 @@ export function isAskUiPair(pair: ToolPair): boolean {
 }
 
 /** Latest ShowUI payload anywhere in a transcript; the collapsed card pins this artifact under its pill. */
-export function extractLatestShowUi(messages: Array<{ role: string; content: any }>): ShowUiPayload | null {
+export function extractLatestShowUi(messages: Array<{ role: string; content: unknown }>): ShowUiPayload | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== 'tool_call') continue;
-    const tool = typeof msg.content === 'object' ? String(msg.content?.tool || '') : '';
-    if (!/(^|__)ShowUI$/.test(tool)) continue;
-    const parsed = parseShowUiInput(msg.content?.input);
+    const body = (typeof msg.content === 'object' && msg.content !== null ? msg.content : {}) as { tool?: unknown; input?: unknown };
+    if (!/(^|__)ShowUI$/.test(String(body.tool || ''))) continue;
+    const parsed = parseShowUiInput(body.input);
     if (parsed) return parsed;
   }
   return null;

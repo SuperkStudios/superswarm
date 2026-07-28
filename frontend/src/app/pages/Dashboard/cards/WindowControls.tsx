@@ -14,7 +14,7 @@ interface WindowControlsProps {
 
 // macOS-style traffic lights on every card = the "AI OS" window feel. Grey at rest so a canvas
 // full of cards isn't a wall of color; they colorize when the parent .osw-card is hovered, and the
-// × – + symbols reveal on hovering the group. Hovering the GREEN dot opens the tiling menu (Fill,
+// close/minus/plus symbols reveal on hovering the group. Hovering the GREEN dot opens the tiling menu (Fill,
 // Halves, Quarters, Thirds), exactly like macOS; clicking green = Full Screen (or restore if tiled).
 const RED = '#ff5f57';
 const YELLOW = '#febc2e';
@@ -88,13 +88,13 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
         pointerEvents: 'none', '.osw-card:hover &': { pointerEvents: 'auto' },
       }}>
       {btn(RED, '×', onClose, 'Close')}
-      {btn(YELLOW, '–', onMinimize, 'Minimize')}
+      {btn(YELLOW, '−', onMinimize, 'Minimize')}
       <Box ref={greenRef} sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
         onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
         <Box component="button" type="button" aria-label={tiled ? 'Exit Full Screen' : 'Full Screen'}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onTile(tiled ? 'restore' : 'fullscreen'); }}
           onPointerDown={stop} sx={dotSx(GREEN)}>
-          <span>{tiled ? '–' : '+'}</span>
+          <span>{tiled ? '−' : '+'}</span>
         </Box>
         {menuHot && <Box className="osw-tilemenu" onPointerDown={stop} onClick={stop}
           onMouseEnter={openMenu} onMouseLeave={scheduleClose}
