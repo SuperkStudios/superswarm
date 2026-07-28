@@ -57,6 +57,7 @@ import { setInstalling } from '@/shared/state/updateSlice';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
+import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const SIDEBAR_MIN = 160;
@@ -711,9 +712,10 @@ const AppShell: React.FC = () => {
       display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
       ...(fsActive && fsWashStops ? { backgroundImage: `linear-gradient(115deg, ${fsWashStops.map((hex, i) => `${hex}${Math.round(themeWashOpacity * 255).toString(16).padStart(2, '0')} ${fsWashStops.length > 1 ? (i / (fsWashStops.length - 1)) * 100 : 100}%`).join(', ')})` } : {}),
     }}>
-      {sidebarAway && !sidePeek && !v3FlowActive && (
-        <Box onMouseEnter={() => { cancelPeekClose(); setSidePeek(true); }} sx={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: 14, zIndex: 2147483000, pointerEvents: 'auto' }} />
-      )}
+      {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
+          spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}
+      {isDashboardViewActive && !v3FlowActive && <SpacesStrip />}
+      <Box sx={{ position: 'fixed', top: 3, left: 260, right: 0, height: 22, zIndex: 5, WebkitAppRegion: 'drag' }} />
       {/* Top bar dropped (Arc/Zen): a zero-height anchor left only to float the agent-activity island at top-center; the island renders nothing when idle. */}
       <Box
         sx={{
@@ -931,7 +933,8 @@ const AppShell: React.FC = () => {
           width: sidebarWidth,
           flexShrink: 0,
           bgcolor: c.bg.secondary,
-          display: 'flex',
+          // RETIRED: the Spaces strip owns dashboard switching now; excising the full sidebar tree is a follow-up.
+          display: 'none',
           flexDirection: 'column',
           // Zen/Arc compact mode: a detached, rounded panel that SLIDES in and out from the left edge
           // (sidePeek drives the transform both ways; it stays mounted so leaving glides it away, not vanish).

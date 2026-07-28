@@ -52,7 +52,6 @@ import { useStreamingMessage } from '@/shared/state/streamingSlice';
 import { isCanvasInteractionActive, onCanvasInteractionEnd } from '@/shared/canvasInteractionState';
 import { setCardSidecar } from '@/shared/state/workflowsSlice';
 import { openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
-import { getAgentWorkTime, fmtSeconds } from '@/shared/agentWorkTime';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 
 /** Extract up to 3 substantive user-prompt steps to seed a workflow. */
@@ -177,20 +176,6 @@ const GoogleServiceIcon: React.FC<{ service: string; size?: number }> = ({ servi
   }
   return null;
 };
-
-/** Self-ticking elapsed-time leaf; owns its 1Hz interval so AgentCard doesn't re-render every second. */
-const ElapsedTimer: React.FC<{
-  messages: Array<{ role: string; timestamp: string; elapsed_ms?: number; hidden?: boolean }>;
-  status: string;
-}> = React.memo(({ messages, status }) => {
-  const [, setTick] = React.useState(0);
-  React.useEffect(() => {
-    if (status !== 'running' && status !== 'waiting_approval') return;
-    const id = setInterval(() => setTick((t) => (t + 1) & 0xffff), 1000);
-    return () => clearInterval(id);
-  }, [status]);
-  return <>{fmtSeconds(getAgentWorkTime(messages, status).last)}</>;
-});
 
 function summarizeToolInput(toolName: string, toolInput: Record<string, any>): string {
   const mcp = parseMcpToolName(toolName);
@@ -321,7 +306,6 @@ const AgentCard: React.FC<Props> = ({
   const dispatch = useAppDispatch();
   const isDashboardActive = useDashboardActive();
   const hasApiKey = !!useAppSelector((s) => s.settings.data.anthropic_api_key);
-  const modelsByProvider = useAppSelector((s) => s.models.byProvider);
   const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
   const workflowSuggestion = useMemo(() => findWorkflowSuggestion(session), [session]);
   // Suppress the convert-suggestion glow when this chat is already entangled with a workflow. Two cases: (a) The session is one of a workflow's runner sessions, OR (b) The session is the source the workflow was originally derived from. Either way a fresh convert would just clone the workflow, which is confusing identity collapse.
@@ -363,20 +347,6 @@ const AgentCard: React.FC<Props> = ({
     hasUserPrompt &&
     (messageCount >= 2 || isConvertBlockedByTurn || !!workflowSuggestion);
   const canConvertToWorkflow = showConvertToWorkflow && !isConvertBlockedByTurn;
-  // Curated picker label with a tidy fallback for unknowns.
-  const friendlyModelLabel = useMemo(() => {
-    const value = session.model;
-    if (!value) return '';
-    for (const models of Object.values(modelsByProvider)) {
-      for (const m of models as any[]) {
-        if (m.value === value) return m.label;
-      }
-    }
-    let s = String(value);
-    if (s.startsWith('or:')) s = s.slice(3);
-    if (s.includes('/')) s = s.split('/').pop() || s;
-    return s;
-  }, [session.model, modelsByProvider]);
   const scrollOverlayRef = useOverlayScrollPassthrough(isSelected && !expanded);
 
   const suggestionPulseRef = useRef('');
@@ -686,8 +656,6 @@ const AgentCard: React.FC<Props> = ({
     }
   };
 
-
-  // ElapsedTimer owns its own 1Hz tick so AgentCard doesn't re-render every second.
 
   const lastMessage = session.messages[session.messages.length - 1];
   // Subscribe to this card's own streaming entry so per-character mutations don't churn other cards.
@@ -1026,24 +994,42 @@ const AgentCard: React.FC<Props> = ({
         onPointerUp={handleDragPointerUp}
         sx={{
           ...(expanded
-            ? {
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                zIndex: 17,
-                px: 2,
-                pt: 1.5,
-                pb: 2,
-                opacity: 0,
-                transition: 'opacity 0.15s ease',
-                '&:hover': { opacity: 1 },
-                background: 'linear-gradient(to bottom, rgba(20,12,28,0.92) 0%, rgba(20,12,28,0.65) 60%, rgba(20,12,28,0) 100%)',
-                borderRadius: '20px 20px 0 0',
-                // Header text must read over the dark scrim regardless of app theme.
-                '& .MuiTypography-root': { color: 'rgba(255,255,255,0.92)' },
-                '& input': { color: 'rgba(255,255,255,0.92)' },
-              }
+            ? tiledStyle
+              ? {
+                  // Fullscreen/tiled: no room above the card, keep the inside hover scrim.
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 17,
+                  px: 2,
+                  pt: 1.5,
+                  pb: 2,
+                  opacity: 0,
+                  transition: 'opacity 0.15s ease',
+                  '&:hover': { opacity: 1 },
+                  background: 'linear-gradient(to bottom, rgba(20,12,28,0.92) 0%, rgba(20,12,28,0.65) 60%, rgba(20,12,28,0) 100%)',
+                  borderRadius: '12px 12px 0 0',
+                  // Header text must read over the dark scrim regardless of app theme.
+                  '& .MuiTypography-root': { color: 'rgba(255,255,255,0.92)' },
+                  '& input': { color: 'rgba(255,255,255,0.92)' },
+                }
+              : {
+                  // On the canvas the title + lights pop up ABOVE the card, same as the minimized pill.
+                  position: 'absolute',
+                  bottom: '100%',
+                  top: 'auto',
+                  left: 0,
+                  right: 0,
+                  zIndex: 17,
+                  px: 0.25,
+                  pb: 0.75,
+                  opacity: 0,
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.15s ease, transform 0.15s ease',
+                  transform: 'translateY(4px)',
+                  '.osw-card:hover &': { opacity: 1, pointerEvents: 'auto', transform: 'none' },
+                }
             : {
                 position: 'relative',
                 zIndex: 16,
@@ -1110,12 +1096,6 @@ const AgentCard: React.FC<Props> = ({
                 </Typography>
               </Box>
             )}
-            {/* Welcome chat has no status to show, so name the model instead, otherwise the header reads bare. */}
-            {session.is_welcome_draft && friendlyModelLabel && (
-              <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.tertiary, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                {friendlyModelLabel}
-              </Typography>
-            )}
             {/* Calm, zero-click signal: the agent recalled or built up memory of
                 this site, so the user feels it getting smarter on its own. */}
             <Fade in={session.memory_recalled || session.memory_learned} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
@@ -1154,12 +1134,6 @@ const AgentCard: React.FC<Props> = ({
           }}
         >
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, overflow: 'hidden' }}>
-            <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
-              {friendlyModelLabel}
-            </Typography>
-            <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
-              <ElapsedTimer messages={session.messages} status={session.status} />
-            </Typography>
             {session.cost_usd > 0 && hasApiKey && (
               <Typography variant="caption" sx={{ color: c.accent.primary, whiteSpace: 'nowrap' }}>
                 ${session.cost_usd.toFixed(4)}
