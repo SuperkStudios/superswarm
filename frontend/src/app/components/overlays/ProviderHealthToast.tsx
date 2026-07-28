@@ -16,6 +16,7 @@ export default function ProviderHealthToast() {
   const dispatch = useAppDispatch();
   const open = useAppSelector((s) => s.subscriptions.healthToastOpen);
   const dead = useAppSelector((s) => s.subscriptions.healthDead);
+  const cliMissing = useAppSelector((s) => s.subscriptions.healthCliMissing);
 
   const onReconnect = React.useCallback(() => {
     dispatch(openSettingsModal('models'));
@@ -26,7 +27,7 @@ export default function ProviderHealthToast() {
 
   return (
     <Snackbar
-      open={open && dead.length > 0}
+      open={open && (dead.length > 0 || cliMissing)}
       autoHideDuration={null}
       // Clickaway would kill the pill on the user's first canvas click, before they read it; only the X or Reconnect dismisses.
       onClose={(event, reason) => { if (reason !== 'clickaway') dispatch(hideProviderHealthToast()); }}
@@ -43,9 +44,11 @@ export default function ProviderHealthToast() {
         }}
         action={
           <>
-            <Button size="small" onClick={onReconnect} sx={{ color: c.accent.primary, fontWeight: 700 }}>
-              Reconnect
-            </Button>
+            {dead.length > 0 && (
+              <Button size="small" onClick={onReconnect} sx={{ color: c.accent.primary, fontWeight: 700 }}>
+                Reconnect
+              </Button>
+            )}
             <IconButton
               size="small"
               aria-label="Dismiss"
@@ -57,7 +60,9 @@ export default function ProviderHealthToast() {
           </>
         }
       >
-        Your {labels} login{dead.length > 1 ? 's have' : ' has'} expired; chats on {dead.length > 1 ? 'them' : 'it'} will fail until you reconnect.
+        {cliMissing
+          ? 'A core OpenSwarm component is missing, usually antivirus quarantine. Restore it from quarantine and add an exclusion for OpenSwarm, or reinstall from openswarm.com; agents cannot run until then.'
+          : `Your ${labels} login${dead.length > 1 ? 's have' : ' has'} expired; chats on ${dead.length > 1 ? 'them' : 'it'} will fail until you reconnect.`}
       </Alert>
     </Snackbar>
   );

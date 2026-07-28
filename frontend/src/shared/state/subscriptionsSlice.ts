@@ -25,6 +25,7 @@ export interface DeadProvider {
 export interface SubscriptionsState {
   status: SubscriptionStatus | null;
   healthDead: DeadProvider[];
+  healthCliMissing: boolean;
   healthToastOpen: boolean;
 }
 
@@ -34,6 +35,7 @@ type WithSubscriptions = { subscriptions: SubscriptionsState };
 const initialState: SubscriptionsState = {
   status: null,
   healthDead: [],
+  healthCliMissing: false,
   healthToastOpen: false,
 };
 
@@ -56,9 +58,9 @@ export const fetchSubscriptionStatus = createAsyncThunk(
 /** Boot-time login-health check; `skipped` means the router wasn't up yet, caller may retry once. */
 export const fetchProviderHealth = createAsyncThunk(
   'subscriptions/fetchHealth',
-  async (): Promise<{ dead: DeadProvider[]; skipped: boolean }> => {
+  async (): Promise<{ dead: DeadProvider[]; skipped: boolean; cli_missing?: boolean }> => {
     const r = await fetch(`${API_BASE}/agents/subscriptions/health`);
-    return (await r.json()) as { dead: DeadProvider[]; skipped: boolean };
+    return (await r.json()) as { dead: DeadProvider[]; skipped: boolean; cli_missing?: boolean };
   },
 );
 
@@ -99,9 +101,14 @@ const subscriptionsSlice = createSlice({
       state.status = action.payload;
     });
     builder.addCase(fetchProviderHealth.fulfilled, (state, action) => {
-      if (action.payload.skipped) return;
+      // cli_missing is filesystem truth, valid even when the router probe was skipped.
+      state.healthCliMissing = action.payload.cli_missing ?? false;
+      if (action.payload.skipped) {
+        state.healthToastOpen = state.healthToastOpen || state.healthCliMissing;
+        return;
+      }
       state.healthDead = action.payload.dead ?? [];
-      state.healthToastOpen = state.healthDead.length > 0;
+      state.healthToastOpen = state.healthDead.length > 0 || state.healthCliMissing;
     });
   },
 });

@@ -531,15 +531,18 @@ async def subscriptions_health():
     so the frontend can retry once instead of reading 'all healthy' off a cold boot."""
     from backend.apps.nine_router import is_running, get_providers
     from backend.apps.nine_router.subscription_health import probe_subscription_health
+    from backend.apps.agents.core.bundled_cli_missing import bundled_cli_missing
+    # Independent of the router: the bundled-CLI integrity check rides the same boot fetch so an AV-quarantined runtime surfaces as a pill instead of dead turns.
+    p_cli_missing = bundled_cli_missing() is not None
     if not is_running():
-        return {"dead": [], "skipped": True}
+        return {"dead": [], "skipped": True, "cli_missing": p_cli_missing}
     try:
         connections = await get_providers()
         dead = await probe_subscription_health(connections)
-        return {"dead": dead, "skipped": False}
+        return {"dead": dead, "skipped": False, "cli_missing": p_cli_missing}
     except Exception as e:
         logger.debug(f"subscription health probe failed: {e}")
-        return {"dead": [], "skipped": True}
+        return {"dead": [], "skipped": True, "cli_missing": p_cli_missing}
 
 
 @agents.router.get("/subscriptions/models")
