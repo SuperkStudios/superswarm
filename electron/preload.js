@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   // and request triggers the macOS Accessibility prompt when the tap is blocked on permission.
   voiceHoldCapable: () => ipcRenderer.invoke('voice:hold-capable'),
   voiceRequestHoldPermission: () => ipcRenderer.invoke('voice:request-hold-permission'),
+  haptic: (pattern) => ipcRenderer.invoke('haptic:perform', pattern),
   // Native-tap hold relay: real global key-down/key-up for the voice combo, focus-independent.
   onVoiceHold: (onDown, onUp) => {
     const down = () => onDown();

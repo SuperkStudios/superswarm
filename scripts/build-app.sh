@@ -497,6 +497,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
     echo "Building mouse-clamp native addon (arm64 + x64)..."
     bash scripts/build-mouseclamp.sh arm64
     bash scripts/build-mouseclamp.sh x64
+    bash scripts/build-haptics.sh arm64
+    bash scripts/build-haptics.sh x64
 fi
 
 # Node's default ~4 GB heap OOMs while codesign'ing the .app on dual-arch

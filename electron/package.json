@@ -76,6 +76,13 @@
           ]
         },
         {
+          "from": "build-staging/haptics/${arch}",
+          "to": "haptics",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
           "from": "build-staging/python-env/${arch}",
           "to": "python-env",
           "filter": [

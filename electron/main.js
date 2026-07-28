@@ -1777,6 +1777,35 @@ function installMacMouseClamp() {
   }
 }
 
+// Trackpad haptic taps (macOS, Force Touch only): dictation start/stop feedback. Fail-open like
+// mouseclamp; a missing addon or non-mac just makes 'haptic:perform' return false.
+let hapticsAddon = null;
+function installHaptics() {
+  if (process.platform !== 'darwin') return;
+  try {
+    const nodePath = isPackaged
+      ? path.join(process.resourcesPath, 'haptics', 'haptics.node')
+      : path.join(__dirname, 'build-staging', 'haptics', process.arch, 'haptics.node');
+    if (!fs.existsSync(nodePath)) {
+      console.log('[haptics] addon not present, skipping:', nodePath);
+      return;
+    }
+    hapticsAddon = require(nodePath);
+    console.log('[haptics] addon loaded');
+  } catch (e) {
+    console.log('[haptics] load failed (continuing):', e && e.message);
+  }
+}
+ipcMain.handle('haptic:perform', (event, pattern) => {
+  try {
+    if (!hapticsAddon) return false;
+    const p = pattern === 'alignment' ? 1 : pattern === 'level' ? 2 : 0;
+    return hapticsAddon.perform(p);
+  } catch (_) {
+    return false;
+  }
+});
+
 app.whenReady().then(async () => {
   // We made it here, so any prior update swap finished. Drop a stale updating.lock
   // (the watchdog never deletes it) so a real crash later isn't silently swallowed.
@@ -1788,6 +1817,7 @@ app.whenReady().then(async () => {
 
   // Off-window mouse-release crash dodge (macOS). Safe to call before windows exist.
   installMacMouseClamp();
+  installHaptics();
 
   // Voice dictation hotkey (F5 / Cmd-Ctrl+Shift+D). Native uiohook key tap = true keyboard
   // hold-to-talk on every platform; falls back to the old press-to-toggle when the tap can't run

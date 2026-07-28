@@ -119,6 +119,7 @@ export function useVoiceDictation() {
       recRef.current = { ctx, stream, node, source, chunks };
       setState('recording');
       playVoiceCue('start');
+      void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
       // Warm the model the moment recording begins so transcription is instant on stop.
       void window.openswarm?.voiceWarmup?.();
     } catch (err) {
@@ -134,6 +135,7 @@ export function useVoiceDictation() {
     if (stateRef.current !== 'recording') return;
     const samples = teardown();
     playVoiceCue('stop');
+    void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('alignment');
     setState('transcribing');
     try {
       if (!samples || samples.length < VOICE_SAMPLE_RATE * 0.2) { setState('idle'); return; } // < 0.2s = a misfire
