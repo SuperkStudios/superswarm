@@ -90,14 +90,14 @@ const BeatConnect: React.FC<{
           return (
             <motion.button
               key={p.id}
-              onClick={() => !connected && handleConnect(p.id)}
+              onClick={() => !isConnected && handleConnect(p.id)}
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 320, damping: 26, delay: 0.1 + i * 0.08 }}
               style={{
                 display: 'flex', alignItems: 'center', gap: 14, padding: '0 0 0 18px', textAlign: 'left', overflow: 'hidden',
                 borderRadius: 14, border: 'none', boxShadow: isConnected ? '0 0 0 2px #1a9e6a, 0 10px 26px rgba(20,16,80,0.22)' : '0 10px 26px rgba(20,16,80,0.22)',
-                background: '#ffffff', cursor: connected ? 'default' : 'pointer', fontFamily: 'inherit', minHeight: 64,
+                background: '#ffffff', cursor: isConnected ? 'default' : 'pointer', fontFamily: 'inherit', minHeight: 64,
               }}
             >
               <span style={{
@@ -109,7 +109,7 @@ const BeatConnect: React.FC<{
               <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '11px 0' }}>
                 <span style={{ fontSize: '1rem', fontWeight: 600, color: '#3d3d3a' }}>{p.name}</span>
                 {/* The green ring + filled radio already signal connected, so no redundant "Connected" text. */}
-                {!isConnected && isThis && !connected
+                {!isConnected && isThis
                   ? <span style={{ fontSize: '0.75rem', fontWeight: 400, color: '#8a8a86' }}>waiting for sign-in...</span>
                   : null}
               </span>
@@ -123,7 +123,7 @@ const BeatConnect: React.FC<{
             </motion.button>
           );
         })}
-        {userCode && !connected && (
+        {userCode && (
           <div style={{ textAlign: 'center', padding: '6px 0', fontSize: '0.875rem', color: 'rgba(255,255,255,0.92)' }}>
             Your code: <strong style={{ fontFamily: c.font.mono, letterSpacing: '0.08em' }}>{userCode}</strong>
           </div>
