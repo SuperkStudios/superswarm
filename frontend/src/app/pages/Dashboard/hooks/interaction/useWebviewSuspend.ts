@@ -85,6 +85,10 @@ function cardIsAudible(browserId: string, card: BrowserCardPosition): boolean {
 
 // A card we must never snapshot-swap: an agent is driving it, it's in the keep-alive set (recently used), or it's playing audio. Suspending destroys the webContents (sessionStorage, playback), the things we're preserving.
 function mustStayLive(browserId: string, card: BrowserCardPosition): boolean {
+  // The shield class marks a live card/marquee drag: suspending a browser MID-DRAG unmounts the
+  // handle holding the pointer capture, its up event dies with it, and the stuck drag state then
+  // re-pins the card to the cursor on every pan (the card that "follows the camera" bug).
+  if (document.body.classList.contains('dashboard-marquee-active')) return true;
   return agentNeedsLive(browserId, card) || isKeepAliveBrowser(browserId) || cardIsAudible(browserId, card);
 }
 

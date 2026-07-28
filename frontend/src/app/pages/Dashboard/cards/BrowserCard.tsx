@@ -761,19 +761,19 @@ const BrowserCard: React.FC<Props> = ({
     recomputeDragPos();
   }, [recomputeDragPos]);
 
-  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
       // Snap to 24px grid (Shift bypasses).
-      if (!e.shiftKey) {
+      if (!shiftKey) {
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
@@ -790,8 +790,34 @@ const BrowserCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, browserId, onDragEnd, getCanvasState]);
+
+  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  // A release the header never hears (pointercancel, capture lost to a mid-drag remount, up eaten
+  // outside the window) used to leave dragState set forever; the pan-repin then glued the card to
+  // the CAMERA until reload. Any of these now commits the drag at the last known pointer.
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+
+  useEffect(() => {
+    if (!isDragging) return undefined;
+    const onUp = (e: PointerEvent): void => { if (dragState.current) finalizeDrag(e.clientX, e.clientY, e.shiftKey); };
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', abortDrag);
+    window.addEventListener('blur', abortDrag);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', abortDrag);
+      window.removeEventListener('blur', abortDrag);
+    };
+  }, [isDragging, finalizeDrag, abortDrag]);
 
   const resizeRef = useRef<{
     dir: ResizeDir; startX: number; startY: number;
@@ -978,6 +1004,8 @@ const BrowserCard: React.FC<Props> = ({
         onPointerDown={handleDragPointerDown}
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         sx={{
           position: 'relative',
           zIndex: 16,
