@@ -108,8 +108,10 @@ const InlineSurfaceEmbeds: React.FC<{ c: ClaudeTokens; sessionId: string; fullsc
         .filter((s) => s.parent_session_id === sessionId && s.browser_id)
         .map((s) => s.browser_id as string),
     );
+    // A docked browser renders its REAL card inside the chat (even in full size view), so the
+    // snapshot embed would be a stale duplicate right next to the live thing.
     return Object.values(browserCards).filter(
-      (bc) => bc.spawned_by === sessionId || childBrowserIds.has(bc.browser_id),
+      (bc) => !bc.docked_to && (bc.spawned_by === sessionId || childBrowserIds.has(bc.browser_id)),
     );
   }, [browserCards, sessions, sessionId]);
   const linkedApps = useMemo(

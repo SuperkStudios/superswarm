@@ -247,6 +247,7 @@ const BrowserCard: React.FC<Props> = ({
   const dockedTo = useAppSelector((state) => state.dashboardLayout.browserCards[browserId]?.docked_to ?? null);
   const dockParentCard = useAppSelector((state) => (dockedTo ? state.dashboardLayout.cards[dockedTo] ?? null : null));
   const dockParentExpanded = useAppSelector((state) => (dockedTo ? state.agents.expandedSessionIds.includes(dockedTo) : false));
+  const dockParentTiled = useAppSelector((state) => (dockedTo ? state.dashboardLayout.tiledCards[dockedTo] : undefined));
   const [dockRect, setDockRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const rootElRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -267,9 +268,18 @@ const BrowserCard: React.FC<Props> = ({
     if (slot) ro.observe(slot);
     if (slot?.parentElement) ro.observe(slot.parentElement);
     window.addEventListener('resize', measure);
-    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+    // A RO only fires on slot RESIZE; the chat tiling/untiling MOVES the slot without resizing the
+    // window, so re-measure on camera writes + settle timers or the docked card lags behind.
+    window.addEventListener('openswarm:canvas-pan-changed', measure);
+    const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('openswarm:canvas-pan-changed', measure);
+      timers.forEach((tm) => window.clearTimeout(tm));
+    };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
-  }, [dockedTo, dockParentExpanded, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
+  }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
   const dockParentZ = dockParentCard?.zOrder ?? 0;
 
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
@@ -1032,7 +1042,7 @@ const BrowserCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? dockParentZ + 1 : cardZOrder,
+        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

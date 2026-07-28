@@ -108,27 +108,65 @@ export function useTiledStyle(
     if (!zone || !getLive || !selectId) return undefined;
     const el = document.querySelector(`[data-select-id="${CSS.escape(selectId)}"]`) as HTMLElement | null;
     if (!el) return undefined;
-    const props = ['left', 'top', 'width', 'height', 'transform', 'transform-origin'];
+    // left/top belong on whichever element OWNS position: AgentCard splits into a position:absolute
+    // motion wrapper around a position:relative inner Box (writing left/top on the inner Box ADDS to
+    // the wrapper's, rendering the tile at exactly double the offset); Browser/View cards are one
+    // element. Size + counter-scale always live on the select-id element, mirroring the sx path.
+    const posEl = getComputedStyle(el).position === 'absolute' || getComputedStyle(el).position === 'fixed'
+      ? el
+      : (el.parentElement as HTMLElement | null) ?? el;
+    const posProps = ['left', 'top'];
+    const sizeProps = ['width', 'height', 'transform', 'transform-origin'];
+    const clearAll = (): void => {
+      posProps.forEach((pr) => posEl.style.removeProperty(pr));
+      sizeProps.forEach((pr) => el.style.removeProperty(pr));
+    };
     const apply = (): void => {
       // A parked card (kept alive off-screen / minimized) must keep its sx parking position.
-      if (el.getAttribute('data-keepalive-hidden') === '1') { props.forEach((pr) => el.style.removeProperty(pr)); return; }
+      if (el.getAttribute('data-keepalive-hidden') === '1') { clearAll(); return; }
       const cam = getLive();
       const s = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
       if (!s) return;
-      el.style.left = `${s.left}px`;
-      el.style.top = `${s.top}px`;
-      el.style.width = `${s.width}px`;
-      el.style.height = `${s.height}px`;
-      el.style.transform = s.transform;
-      el.style.transformOrigin = s.transformOrigin;
+      // 'important' so framer-motion's own left/top writes (computed off the LAGGING React-committed
+      // camera) can't land after us and shift the tile by the stale-camera delta.
+      posEl.style.setProperty('left', `${s.left}px`, 'important');
+      posEl.style.setProperty('top', `${s.top}px`, 'important');
+      el.style.setProperty('width', `${s.width}px`, 'important');
+      el.style.setProperty('height', `${s.height}px`, 'important');
+      el.style.setProperty('transform', s.transform, 'important');
+      el.style.setProperty('transform-origin', s.transformOrigin, 'important');
     };
     apply();
     window.addEventListener('openswarm:canvas-pan-changed', apply);
     window.addEventListener('resize', apply);
+    // The workspace can change size WITHOUT a window resize (chrome collapsing on fullscreen-enter,
+    // a banner appearing). These inline writes OVERRIDE the class styles, so they must re-measure on
+    // the same signals the React path uses or the tile keeps the pre-collapse viewport (the
+    // fullscreen card that stopped short of the bottom edge).
+    const vp = document.querySelector('[data-canvas-viewport]');
+    const ro = new ResizeObserver(apply);
+    if (vp) ro.observe(vp);
+    const timers = [60, 250, 700].map((ms) => window.setTimeout(apply, ms));
+    // animateTo moves the camera WITHOUT emitting pan-changed, and the important-priority writes
+    // above block React's late self-heal, so a tiled card must track the live camera itself:
+    // a write-on-change rAF loop (frozen while hidden is fine; nothing moves visually then).
+    let raf = 0;
+    let lastKey = '';
+    const tick = (): void => {
+      const cam = getLive();
+      const size = workspaceSize();
+      const key = `${cam.panX}:${cam.panY}:${cam.zoom}:${size.w}:${size.h}`;
+      if (key !== lastKey) { lastKey = key; apply(); }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
     return () => {
       window.removeEventListener('openswarm:canvas-pan-changed', apply);
       window.removeEventListener('resize', apply);
-      props.forEach((pr) => el.style.removeProperty(pr));
+      ro.disconnect();
+      timers.forEach((tm) => window.clearTimeout(tm));
+      window.cancelAnimationFrame(raf);
+      clearAll();
     };
   }, [zone, getLive, selectId]);
   return zone ? computeTiledStyle(zone, panX, panY, zoom) : null;

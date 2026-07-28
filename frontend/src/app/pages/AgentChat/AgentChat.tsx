@@ -2402,7 +2402,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               {/* Dock slot: a browser this agent spawned lives HERE by default (the real card overlays
                   this rect geometrically, so the webview never remounts). Pinned between transcript
                   and composer, never inside the scroller, so it can't be clipped by chat scroll. */}
-              {hasDockedBrowser && !fullscreenChat && (
+              {hasDockedBrowser && (
                 <Box
                   data-browser-slot={id}
                   sx={{
