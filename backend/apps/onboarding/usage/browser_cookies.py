@@ -66,13 +66,14 @@ p_key_cache: Dict[str, Optional[bytes]] = {}
 @typechecked
 def p_win_dpapi_unprotect(data: bytes) -> Optional[bytes]:
     """CryptUnprotectData via crypt32.dll (no pywin32 dependency). None on any failure."""
+    if sys.platform != "win32":
+        return None
     try:
         import ctypes
         from ctypes import wintypes
 
         class DATA_BLOB(ctypes.Structure):
-            p_fields = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
-            _fields_ = p_fields
+            _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
         buf = ctypes.create_string_buffer(data, len(data))
         blob_in = DATA_BLOB(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
@@ -92,7 +93,7 @@ def p_win_dpapi_unprotect(data: bytes) -> Optional[bytes]:
 
 
 @typechecked
-def p_win_storage_key(browser: str) -> Optional[bytes]:
+def win_storage_key(browser: str) -> Optional[bytes]:
     """The AES key from a Chromium install's Local State: base64 -> strip 'DPAPI' -> CryptUnprotectData."""
     base = CHROMIUM_ROOTS.get(browser)
     if not base:
@@ -128,7 +129,7 @@ def p_mac_storage_key(browser: str) -> Optional[bytes]:
 def p_safe_storage_key(browser: str) -> Optional[bytes]:
     if browser in p_key_cache:
         return p_key_cache[browser]
-    key = p_win_storage_key(browser) if IS_WIN else p_mac_storage_key(browser)
+    key = win_storage_key(browser) if IS_WIN else p_mac_storage_key(browser)
     p_key_cache[browser] = key
     return key
 
@@ -175,7 +176,7 @@ def p_best_store(domain: str) -> Optional[Tuple[str, str]]:
 
 
 @typechecked
-def p_decrypt(enc: bytes, key: bytes) -> Optional[str]:
+def decrypt_cookie_value(enc: bytes, key: bytes) -> Optional[str]:
     if enc[:3] not in (b"v10", b"v11"):
         return None  # v20 = app-bound encryption, out of reach without the browser
     try:
@@ -222,7 +223,7 @@ def read_provider_cookies(domain: str) -> Dict[str, str]:
         for name, enc in cur.fetchall():
             if not enc:
                 continue
-            val = p_decrypt(bytes(enc), key)
+            val = decrypt_cookie_value(bytes(enc), key)
             if val:
                 jar[str(name)] = val
         con.close()
@@ -259,7 +260,7 @@ def read_provider_cookie_records(domain: str) -> List[Dict[str, Any]]:
         for name, enc, host_key, path, is_secure, is_httponly in cur.fetchall():
             if not enc:
                 continue
-            val = p_decrypt(bytes(enc), key)
+            val = decrypt_cookie_value(bytes(enc), key)
             if val is None:
                 continue
             records.append({
@@ -296,13 +297,3 @@ def read_google_session_records() -> List[Dict[str, Any]]:
 @typechecked
 def cookie_header(jar: Dict[str, str]) -> str:
     return "; ".join(f"{k}={v}" for k, v in jar.items())
-
-
-@typechecked
-def logged_in_providers() -> List[str]:
-    """Which providers have a readable session, WITHOUT decrypting or touching the keychain: safe for a UI presence check."""
-    out: List[str] = []
-    for provider, domain in (("codex", "chatgpt.com"), ("claude", "claude.ai"), ("gemini", "gemini.google.com")):
-        if p_best_store(domain) is not None:
-            out.append(provider)
-    return out

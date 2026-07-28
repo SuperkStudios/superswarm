@@ -27,7 +27,7 @@ async def p_budgeted(coro: Awaitable[str]) -> str:
 from backend.apps.onboarding.identity import build_identity
 from backend.apps.onboarding.local_scan import run_local_scan
 from backend.apps.onboarding.models import PrepRequest
-from backend.apps.onboarding.prep import build_prep
+from backend.apps.onboarding.prep.build_prep import build_prep
 from backend.config.Apps import SubApp
 
 

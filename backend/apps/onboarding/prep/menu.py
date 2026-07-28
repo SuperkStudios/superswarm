@@ -12,7 +12,7 @@ from typeguard import typechecked
 
 from backend.apps.agents.core.aux_llm import aux_max_tokens_for, safe_resp_text
 from backend.apps.onboarding.models import ScanResult
-from backend.apps.onboarding.parse_helpers import build_starters, load_json_object, normalize_json_text
+from backend.apps.onboarding.prep.parse_helpers import build_starters, load_json_object, normalize_json_text
 from backend.apps.settings.models import AppSettings, PersonalizedMenu, PersonalizedStarter
 
 MENU_CATEGORIES = ("computer", "research", "web", "build")
