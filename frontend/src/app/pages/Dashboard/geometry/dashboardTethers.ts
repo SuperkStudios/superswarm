@@ -117,6 +117,11 @@ export function useTethers({
 }: UseTethersArgs): Tether[] {
   return useMemo(() => {
     const sessionById = new Map(sessionList.map((s) => [s.id, s]));
+    const expandedSet = new Set(expandedSessionIds);
+    // A collapsed chat renders as a pill that already previews its browser, so an arrow from the
+    // pill duplicates the link and reads as clutter; arrows only make sense from an OPEN chat.
+    const sourceIsCollapsedChat = (sid: string): boolean =>
+      sid !== monitorRunSessionId && sessionById.has(sid) && !expandedSet.has(sid);
     const wfHeight = (wc: WorkflowCardPosition): number =>
       measuredHeightsRef.current![wc.workflow_id] ?? wc.height;
     const agentTethers = Object.entries(glowingAgentCards).map(([copyId, { sourceId, fading, label }]) => {
@@ -263,6 +268,7 @@ export function useTethers({
     for (const [browserId, { sourceId, fading, label }] of Object.entries(glowingBrowserCards)) {
       // A docked browser renders INSIDE its chat; an arrow from the chat to it points at nothing.
       if (browserCards[browserId]?.docked_to) continue;
+      if (sourceIsCollapsedChat(sourceId)) continue;
       const t = cardTether(
         glowTarget(browserId),
         browserId,
@@ -281,6 +287,7 @@ export function useTethers({
       if (glowTethers.has(s.browser_id)) continue;
       // Docked browsers live INSIDE the chat; an arrow to them points at nothing.
       if (browserCards[s.browser_id]?.docked_to) continue;
+      if (sourceIsCollapsedChat(s.parent_session_id)) continue;
       // A browser docked below the hub keeps a "Browser" pointer so the link reads at a glance; the right-docked agent/run cases stay label-free (their glow already said it on spawn).
       const parent = sessionById.get(s.parent_session_id);
       const t = cardTether(
