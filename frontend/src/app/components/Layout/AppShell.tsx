@@ -58,6 +58,7 @@ import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
+import { washBackgroundUrl } from '@/shared/styles/washBackground';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const SIDEBAR_MIN = 160;
@@ -710,7 +711,7 @@ const AppShell: React.FC = () => {
   return (
     <Box sx={{
       display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
-      ...(fsActive && fsWashStops ? { backgroundImage: `linear-gradient(115deg, ${fsWashStops.map((hex, i) => `${hex}${Math.round(themeWashOpacity * 255).toString(16).padStart(2, '0')} ${fsWashStops.length > 1 ? (i / (fsWashStops.length - 1)) * 100 : 100}%`).join(', ')})` } : {}),
+      ...(fsActive && fsWashStops ? { backgroundImage: washBackgroundUrl(fsWashStops, themeWashOpacity), backgroundSize: '100% 100%' } : {}),
     }}>
       {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
           spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}

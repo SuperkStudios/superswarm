@@ -714,6 +714,9 @@ const dashboardLayoutSlice = createSlice({
         if (!liveIds.has(id)) {
           state.closedCardPositions[id] = { ...state.cards[id] };
           delete state.cards[id];
+          // A dead card must never keep owning a tile: an orphaned 'fullscreen' entry hides ALL chrome until reload.
+          delete state.tiledCards[id];
+          delete state.minimizedCards[id];
         }
       }
 
@@ -1900,8 +1903,13 @@ export const reopenLastClosed = createAsyncThunk(
 );
 
 export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayoutState }): string | null => {
-  const entry = Object.entries(state.dashboardLayout.tiledCards).find(([, zone]) => zone === 'fullscreen');
-  return entry ? entry[0] : null;
+  const s = state.dashboardLayout;
+  const entry = Object.entries(s.tiledCards).find(([, zone]) => zone === 'fullscreen');
+  if (!entry) return null;
+  const id = entry[0];
+  // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
+  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.notes || id in s.workflowCards;
+  return exists ? id : null;
 };
 
 export default dashboardLayoutSlice.reducer;

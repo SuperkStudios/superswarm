@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setWorkflowsHubPosition, setWorkflowsHubSize } from '@/shared/state/dashboardLayoutSlice';
-import { useTiledStyle } from '@/app/pages/Dashboard/cards/tileZones';
+import { TILE_ZONES, useTiledStyle } from '@/app/pages/Dashboard/cards/tileZones';
 import { useWC } from './uiKit';
 import WorkflowsAppContent from './WorkflowsAppContent';
 
@@ -234,6 +234,15 @@ const WorkflowsAppCard: React.FC<Props> = ({
           onPointerMove: onHeaderPointerMove,
           onPointerUp: onHeaderPointerUp,
           dragging: isDragging,
+        }}
+        onTileZone={(zone) => {
+          const z = TILE_ZONES[zone];
+          const vp = document.querySelector('[data-canvas-viewport]')?.getBoundingClientRect();
+          if (!z || !vp) return;
+          const cam = getCanvasState();
+          const GAP = 8;
+          dispatch(setWorkflowsHubPosition({ x: (z.x * vp.width + GAP - cam.panX) / cam.zoom, y: (z.y * vp.height + GAP - cam.panY) / cam.zoom }));
+          dispatch(setWorkflowsHubSize({ width: (z.w * vp.width - GAP * 2) / cam.zoom, height: (z.h * vp.height - GAP * 2) / cam.zoom }));
         }}
       />
 

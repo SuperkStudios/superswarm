@@ -25,6 +25,7 @@ type Direction = 'left' | 'right' | 'up' | 'down';
 type NeighborDirections = { left: boolean; right: boolean; up: boolean; down: boolean };
 
 interface DashboardOverlaysProps {
+  anyFullscreen: boolean;
   canvas: Canvas;
   dashboardId: string;
   sessions: Record<string, AgentSession>;
@@ -59,6 +60,7 @@ interface DashboardOverlaysProps {
 }
 
 const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
+  anyFullscreen,
   canvas,
   dashboardId,
   sessions,
@@ -93,7 +95,8 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
 }) => {
   return (
     <>
-      {/* Floating bottom toolbar */}
+      {/* Floating bottom toolbar (all floating chrome steps aside while anything is fullscreen) */}
+      {!anyFullscreen && (
       <Box sx={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
         <DashboardToolbar
           ref={toolbarRef}
@@ -113,11 +116,14 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
           prefillMode={toolbarPrefillMode}
         />
       </Box>
+      )}
 
       {/* Desktop help pill */}
+      {!anyFullscreen && (
       <Box sx={{ position: 'absolute', top: 14, right: 16, zIndex: 10 }}>
         <HelpPill />
       </Box>
+      )}
 
       {/* Arrow navigation hints when zoomed in on a card */}
       {focusedCardId && canvas.zoom >= 0.4 && (
@@ -131,6 +137,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
       )}
 
       {/* Floating zoom controls + minimap */}
+      {!anyFullscreen && (
       <Box sx={{ position: 'absolute', bottom: 16, right: 16, zIndex: 10 }}>
         <CanvasControls
           zoom={canvas.zoom}
@@ -153,6 +160,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
           onMinimapPan={(px, py) => canvas.actions.setState({ panX: px, panY: py, zoom: canvas.zoom })}
         />
       </Box>
+      )}
 
       {/* Card search palette (Cmd+F) */}
       <CardSearchPalette

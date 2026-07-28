@@ -18,7 +18,7 @@ import ComposeView from './ComposeView';
 import TrashView from './TrashView';
 
 // The three-pane Workflows body plus its title bar. The card wraps this with drag/resize geometry and passes the drag handlers in; the title bar lives here because Share needs to know which workflow is open.
-const WorkflowsAppContent: React.FC<{ header: CardHeader }> = ({ header }) => {
+const WorkflowsAppContent: React.FC<{ header: CardHeader; onTileZone?: (zone: string) => void }> = ({ header, onTileZone }) => {
   const WC = useWC();
   const dispatch = useAppDispatch();
   const target = useAppSelector((s) => s.dashboardLayout.workflowsAppTarget);
@@ -83,9 +83,13 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader }> = ({ header }) => {
           <WindowControls
             onClose={() => dispatch(closeWorkflowsApp())}
             onMinimize={() => dispatch(closeWorkflowsApp())}
-            onTile={() => dispatch(toggleWorkflowsHubFullscreen())}
+            onTile={(zone) => {
+              if (zone === 'fullscreen' || zone === 'restore') { dispatch(toggleWorkflowsHubFullscreen()); return; }
+              if (isFullscreen) dispatch(toggleWorkflowsHubFullscreen());
+              onTileZone?.(zone);
+            }}
             tiled={isFullscreen}
-            noTileMenu
+            noTileMenu={isFullscreen}
           />
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

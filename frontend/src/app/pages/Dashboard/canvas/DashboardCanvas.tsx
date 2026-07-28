@@ -14,6 +14,7 @@ import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import { GRAIN_URL } from '@/shared/styles/grainTexture';
+import { washBackgroundUrl } from '@/shared/styles/washBackground';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -204,8 +205,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // Arc-style chrome: the mac traffic lights ride the top-edge hover, in fullscreen too (Arc/Zen both
   // keep the native buttons reachable in compact/fullscreen; Zen even exempts them from hover-leave).
   useEffect(() => {
-    window.openswarm?.setWindowButtonsVisible?.(headerRevealed || chromeDocked);
-  }, [headerRevealed, chromeDocked]);
+    // While a card is fullscreen its OWN lights are the window controls; showing the natives too reads as double chrome.
+    window.openswarm?.setWindowButtonsVisible?.(!anyFullscreen && (headerRevealed || chromeDocked));
+  }, [headerRevealed, chromeDocked, anyFullscreen]);
 
   // Reveal on any pointer graze of the top edge. The old 22px strip Box was dead in practice: the
   // hidden header overlay's pointer-events:auto children sat above it and ate the mouseenter.
@@ -269,7 +271,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         </Box>
       </Box>
 
-      {!fullscreenCardId && (
+      {!anyFullscreen && (
         <MinimizedStack
           browserCards={browserCards}
           onRestore={(cardId, rect) => {
@@ -341,7 +343,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               position: 'absolute',
               inset: 0,
               pointerEvents: 'none',
-              background: `linear-gradient(115deg, ${washStops.map((hex, i) => `${hex}${Math.round(washOpacity * 255).toString(16).padStart(2, '0')} ${washStops.length > 1 ? (i / (washStops.length - 1)) * 100 : 100}%`).join(', ')})`,
+              backgroundImage: washBackgroundUrl(washStops, washOpacity),
+              backgroundSize: '100% 100%',
             }}
           />
         )}
@@ -430,6 +433,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       {/* display:contents when visible so the overlays' absolute children keep positioning against the canvas root; display:none (not unmount) so the toolbar composer draft survives fullscreen. */}
       <Box sx={{ display: fullscreenCardId ? 'none' : 'contents' }}>
       <DashboardOverlays
+        anyFullscreen={anyFullscreen}
         canvas={canvas}
         dashboardId={dashboardId}
         sessions={sessions}

@@ -57,10 +57,15 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
   const [menuOpen, setMenuOpen] = useState(false);
   // Menu DOM (12 tiles + labels, ~30 nodes) mounts on first green-dot hover, not per card at boot.
   const [menuHot, setMenuHot] = useState(false);
+  // Right-edge hosts (the minimized stack) open the menu leftward so it never clips off-window.
+  const [alignRight, setAlignRight] = useState(false);
+  const greenRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
   const openMenu = (): void => {
     if (noTileMenu) return;
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    const rect = greenRef.current?.getBoundingClientRect();
+    if (rect) setAlignRight(rect.left + 224 > window.innerWidth);
     if (!menuHot) { setMenuHot(true); requestAnimationFrame(() => setMenuOpen(true)); return; }
     setMenuOpen(true);
   };
@@ -84,7 +89,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
       }}>
       {btn(RED, '×', onClose, 'Close')}
       {btn(YELLOW, '–', onMinimize, 'Minimize')}
-      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+      <Box ref={greenRef} sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
         onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
         <Box component="button" type="button" aria-label={tiled ? 'Exit Full Screen' : 'Full Screen'}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onTile(tiled ? 'restore' : 'fullscreen'); }}
@@ -94,9 +99,10 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
         {menuHot && <Box className="osw-tilemenu" onPointerDown={stop} onClick={stop}
           onMouseEnter={openMenu} onMouseLeave={scheduleClose}
           sx={{
-            position: 'absolute', top: 19, left: -8, width: 216, background: '#FFFFFF',
+            position: 'absolute', top: 19, width: 216, background: '#FFFFFF',
+            ...(alignRight ? { right: -8 } : { left: -8 }),
             border: '1px solid rgba(0,0,0,0.06)', borderRadius: '12px', boxShadow: '0 .5rem 2rem rgba(0,0,0,.14)',
-            p: 1.25, zIndex: 1200, transformOrigin: 'top left',
+            p: 1.25, zIndex: 1200, transformOrigin: alignRight ? 'top right' : 'top left',
             opacity: menuOpen ? 1 : 0, transform: menuOpen ? 'none' : 'translateY(-6px) scale(0.96)',
             pointerEvents: menuOpen ? 'auto' : 'none', transition: 'opacity .16s, transform .18s cubic-bezier(.3,.9,.3,1)',
           }}>

@@ -117,6 +117,10 @@ const InlineSurfaceEmbeds: React.FC<{ c: ClaudeTokens; sessionId: string; fullsc
     [outputs, sessionId],
   );
 
+  // ONE surface at a time: on the canvas the REAL card (beside the chat) is the browser; the chat
+  // mirror only takes over in full size view, where the canvas is hidden. Both at once read as two
+  // browsers (they aren't; the embed is a live snapshot of the same webview).
+  if (!fullscreen) return null;
   if (linkedBrowsers.length === 0 && linkedApps.length === 0) return null;
 
   const popOut = (fire: () => void): void => {
