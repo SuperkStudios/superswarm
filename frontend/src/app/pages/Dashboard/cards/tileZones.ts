@@ -78,7 +78,17 @@ export function computeTiledStyle(zone: string, panX: number, panY: number, zoom
 // Tiled geometry depends on live DOM measurements, so re-render when the workspace resizes:
 // the chrome collapsing on fullscreen-enter, a window resize, a banner appearing. The initial
 // ResizeObserver fire also re-measures right after the same-commit layout change that set the zone.
-export function useTiledStyle(zone: string | undefined, panX: number, panY: number, zoom: number): TiledStyle | null {
+export function useTiledStyle(
+  zone: string | undefined,
+  panX: number,
+  panY: number,
+  zoom: number,
+  // Live sync: with these, every camera write restyles the card element IN THE SAME TASK as the
+  // canvas transform. The React path alone lands a commit behind the compositor, so tiled cards
+  // visibly wobbled against the viewport on every zoom/pan frame.
+  getLive?: () => { panX: number; panY: number; zoom: number },
+  selectId?: string,
+): TiledStyle | null {
   const [, bump] = React.useReducer((n: number) => n + 1, 0);
   React.useEffect(() => {
     if (!zone) return undefined;
@@ -94,5 +104,32 @@ export function useTiledStyle(zone: string | undefined, panX: number, panY: numb
     const timers = [60, 250, 700].map((ms) => window.setTimeout(() => bump(), ms));
     return () => { ro.disconnect(); window.removeEventListener('resize', onResize); timers.forEach((t) => window.clearTimeout(t)); };
   }, [zone]);
+  React.useEffect(() => {
+    if (!zone || !getLive || !selectId) return undefined;
+    const el = document.querySelector(`[data-select-id="${CSS.escape(selectId)}"]`) as HTMLElement | null;
+    if (!el) return undefined;
+    const props = ['left', 'top', 'width', 'height', 'transform', 'transform-origin'];
+    const apply = (): void => {
+      // A parked card (kept alive off-screen / minimized) must keep its sx parking position.
+      if (el.getAttribute('data-keepalive-hidden') === '1') { props.forEach((pr) => el.style.removeProperty(pr)); return; }
+      const cam = getLive();
+      const s = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
+      if (!s) return;
+      el.style.left = `${s.left}px`;
+      el.style.top = `${s.top}px`;
+      el.style.width = `${s.width}px`;
+      el.style.height = `${s.height}px`;
+      el.style.transform = s.transform;
+      el.style.transformOrigin = s.transformOrigin;
+    };
+    apply();
+    window.addEventListener('openswarm:canvas-pan-changed', apply);
+    window.addEventListener('resize', apply);
+    return () => {
+      window.removeEventListener('openswarm:canvas-pan-changed', apply);
+      window.removeEventListener('resize', apply);
+      props.forEach((pr) => el.style.removeProperty(pr));
+    };
+  }, [zone, getLive, selectId]);
   return zone ? computeTiledStyle(zone, panX, panY, zoom) : null;
 }

@@ -270,7 +270,7 @@ const NoteCard: React.FC<Props> = ({
   }, [tileZone]);
   void tileTick;
   const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, noteId);
   const isFullscreen = tileZone === 'fullscreen';
 
   const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;

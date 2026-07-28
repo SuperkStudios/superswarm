@@ -164,7 +164,7 @@ const DashboardViewCard: React.FC<Props> = ({
   }, [tileZone]);
   void tileTick;
   const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardKey);
   const isFullscreen = tileZone === 'fullscreen';
 
   // Keep the live preview mounted only when the user can actually see/use this app card. Always live

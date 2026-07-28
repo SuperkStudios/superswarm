@@ -641,7 +641,7 @@ const AgentCard: React.FC<Props> = ({
   }, [tileZone]);
   void tileTick;
   const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, session.id);
   // A collapsed chat can never stay tiled: collapsing while fullscreen left a white full-window shell
   // (the header collapse control still fires in full size view). Seal the state instead of the path.
   useEffect(() => {
@@ -792,6 +792,19 @@ const AgentCard: React.FC<Props> = ({
       }}
       sx={{
         position: 'relative',
+        // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
+        // is hovered, but it floats ABOVE the card's box, so without this strip the pointer leaving
+        // the card to reach it dropped :hover and the header died mid-approach (chats ungrabbable).
+        ...(expanded && !tiledStyle && !pillMode && {
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: -40,
+            height: 40,
+          },
+        }),
         // contain: streaming chat updates inside don't reflow the dashboard. Skipping `paint` here because the highlighted/selected/glow boxShadows legitimately extend past the card border, `paint` containment would clip those visuals.
         contain: 'layout style',
         // Each card gets its own compositor layer; hover-cross used to cost 100-200ms PRESENTATION by re-painting the whole canvas.

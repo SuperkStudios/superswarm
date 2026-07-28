@@ -65,7 +65,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
     return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
   }, [isFullscreen]);
   const cam = getCanvasState();
-  const fsStyle = useTiledStyle(isFullscreen ? 'fullscreen' : undefined, cam.panX, cam.panY, cam.zoom);
+  const fsStyle = useTiledStyle(isFullscreen ? 'fullscreen' : undefined, cam.panX, cam.panY, cam.zoom, getCanvasState, 'workflows-hub');
 
 
   // ---- Drag (title bar is the handle) ----

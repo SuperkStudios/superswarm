@@ -234,7 +234,7 @@ const BrowserCard: React.FC<Props> = ({
   }, [tileZone]);
   void tileTick;
   const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, browserId);
   const onTile = useCallback((zone: string): void => {
     if (zone === 'restore') dispatch(clearTiledCard(browserId));
     else dispatch(setTiledCard({ cardId: browserId, zone }));
