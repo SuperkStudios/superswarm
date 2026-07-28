@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setWorkflowsHubPosition, setWorkflowsHubSize } from '@/shared/state/dashboardLayoutSlice';
 import { TILE_ZONES, useTiledStyle } from '@/app/pages/Dashboard/cards/tileZones';
+import { useDragEndBackstops } from '@/app/pages/Dashboard/hooks/interaction/useDragEndBackstops';
 import { useWC } from './uiKit';
 import WorkflowsAppContent from './WorkflowsAppContent';
 
@@ -70,6 +71,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
 
   // ---- Drag (title bar is the handle) ----
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number; startPanX: number; startPanY: number } | null>(null);
+  const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [localDragPos, setLocalDragPos] = useState<{ x: number; y: number } | null>(null);
   const didDrag = useRef(false);
@@ -99,6 +101,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
     const rawDy = e.clientY - dragState.current.startY;
     if (!didDrag.current && Math.sqrt(rawDx * rawDx + rawDy * rawDy) < DRAG_THRESHOLD) return;
     didDrag.current = true;
+    lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
@@ -109,20 +112,20 @@ const WorkflowsAppCard: React.FC<Props> = ({
     onDragMove?.(dx, dy, e.clientX, e.clientY);
   }, [onDragMove, getCanvasState]);
 
-  const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       justDraggedRef.current = true;
       setTimeout(() => { justDraggedRef.current = false; }, 0);
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
-      if (!e.shiftKey) { finalX = Math.round(finalX / 24) * 24; finalY = Math.round(finalY / 24) * 24; }
+      if (!shiftKey) { finalX = Math.round(finalX / 24) * 24; finalY = Math.round(finalY / 24) * 24; }
       dispatch(setWorkflowsHubPosition({ x: finalX, y: finalY }));
     }
     onDragEnd?.(dx, dy, didDrag.current);
@@ -130,8 +133,19 @@ const WorkflowsAppCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, onDragEnd, getCanvasState]);
+
+  const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+  useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
   // ---- Resize ----
   const resizeRef = useRef<{ dir: ResizeDir; sx0: number; sy0: number; ox: number; oy: number; ow: number; oh: number } | null>(null);
@@ -233,6 +247,8 @@ const WorkflowsAppCard: React.FC<Props> = ({
           onPointerDown: onHeaderPointerDown,
           onPointerMove: onHeaderPointerMove,
           onPointerUp: onHeaderPointerUp,
+          onPointerCancel: abortDrag,
+          onLostPointerCapture: abortDrag,
           dragging: isDragging,
         }}
         onTileZone={(zone) => {
