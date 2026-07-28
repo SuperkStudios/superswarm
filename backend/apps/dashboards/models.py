@@ -44,6 +44,8 @@ class BrowserCardPosition(BaseModel):
     keep_open: bool = False
     # The dashboard this card calls home. Persisted so the home survives a save; without it the card reloads untagged and renders on EVERY dashboard (the cross-dashboard bleed).
     dashboard_id: Optional[str] = None
+    # Chat session this browser lives inside (renders over the chat's dock slot); None = free card.
+    docked_to: Optional[str] = None
 
 
 class NotePosition(BaseModel):

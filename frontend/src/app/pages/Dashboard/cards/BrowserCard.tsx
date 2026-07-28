@@ -40,6 +40,7 @@ import {
   toggleMinimizeCard,
   setTiledCard,
   clearTiledCard,
+  setBrowserDocked,
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
@@ -238,6 +239,36 @@ const BrowserCard: React.FC<Props> = ({
     if (zone === 'restore') dispatch(clearTiledCard(browserId));
     else dispatch(setTiledCard({ cardId: browserId, zone }));
   }, [dispatch, browserId]);
+
+  // ---- In-chat dock: while docked to an expanded chat, the card overlays the chat's slot rect.
+  // Pure geometry in the shared canvas layer (same DOM node), so the webview never remounts.
+  const dockedTo = useAppSelector((state) => state.dashboardLayout.browserCards[browserId]?.docked_to ?? null);
+  const dockParentCard = useAppSelector((state) => (dockedTo ? state.dashboardLayout.cards[dockedTo] ?? null : null));
+  const dockParentExpanded = useAppSelector((state) => (dockedTo ? state.agents.expandedSessionIds.includes(dockedTo) : false));
+  const [dockRect, setDockRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const rootElRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!dockedTo || !dockParentCard || !dockParentExpanded) { setDockRect(null); return undefined; }
+    const measure = (): void => {
+      const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+      const layer = rootElRef.current?.parentElement;
+      if (!slot || !layer) { setDockRect(null); return; }
+      const z = getCanvasState().zoom || 1;
+      const lr = layer.getBoundingClientRect();
+      const sr = slot.getBoundingClientRect();
+      // Slot and card share the transformed layer, so layer-relative coords are camera-invariant.
+      setDockRect({ x: (sr.left - lr.left) / z, y: (sr.top - lr.top) / z, w: sr.width / z, h: sr.height / z });
+    };
+    measure();
+    const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+    const ro = new ResizeObserver(measure);
+    if (slot) ro.observe(slot);
+    if (slot?.parentElement) ro.observe(slot.parentElement);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+    // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
+  }, [dockedTo, dockParentExpanded, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
+  const dockParentZ = dockParentCard?.zOrder ?? 0;
 
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
   const endingState = useAppSelector((state) => state.dashboardLayout.endingBrowserCards[browserId]);
@@ -717,13 +748,13 @@ const BrowserCard: React.FC<Props> = ({
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(browserId, 'browser');
-  }, [cardX, cardY, onDragStart, browserId, getCanvasState, tileZone]);
+  }, [cardX, cardY, onDragStart, browserId, getCanvasState, tileZone, dockRect]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -777,6 +808,17 @@ const BrowserCard: React.FC<Props> = ({
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
+      // Dropping over a chat docks the browser INTO it; anywhere else undocks to a free card.
+      const { clientX: hx, clientY: hy } = lastPointerRef.current;
+      const under = document.elementsFromPoint(hx, hy);
+      const slotHit = under.map((el) => (el as HTMLElement).closest?.('[data-browser-slot]') as HTMLElement | null).find(Boolean);
+      const chatHit = under.map((el) => (el as HTMLElement).closest?.('[data-select-type="agent-card"]') as HTMLElement | null).find(Boolean);
+      const dockTarget = slotHit?.getAttribute('data-browser-slot') || chatHit?.getAttribute('data-select-id') || null;
+      if (dockTarget) {
+        dispatch(setBrowserDocked({ browserId, dockedTo: dockTarget }));
+      } else if (dockedTo) {
+        dispatch(setBrowserDocked({ browserId, dockedTo: null }));
+      }
       dispatch(setBrowserCardPosition({
         browserId,
         x: finalX,
@@ -790,7 +832,7 @@ const BrowserCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-  }, [dispatch, browserId, onDragEnd, getCanvasState]);
+  }, [dispatch, browserId, onDragEnd, getCanvasState, dockedTo]);
 
   const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
     if (!dragState.current) return;
@@ -928,8 +970,11 @@ const BrowserCard: React.FC<Props> = ({
             ? `0 0 0 1px #3b82f6, ${c.shadow.md}`
             : c.shadow.md;
 
+  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+
   return (
     <Box
+      ref={rootElRef}
       className="osw-card"
       data-select-type="browser-card"
       data-select-id={browserId}
@@ -959,20 +1004,20 @@ const BrowserCard: React.FC<Props> = ({
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden || isMinimized ? -100000 : (tiledStyle ? tiledStyle.left : (dragging ? cardX : displayX)),
-        top: tiledStyle && !(keepAliveHidden || isMinimized) ? tiledStyle.top : (dragging ? cardY : displayY),
+        left: keepAliveHidden || isMinimized ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: tiledStyle && !(keepAliveHidden || isMinimized) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
         transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
         transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
-        width: tiledStyle ? tiledStyle.width : displayW,
-        height: tiledStyle ? tiledStyle.height : displayH,
-        borderRadius: tileZone === 'fullscreen' ? '12px' : `${c.radius.lg}px`,
+        width: tiledStyle ? tiledStyle.width : dockActive ? dockRect!.w : displayW,
+        height: tiledStyle ? tiledStyle.height : dockActive ? dockRect!.h : displayH,
+        borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
         border: agentBorder,
         bgcolor: c.bg.surface,
         boxShadow: agentShadow,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? dockParentZ + 1 : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

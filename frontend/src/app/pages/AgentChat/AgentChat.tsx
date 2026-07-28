@@ -257,6 +257,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   };
   const { id: routeId } = useParams<{ id: string }>();
   const id = sessionIdProp || routeId;
+  // True while a spawned browser calls this chat home; gates the dock slot the real card overlays.
+  const hasDockedBrowser = useAppSelector((st) => Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)));
   // A card linked as a workflow sidecar (Test Agent, or a watched run) swaps its composer for a Force Stop button: continuing the chat is meaningless, but killing the run is the common need. Once a Test Agent finishes, the button flips to a green "close" (see workflow_test_state + ForceStopAgentBar).
   const linkedSidecar = useAppSelector((s) => {
     const found = Object.values(s.workflows.openCards).find(
@@ -2395,6 +2397,23 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   </Fade>
                 );
               })()}
+              {/* Dock slot: a browser this agent spawned lives HERE by default (the real card overlays
+                  this rect geometrically, so the webview never remounts). Pinned between transcript
+                  and composer, never inside the scroller, so it can't be clipped by chat scroll. */}
+              {hasDockedBrowser && !fullscreenChat && (
+                <Box
+                  data-browser-slot={id}
+                  sx={{
+                    flexShrink: 0,
+                    height: 320,
+                    mx: 1.5,
+                    mb: 1,
+                    borderRadius: '10px',
+                    border: `1px dashed ${c.border.medium}`,
+                    background: c.bg.secondary,
+                  }}
+                />
+              )}
               {readOnly ? null : isStoppableSidecar ? (
                 <ForceStopAgentBar onStop={handleStop} onSaveWorkflow={onTestSaveWorkflow} onContinueEditing={onTestContinueEditing} testState={testState} />
               ) : (

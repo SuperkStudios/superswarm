@@ -84,6 +84,8 @@ export interface BrowserCardPosition {
   keep_open?: boolean;
   /** Dashboard this card belongs to; cards render and persist only on their owning dashboard. */
   dashboard_id?: string;
+  /** Chat session this browser lives inside (renders over the chat's dock slot); null/absent = free card. */
+  docked_to?: string | null;
 }
 
 export interface WorkflowCardPosition {
@@ -930,6 +932,10 @@ const dashboardLayoutSlice = createSlice({
       if (state.viewCards[action.payload]) state.pendingFocusViewCardId = action.payload;
     },
 
+    setBrowserDocked(state, action: PayloadAction<{ browserId: string; dockedTo: string | null }>) {
+      const bc = state.browserCards[action.payload.browserId];
+      if (bc) bc.docked_to = action.payload.dockedTo;
+    },
     addBrowserCardFromBackend(state, action: PayloadAction<BrowserCardPosition>) {
       const card = action.payload;
       if (state.browserCards[card.browser_id]) return;
@@ -1812,6 +1818,7 @@ export const {
   setActiveViewCardId,
   addBrowserCard,
   addBrowserCardFromBackend,
+  setBrowserDocked,
   setBrowserCardPosition,
   setBrowserCardSize,
   removeBrowserCard,
