@@ -20,6 +20,8 @@ class ViewCardPosition(BaseModel):
     y: float = 0
     width: float = 480
     height: float = 360
+    # Chat session this app preview lives inside (renders over the chat's dock slot); None = free card.
+    docked_to: Optional[str] = None
 
 
 class BrowserTab(BaseModel):

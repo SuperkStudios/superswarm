@@ -193,7 +193,7 @@ export const CommandsContent: React.FC = () => {
           <SectionHeader
             icon={<TerminalIcon sx={{ fontSize: 22 }} />}
             title="Slash Commands"
-            subtitle="Type / in chat to invoke skills and modes"
+            subtitle="Type / in chat to invoke skills"
             count={slashCommands.length}
             c={c}
           />
@@ -211,7 +211,7 @@ export const CommandsContent: React.FC = () => {
             >
               <TerminalIcon sx={{ fontSize: 36, opacity: 0.3 }} />
               <Typography sx={{ fontSize: '0.875rem' }}>
-                No slash commands yet. Create skills or modes to see them here.
+                No slash commands yet. Create skills to see them here.
               </Typography>
             </Box>
           ) : (

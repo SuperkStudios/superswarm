@@ -52,6 +52,8 @@ export interface ViewCardPosition {
   height: number;
   zOrder: number;
   parent_session_id?: string | null;
+  /** Chat session this app preview lives inside (renders over the chat's dock slot); null/absent = free card. */
+  docked_to?: string | null;
   // Reveal-born apps start as a light "built for you, click to open" card so the onboarding curtain
   // lifts INSTANTLY instead of booting a live Vite preview in-frame. Cleared on first click -> boots.
   preview_deferred?: boolean;
@@ -849,6 +851,8 @@ const dashboardLayoutSlice = createSlice({
         height: h,
         zOrder: state.nextZOrder++,
         parent_session_id: parentSessionId || null,
+        // An agent-built app defaults to living INSIDE its chat, same as spawned browsers.
+        docked_to: parentSessionId || null,
         preview_deferred: previewDeferred || undefined,
       };
       state.pendingFocusViewCardId = cardKey;
@@ -932,6 +936,10 @@ const dashboardLayoutSlice = createSlice({
       if (state.viewCards[action.payload]) state.pendingFocusViewCardId = action.payload;
     },
 
+    setViewDocked(state, action: PayloadAction<{ cardKey: string; dockedTo: string | null }>) {
+      const vc = state.viewCards[action.payload.cardKey];
+      if (vc) vc.docked_to = action.payload.dockedTo;
+    },
     setBrowserDocked(state, action: PayloadAction<{ browserId: string; dockedTo: string | null }>) {
       const bc = state.browserCards[action.payload.browserId];
       if (bc) bc.docked_to = action.payload.dockedTo;
@@ -1819,6 +1827,7 @@ export const {
   addBrowserCard,
   addBrowserCardFromBackend,
   setBrowserDocked,
+  setViewDocked,
   setBrowserCardPosition,
   setBrowserCardSize,
   removeBrowserCard,

@@ -15,7 +15,7 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import AddIcon from '@mui/icons-material/Add';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
-import { setViewCardPosition, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
+import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import WindowControls from './WindowControls';
 import { openCardContextMenu } from '../desktop/CardContextMenu';
@@ -168,6 +168,33 @@ const DashboardViewCard: React.FC<Props> = ({
   const cam = getCanvasState();
   const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardKey);
   const isFullscreen = tileZone === 'fullscreen';
+
+  // ---- In-chat dock (mirrors BrowserCard): while docked to an expanded chat, overlay its slot rect.
+  const dockedTo = useAppSelector((state) => state.dashboardLayout.viewCards[cardKey]?.docked_to ?? null);
+  const dockParentCard = useAppSelector((state) => (dockedTo ? state.dashboardLayout.cards[dockedTo] ?? null : null));
+  const dockParentExpanded = useAppSelector((state) => (dockedTo ? state.agents.expandedSessionIds.includes(dockedTo) : false));
+  const [dockRect, setDockRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const dockRootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!dockedTo || !dockParentCard || !dockParentExpanded) { setDockRect(null); return undefined; }
+    const measure = (): void => {
+      const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+      const layer = dockRootRef.current?.parentElement;
+      if (!slot || !layer) { setDockRect(null); return; }
+      const z = getCanvasState().zoom || 1;
+      const lr = layer.getBoundingClientRect();
+      const sr = slot.getBoundingClientRect();
+      setDockRect({ x: (sr.left - lr.left) / z, y: (sr.top - lr.top) / z, w: sr.width / z, h: sr.height / z });
+    };
+    measure();
+    const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+    const ro = new ResizeObserver(measure);
+    if (slot) ro.observe(slot);
+    if (slot?.parentElement) ro.observe(slot.parentElement);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [dockedTo, dockParentExpanded, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
+  const dockParentZ = dockParentCard?.zOrder ?? 0;
 
   // Keep the live preview mounted only when the user can actually see/use this app card. Always live
   // when it's being interacted with, driven by an agent, tiled, or selected; otherwise gated on being
@@ -327,7 +354,7 @@ const DashboardViewCard: React.FC<Props> = ({
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
@@ -387,6 +414,16 @@ const DashboardViewCard: React.FC<Props> = ({
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
+      const { clientX: hx, clientY: hy } = lastPointerRef.current;
+      const under = document.elementsFromPoint(hx, hy);
+      const slotHit = under.map((el) => (el as HTMLElement).closest?.('[data-browser-slot]') as HTMLElement | null).find(Boolean);
+      const chatHit = under.map((el) => (el as HTMLElement).closest?.('[data-select-type="agent-card"]') as HTMLElement | null).find(Boolean);
+      const dockTarget = slotHit?.getAttribute('data-browser-slot') || chatHit?.getAttribute('data-select-id') || null;
+      if (dockTarget) {
+        dispatch(setViewDocked({ cardKey, dockedTo: dockTarget }));
+      } else if (dockedTo) {
+        dispatch(setViewDocked({ cardKey, dockedTo: null }));
+      }
       dispatch(setViewCardPosition({
         outputId: cardKey,
         x: finalX,
@@ -400,7 +437,7 @@ const DashboardViewCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-  }, [dispatch, cardKey, onDragEnd, getCanvasState]);
+  }, [dispatch, cardKey, onDragEnd, getCanvasState, dockedTo]);
 
   const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
     if (!dragState.current) return;
@@ -534,8 +571,11 @@ const DashboardViewCard: React.FC<Props> = ({
   const dragTx = dragging ? displayX - cardX : 0;
   const dragTy = dragging ? displayY - cardY : 0;
 
+  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !isMinimized;
+
   return (
     <Box
+      ref={dockRootRef}
       data-select-type="view-card"
       data-select-id={cardKey}
       onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
@@ -561,7 +601,7 @@ const DashboardViewCard: React.FC<Props> = ({
         // contain + willChange: own compositor layer so paint stays scoped (see AgentCard for full rationale).
         contain: 'layout style',
         willChange: 'transform',
-        left: tiledStyle ? tiledStyle.left : (dragging ? cardX : displayX),
+        left: tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX),
         top: tiledStyle ? tiledStyle.top : (dragging ? cardY : displayY),
         width: tiledStyle ? tiledStyle.width : (isMinimized ? 220 : displayW),
         height: tiledStyle ? tiledStyle.height : (isMinimized ? 44 : displayH),

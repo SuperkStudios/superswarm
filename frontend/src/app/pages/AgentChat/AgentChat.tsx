@@ -257,8 +257,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   };
   const { id: routeId } = useParams<{ id: string }>();
   const id = sessionIdProp || routeId;
-  // True while a spawned browser calls this chat home; gates the dock slot the real card overlays.
-  const hasDockedBrowser = useAppSelector((st) => Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)));
+  // True while a spawned surface (browser or built app) calls this chat home; gates the dock slot the real card overlays.
+  const hasDockedBrowser = useAppSelector((st) =>
+    Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)) ||
+    Object.values(st.dashboardLayout.viewCards).some((vc) => vc.docked_to === (sessionIdProp || routeId)));
   // A card linked as a workflow sidecar (Test Agent, or a watched run) swaps its composer for a Force Stop button: continuing the chat is meaningless, but killing the run is the common need. Once a Test Agent finishes, the button flips to a green "close" (see workflow_test_state + ForceStopAgentBar).
   const linkedSidecar = useAppSelector((s) => {
     const found = Object.values(s.workflows.openCards).find(

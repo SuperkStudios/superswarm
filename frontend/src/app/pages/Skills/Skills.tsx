@@ -347,8 +347,8 @@ const Skills: React.FC = () => {
           bgcolor: c.bg.secondary,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, pt: 2, pb: 1 }}>
-          <Typography sx={{ fontSize: '0.875rem', fontWeight: 700, color: c.text.primary }}>Skills</Typography>
+        {/* The Settings pane header already says Skills; this row is just the action strip. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: 2, pt: 1.5, pb: 0.5 }}>
           <Box sx={{ display: 'flex', gap: 0.25 }}>
             <Tooltip title="Import .swarm">
               <IconButton

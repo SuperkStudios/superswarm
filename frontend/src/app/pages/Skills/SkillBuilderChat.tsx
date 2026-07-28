@@ -4,7 +4,6 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
-import Fab from '@mui/material/Fab';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CloseIcon from '@mui/icons-material/Close';
 import MinimizeIcon from '@mui/icons-material/Remove';
@@ -255,30 +254,7 @@ const SkillBuilderChat: React.FC<SkillBuilderChatProps> = ({ onSkillPreview, onS
     draftCreated.current = true;
   };
 
-  if (!expanded) {
-    return (
-      <Tooltip title="Build skill with AI" placement="left">
-        <Fab
-          onClick={() => setExpanded(true)}
-          data-onboarding="skill-builder-fab"
-          sx={{
-            position: 'absolute',
-            bottom: 24,
-            right: 24,
-            bgcolor: c.accent.primary,
-            color: '#fff',
-            '&:hover': { bgcolor: c.accent.pressed },
-            zIndex: 10,
-            width: 52,
-            height: 52,
-            boxShadow: c.shadow.lg,
-          }}
-        >
-          <AutoFixHighIcon />
-        </Fab>
-      </Tooltip>
-    );
-  }
+  if (!expanded) return null;
 
   return (
     <Box

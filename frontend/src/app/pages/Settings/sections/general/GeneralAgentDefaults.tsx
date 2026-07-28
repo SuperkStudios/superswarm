@@ -58,7 +58,7 @@ const GeneralAgentDefaults: React.FC<{
           )}
         </Box>
         <Typography sx={{ ...descSx, mb: 1.5 }}>
-          Prepended to every agent session before mode-specific instructions. Modes can override with their own.
+          Prepended to every agent session.
         </Typography>
         <TextField
           value={form.default_system_prompt ?? DEFAULT_SYSTEM_PROMPT}
@@ -82,7 +82,7 @@ const GeneralAgentDefaults: React.FC<{
       <Box sx={rowSx} {...settingSelectAttrs('default_folder', 'Working directory', 'Agent Defaults', 'Default folder agents start in.')}>
         <Typography sx={labelSx}>Working directory</Typography>
         <Typography sx={{ ...descSx, mb: 1.5 }}>
-          Default folder agents start in. Modes can override per-mode.
+          Default folder agents start in.
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <TextField
@@ -195,25 +195,6 @@ const GeneralAgentDefaults: React.FC<{
                 )),
               ];
             })}
-          </Select>
-        </FormControl>
-      </Box>
-
-      <Box sx={inlineRowSx} {...settingSelectAttrs('default_mode', 'Mode', 'Agent Defaults', 'Default interaction mode for new sessions.')}>
-        <Box sx={{ mr: 3 }}>
-          <Typography sx={labelSx}>Mode</Typography>
-          <Typography sx={descSx}>Default interaction mode for new sessions.</Typography>
-        </Box>
-        <FormControl size="small" sx={{ minWidth: 170 }}>
-          <Select
-            value={form.default_mode}
-            onChange={(e) => setForm({ ...form, default_mode: e.target.value })}
-            sx={{ fontSize: '0.875rem' }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: c.bg.surface, color: c.text.primary } } }}
-          >
-            {modesList.map((m) => (
-              <MenuItem key={m.id} value={m.id}>{m.name}</MenuItem>
-            ))}
           </Select>
         </FormControl>
       </Box>
