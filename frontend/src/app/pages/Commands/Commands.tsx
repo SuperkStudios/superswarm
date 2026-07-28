@@ -41,30 +41,17 @@ const SectionHeader: React.FC<{
   subtitle: string;
   count?: number;
   c: any;
-}> = ({ icon, title, subtitle, count, c }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-    <Box sx={{ color: c.accent.primary, display: 'flex', alignItems: 'center' }}>{icon}</Box>
-    <Box sx={{ flex: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
-          {title}
-        </Typography>
-        {count !== undefined && (
-          <Chip
-            label={count}
-            size="small"
-            sx={{
-              height: 20,
-              fontSize: '0.6875rem',
-              fontWeight: 600,
-              bgcolor: `${c.accent.primary}15`,
-              color: c.accent.primary,
-            }}
-          />
-        )}
-      </Box>
-      <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem' }}>{subtitle}</Typography>
+}> = ({ title, subtitle, count, c }) => (
+  <Box sx={{ mb: 1.25, px: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+      <Typography sx={{ color: c.text.muted, fontWeight: 700, fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        {title}
+      </Typography>
+      {count !== undefined && (
+        <Typography sx={{ color: c.text.ghost, fontSize: '0.6875rem', fontWeight: 600 }}>{count}</Typography>
+      )}
     </Box>
+    <Typography sx={{ color: c.text.tertiary, fontSize: '0.75rem', mt: 0.25 }}>{subtitle}</Typography>
   </Box>
 );
 
