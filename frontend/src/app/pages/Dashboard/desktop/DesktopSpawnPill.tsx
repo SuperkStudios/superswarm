@@ -6,7 +6,7 @@ import AddRounded from '@mui/icons-material/AddRounded';
 import MicNoneOutlinedIcon from '@mui/icons-material/MicNoneOutlined';
 import MicIcon from '@mui/icons-material/Mic';
 import CircularProgress from '@mui/material/CircularProgress';
-import { useVoice } from '@/shared/voice/VoiceDictationContext';
+import { useVoice } from '@/shared/voice/voiceContext';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';

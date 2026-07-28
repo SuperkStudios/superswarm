@@ -6,7 +6,7 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useThemeAccent } from '@/shared/styles/ThemeContext';
-import { useVoice } from './VoiceDictationContext';
+import { useVoice } from './voiceContext';
 
 // WhisperFlow-style presence: while the mic is hot, an accent-tinted aurora breathes up from the
 // bottom edge, its height and glow riding the live mic level. Imperative rAF writes only (opacity +

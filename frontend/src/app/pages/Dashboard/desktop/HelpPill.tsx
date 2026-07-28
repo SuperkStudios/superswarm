@@ -5,7 +5,7 @@ import Tooltip from '@mui/material/Tooltip';
 import CircularProgress from '@mui/material/CircularProgress';
 import MicNoneOutlinedIcon from '@mui/icons-material/MicNoneOutlined';
 import MicIcon from '@mui/icons-material/Mic';
-import { useVoice } from '@/shared/voice/VoiceDictationContext';
+import { useVoice } from '@/shared/voice/voiceContext';
 import HelpPanel from './HelpPanel';
 
 /** Top-right desktop pill: Help opens the help panel (ask, report a bug, docs); the mic dictates (local whisper) into the focused field. */
