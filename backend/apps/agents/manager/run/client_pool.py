@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import time
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, InstanceOf
 from typeguard import typechecked
@@ -56,6 +56,15 @@ def boot_fingerprint(options_kwargs: Dict, session: AgentSession) -> str:
         p_last_field_digests[session.id] = digests
     blob = json.dumps(frozen, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode()).hexdigest()
+
+
+class SdkClientLike(Protocol):
+    """The slice of claude_agent_sdk.ClaudeSDKClient the pool touches. The real class can't be
+    module-imported here (mock-mode must import the manager without the SDK), so callers cast."""
+
+    async def query(self, prompt: Any) -> None: ...
+    def receive_response(self) -> AsyncIterator[Any]: ...
+    async def disconnect(self) -> None: ...
 
 
 class ClientHandle(BaseModel):
@@ -150,7 +159,7 @@ async def dispose_client(pool: Dict[str, ClientHandle], session_id: str) -> None
     if handle is None:
         return
     try:
-        await handle.client.disconnect()
+        await cast(SdkClientLike, handle.client).disconnect()
     except Exception:
         logger.exception(f"[client-pool] {session_id}: disconnect failed (subprocess may already be dead)")
 
@@ -164,7 +173,7 @@ def dispose_client_soon(pool: Dict[str, ClientHandle], session_id: str) -> None:
 
     async def p_bg() -> None:
         try:
-            await handle.client.disconnect()
+            await cast(SdkClientLike, handle.client).disconnect()
         except Exception:
             logger.exception(f"[client-pool] {session_id}: background disconnect failed")
 

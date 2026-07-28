@@ -6,7 +6,7 @@ except-handlers can still read them after a mid-stream failure."""
 import asyncio
 import logging
 import time
-from typing import Dict, List, Union
+from typing import Dict, List, Union, cast
 from typeguard import typechecked
 
 from backend.apps.agents.core.models import AgentSession
@@ -17,6 +17,7 @@ from backend.apps.agents.manager.streaming.handle_stream_event import handle_str
 from backend.apps.agents.manager.streaming.handle_assistant_message import handle_assistant_message
 from backend.apps.agents.manager.streaming.handle_result_message import handle_result_message
 from backend.apps.agents.manager.run.client_pool import (
+    SdkClientLike,
     acquire_client,
     boot_fingerprint,
     dispose_client,
@@ -132,8 +133,9 @@ class TurnRunner(AgentManagerProtocol):
             async with handle.lock:
                 handle.turns_served += 1
                 try:
-                    await handle.client.query(prompt_stream())
-                    await p_run_streaming_turn(p_stream=handle.client.receive_response())
+                    sdk = cast(SdkClientLike, handle.client)
+                    await sdk.query(prompt_stream())
+                    await p_run_streaming_turn(p_stream=sdk.receive_response())
                     # LRU by turn-END so a session mid-long-turn isn't first cap-evicted the instant it finishes.
                     handle.last_used = time.monotonic()
                 except BaseException:

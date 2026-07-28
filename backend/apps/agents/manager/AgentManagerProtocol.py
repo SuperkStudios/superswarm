@@ -13,10 +13,12 @@ just sits once in the MRO. Re-enables the linter's pyright reportAttributeAccess
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
     from backend.apps.agents.core.models import AgentSession
+    from backend.apps.agents.manager.run.client_pool import ClientHandle
+    from backend.apps.agents.manager.streaming.HookContext import HookContext
     from backend.apps.agents.manager.streaming.PartialReply import PartialReply
 
 
@@ -26,6 +28,9 @@ class AgentManagerProtocol:
     tasks: Dict[str, asyncio.Task]
     live_partial: Dict[str, PartialReply]
     cancel_events: Dict[str, asyncio.Event]
+    client_pool: Dict[str, ClientHandle]
+    hook_ctxs: Dict[str, HookContext]
+    stderr_buffers: Dict[str, List[str]]
 
     if TYPE_CHECKING:
         # Methods implemented on sibling mixins / AgentManager itself and called cross-mixin. Loose signatures on purpose: typeCheckingMode is off, so this only has to assert the names exist, not pin their call shapes.
