@@ -165,6 +165,22 @@ def is_unknown_model_error(exc: BaseException, extra_text: str = "") -> bool:
     ))
 
 
+@typechecked
+def is_cli_binary_missing(exc: BaseException, extra_text: str = "") -> bool:
+    """True when the bundled Claude CLI binary is gone from disk (the SDK's
+    CLINotFoundError at spawn time). Field data shows this only on Windows,
+    where antivirus quarantine deletes the unsigned exe out from under an
+    installed app; restore-from-quarantine or reinstall is the only fix, so
+    the card must say that instead of dumping the dead path.
+    """
+    if "CLINotFoundError" in type(exc).__name__:
+        return True
+    combined = f"{exc!s}\n{extra_text}".strip()
+    if not combined:
+        return False
+    return bool(re.search(r"claude\s+code\s+not\s+found", combined, re.IGNORECASE))
+
+
 def parse_retry_after(exc: BaseException, extra_text: str = "") -> int | None:
     """Best-effort seconds-until-retry pulled from a throttle error; None if the
     upstream didn't say. Only used to label the rate-limit pill, so a miss just
