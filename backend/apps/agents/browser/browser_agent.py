@@ -18,6 +18,12 @@ from uuid import uuid4
 import anthropic
 
 from backend.apps.agents.browser import browser_history
+from backend.apps.agents.core.error_classify import (
+    capacity_retry_wait,
+    is_auth_error,
+    is_free_trial_exhausted,
+    is_transient_capacity_error,
+)
 from backend.apps.agents.browser.browser_history import (
     MAX_HISTORY_MESSAGES,
     trim_history_by_turns,
@@ -1150,14 +1156,32 @@ async def run_browser_agent(
             browser_history.prune_stale_page_state(messages)
             browser_history.place_cache_marker(messages)
             p_llm_t0 = time.monotonic()
-            response = await p_cancellable(client.messages.create(
-                model=api_model,
-                max_tokens=4096,
-                # Cache the ~4k-token fixed prefix (system + tool schema) so it's reprocessed once, not on every turn: big TTFT + cost win on the first run, which is dominated by turns x per-turn prefill. The trailing cache_control marker is what Anthropic keys on; on non-Anthropic routes (9router) the marker is harmlessly ignored.
-                system=p_cached_system,
-                tools=p_cached_tools,
-                messages=messages,
-            ))
+            # Transient-capacity retry (free pool busy / 429 / overload): same backoff budget as chat turns, so a busy free tier waits instead of erroring the whole task. The sleep watches cancel_event so Stop stays instant.
+            p_capacity_attempt = 0
+            while True:
+                try:
+                    response = await p_cancellable(client.messages.create(
+                        model=api_model,
+                        max_tokens=4096,
+                        # Cache the ~4k-token fixed prefix (system + tool schema) so it's reprocessed once, not on every turn: big TTFT + cost win on the first run, which is dominated by turns x per-turn prefill. The trailing cache_control marker is what Anthropic keys on; on non-Anthropic routes (9router) the marker is harmlessly ignored.
+                        system=p_cached_system,
+                        tools=p_cached_tools,
+                        messages=messages,
+                    ))
+                    break
+                except Exception as p_api_err:
+                    p_wait = capacity_retry_wait(p_api_err, p_capacity_attempt)
+                    if p_wait is None:
+                        raise
+                    p_capacity_attempt += 1
+                    logger.info(f"[browser-agent {session_id}] transient capacity error, retry {p_capacity_attempt} in {p_wait}s: {p_api_err}")
+                    try:
+                        await asyncio.wait_for(cancel_event.wait(), timeout=p_wait)
+                    except asyncio.TimeoutError:
+                        pass
+                    if cancel_event.is_set():
+                        response = None
+                        break
             if response is None:
                 break
             p_llm_ms = int((time.monotonic() - p_llm_t0) * 1000)
@@ -2199,7 +2223,26 @@ async def run_browser_agent(
         browser_metrics.record_task(session_id, browser_id, task, "error",
                                     metrics_started_at, locals().get("turn", -1) + 1,
                                     action_log, session.tokens)
-        error_msg = Message(role="system", content=f"Error: {str(e)}")
+        # Classify before carding: this catch-all was the field's raw-429-card leak (free-trial users' browser tasks dumping "Error code: 429 - free_pool_busy" JSON at them). Same friendly copy as the chat loop's handler; the parent sees the same text via summary.
+        if is_free_trial_exhausted(e):
+            p_error_text = (
+                "You've used your free runs. Connect a model to keep going: "
+                "your own API key, an AI subscription you already pay for, or "
+                "OpenSwarm Pro."
+            )
+        elif is_transient_capacity_error(e):
+            p_error_text = (
+                "The model service is at capacity right now, even after retrying. "
+                "The task stopped safely; try again in a few minutes."
+            )
+        elif is_auth_error(e):
+            p_error_text = (
+                "Provider authentication failed or expired. Open Settings → Models "
+                "and reconnect, then run the task again."
+            )
+        else:
+            p_error_text = str(e)
+        error_msg = Message(role="system", content=f"Error: {p_error_text}")
         session.messages.append(error_msg)
         await ws_manager.send_to_session(session_id, "agent:message", {
             "session_id": session_id,
@@ -2214,7 +2257,7 @@ async def run_browser_agent(
         return {
             "session_id": session_id,
             "browser_id": browser_id,
-            "summary": f"Error: {str(e)}",
+            "summary": f"Error: {p_error_text}",
             "action_log": action_log,
             "final_screenshot": None,
         }
