@@ -68,7 +68,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
     if (!menuHot) { setMenuHot(true); requestAnimationFrame(() => setMenuOpen(true)); return; }
     setMenuOpen(true);
   };
-  const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 180); };
+  const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 320); };
   const stop = (e: React.PointerEvent | React.MouseEvent): void => { e.stopPropagation(); };
 
   const btn = (color: string, symbol: string, onClick: () => void, label: string): React.ReactElement => (
@@ -79,7 +79,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
   );
 
   return (
-    <Box className="osw-window-lights" onPointerDown={stop}
+    <Box className="osw-window-lights" data-tilemenu-open={menuOpen ? '1' : undefined} onPointerDown={stop}
       sx={{
         display: 'flex', gap: '8px', alignItems: 'center', flex: 'none', '&:hover span': { opacity: 1 },
         // Inert until the card is hovered: crossing a card can't hit-test or fire React enter/leave

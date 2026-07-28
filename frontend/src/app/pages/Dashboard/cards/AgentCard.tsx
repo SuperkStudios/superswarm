@@ -19,6 +19,7 @@ import {
   collapseSession,
   expandSession,
   closeSession,
+  deleteSession,
   fetchSession,
   renameSession,
 } from '@/shared/state/agentsSlice';
@@ -38,6 +39,7 @@ import {
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
 import { useTiledStyle } from './tileZones';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { extractLatestTodos } from '../desktop/agentTodos';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
@@ -802,6 +804,15 @@ const AgentCard: React.FC<Props> = ({
         e.stopPropagation();
         onDoubleClick?.(session.id, 'agent');
       }}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        rename: { value: displayChatTitle(session), onCommit: (name) => dispatch(renameSession({ sessionId: session.id, name })) },
+        items: [
+          { label: expanded ? 'Collapse' : 'Open', onClick: () => dispatch(expanded ? collapseSession(session.id) : expandSession(session.id)) },
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Close', onClick: () => handleRemove() },
+          { label: 'Delete chat', danger: true, onClick: () => { void dispatch(deleteSession({ sessionId: session.id })); } },
+        ],
+      })}
       sx={{
         position: 'relative',
         // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
@@ -813,8 +824,8 @@ const AgentCard: React.FC<Props> = ({
             position: 'absolute',
             left: 0,
             right: 0,
-            top: -40,
-            height: 40,
+            top: -48,
+            height: 48,
           },
         }),
         // contain: streaming chat updates inside don't reflow the dashboard. Skipping `paint` here because the highlighted/selected/glow boxShadows legitimately extend past the card border, `paint` containment would clip those visuals.
@@ -988,7 +999,7 @@ const AgentCard: React.FC<Props> = ({
           onPointerUp={handleDragPointerUp}
           onPointerCancel={abortDrag}
           onLostPointerCapture={abortDrag}
-          sx={{ position: 'absolute', top: 0, left: 12, right: 12, height: 14, zIndex: 18, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+          sx={{ position: 'absolute', top: 0, left: 8, right: 8, height: 26, zIndex: 18, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
         />
       )}
       {pillMode && (

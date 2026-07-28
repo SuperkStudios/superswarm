@@ -18,6 +18,7 @@ import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import WindowControls from './WindowControls';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useTiledStyle } from './tileZones';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -537,6 +538,13 @@ const DashboardViewCard: React.FC<Props> = ({
     <Box
       data-select-type="view-card"
       data-select-id={cardKey}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        items: [
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Minimize', onClick: onMinimize },
+          { label: 'Close', danger: true, onClick: () => handleRemove() },
+        ],
+      })}
       data-select-meta={JSON.stringify({ name: output.name, description: output.description, path: output.workspace_path })}
       className="osw-card"
       onPointerDownCapture={() => onBringToFront?.(cardKey, 'view')}

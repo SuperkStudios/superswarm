@@ -58,10 +58,12 @@ import {
   registerPendingLoad,
   wakePendingLoad,
   type BrowserWebview,
+  getWebview,
 } from '@/shared/browserRegistry';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
 import { getActionLabel } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
@@ -981,6 +983,16 @@ const BrowserCard: React.FC<Props> = ({
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
       // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
       data-keepalive-hidden={keepAliveHidden || isMinimized ? '1' : undefined}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        items: [
+          { label: 'New Tab', onClick: () => dispatch(addBrowserTab({ browserId, url: browserHomepage })) },
+          { label: 'Reload', onClick: () => { try { (getWebview(browserId) as { reload?: () => void } | undefined)?.reload?.(); } catch { /* webview gone */ } } },
+          { label: 'Copy URL', onClick: () => { void navigator.clipboard.writeText(activeUrl); } },
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Minimize', onClick: handleMinimize },
+          { label: 'Close', danger: true, onClick: () => { dispatch(recordClosedCard({ kind: 'browser', id: browserId })); removeBrowserCardCleanly(browserId, dispatch); } },
+        ],
+      })}
       onPointerDownCapture={(e: React.PointerEvent) => {
         onBringToFront?.(browserId, 'browser');
         // Capture-phase so chrome clicks (tab strip, URL bar) the children swallow still select the card; clicks inside the guest page never reach the host at all. Shift keeps the bubbled toggle path. Pass the target so URL-bar/tab presses select without yanking the camera.

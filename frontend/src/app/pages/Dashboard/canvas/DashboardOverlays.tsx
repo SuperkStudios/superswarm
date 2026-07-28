@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import DashboardToolbar from '../DashboardToolbar';
 import CanvasControls from '../controls/CanvasControls';
 import HelpPill from '../desktop/HelpPill';
+import CardContextMenu from '../desktop/CardContextMenu';
 import CardSearchPalette from '../controls/CardSearchPalette';
 import DirectionHints from '../controls/DirectionHints';
 import WorkflowRunningToast from '@/app/pages/Workflows/WorkflowRunningToast';
@@ -122,6 +123,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
       {!anyFullscreen && (
       <Box sx={{ position: 'absolute', top: 14, right: 16, zIndex: 10 }}>
         <HelpPill />
+      <CardContextMenu />
       </Box>
       )}
 

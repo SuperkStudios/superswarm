@@ -18,6 +18,7 @@ import {
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import WindowControls from './WindowControls';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useTiledStyle } from './tileZones';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 
@@ -297,6 +298,13 @@ const NoteCard: React.FC<Props> = ({
       className="osw-card"
       data-select-type="note-card"
       data-select-id={noteId}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        items: [
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Minimize', onClick: onMinimize },
+          { label: 'Delete note', danger: true, onClick: () => handleRemove() },
+        ],
+      })}
       data-select-meta={JSON.stringify({ name: 'Note', content: content.slice(0, 60) })}
       onPointerDownCapture={(e: React.PointerEvent) => {
         onBringToFront?.(noteId, 'note');
