@@ -178,6 +178,15 @@ const Settings: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.accent_color, form.accent_gradient]);
 
+  // Text size applies live too; AppShell re-applies the persisted value on every boot.
+  useEffect(() => {
+    if (open && loaded) {
+      const scale = Math.min(1.4, Math.max(0.8, form.ui_font_scale ?? 1));
+      document.documentElement.style.fontSize = `${scale * 100}%`;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.ui_font_scale]);
+
   useEffect(() => {
     if (!open || !loaded) return;
     if (!buildSubmit()) return;

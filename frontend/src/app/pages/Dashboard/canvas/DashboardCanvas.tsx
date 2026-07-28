@@ -164,8 +164,10 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   onTidy,
   onSearchPaletteClose,
 }) => {
-  const { gradient } = useThemeAccent();
+  const { accent, gradient } = useThemeAccent();
   const { washOpacity, grain } = useThemeWash();
+  // A single picked color stores gradient=null, so fall back to the accent (mirrors BeatShell).
+  const washStops = gradient ?? (accent ? [accent] : null);
   const dotSize = Math.max(1, 1.5 * canvas.zoom);
   const dotSpacing = 24 * canvas.zoom;
 
@@ -333,13 +335,13 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         }}
       >
         {/* Gradient wash: the user's theme-pad stops tint the canvas, Arc-window style; intensity + grain come from the theme device; sits under the dot grid. */}
-        {gradient && gradient.length > 1 && (
+        {washStops && washStops.length > 0 && (
           <Box
             sx={{
               position: 'absolute',
               inset: 0,
               pointerEvents: 'none',
-              background: `linear-gradient(115deg, ${gradient.map((hex, i) => `${hex}${Math.round(washOpacity * 255).toString(16).padStart(2, '0')} ${(i / (gradient.length - 1)) * 100}%`).join(', ')})`,
+              background: `linear-gradient(115deg, ${washStops.map((hex, i) => `${hex}${Math.round(washOpacity * 255).toString(16).padStart(2, '0')} ${washStops.length > 1 ? (i / (washStops.length - 1)) * 100 : 100}%`).join(', ')})`,
             }}
           />
         )}
