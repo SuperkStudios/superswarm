@@ -8,38 +8,93 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useThemeAccent } from '@/shared/styles/ThemeContext';
 import { useVoice } from './voiceContext';
 
-// WhisperFlow-style presence: while the mic is hot, an accent-tinted aurora breathes up from the
-// bottom edge, its height and glow riding the live mic level. Imperative rAF writes only (opacity +
-// transform on a fixed layer), so 60Hz voice never re-renders React.
+// WhisperFlow-style presence: while the mic is hot, an aurora breathes up from the bottom edge in
+// the COMPLEMENT of the user's accent (opposite hue = always visible against their canvas, never
+// camouflaged by it), as a three-hue gradient whose lobes morph with the live mic level. Imperative
+// rAF writes only (opacity + transform), so 60Hz voice never re-renders React.
+
+function hexToHue(hex: string): { h: number; s: number; l: number } {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return { h: 250, s: 70, l: 60 };
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: l * 100 };
+  const d = max - min;
+  const sat = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+  else if (max === g) h = ((b - r) / d + 2) * 60;
+  else h = ((r - g) / d + 4) * 60;
+  return { h, s: sat * 100, l: l * 100 };
+}
+
+const LOBES = [
+  { left: '14%', width: '58vw', drift: 0.9, phase: 0.0 },
+  { left: '50%', width: '74vw', drift: 0.7, phase: 2.1 },
+  { left: '86%', width: '52vw', drift: 1.15, phase: 4.2 },
+];
+
 const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ volumeRef }) => {
   const { accent } = useThemeAccent();
-  const ref = useRef<HTMLDivElement | null>(null);
+  const lobeRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const smooth = useRef<number[]>([0, 0, 0]);
   useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let raf = 0;
     const tick = (): void => {
-      const el = ref.current;
-      if (el) {
-        const v = volumeRef.current;
-        el.style.opacity = String(0.35 + v * 0.65);
-        el.style.transform = `scaleY(${0.55 + v * 1.1})`;
-      }
+      const v = Math.min(1, volumeRef.current);
+      const t = performance.now() / 1000;
+      LOBES.forEach((lobe, i) => {
+        const el = lobeRefs.current[i];
+        if (!el) return;
+        // Lerp toward the live level so the shape glides instead of jittering; a slow sinusoid keeps
+        // it undulating at steady volume, and volume swells both the wave and the lobe height.
+        smooth.current[i] += (v - smooth.current[i]) * 0.16;
+        const sv = smooth.current[i];
+        const wave = reduced ? 0 : Math.sin(t * lobe.drift + lobe.phase) * (0.08 + sv * 0.1);
+        el.style.opacity = String(0.3 + sv * 0.6);
+        el.style.transform = `translateX(-50%) scale(${1 + wave * 0.6}, ${0.45 + sv * 1.25 + wave})`;
+      });
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [volumeRef]);
-  const a = accent || '#6b62f0';
+
+  // Opposite side of the wheel from the chosen accent, with two flanking hues for a real gradient.
+  const { h } = hexToHue(accent || '#6b62f0');
+  const c0 = `hsl(${(h + 156) % 360} 92% 62%)`;
+  const c1 = `hsl(${(h + 180) % 360} 94% 58%)`;
+  const c2 = `hsl(${(h + 204) % 360} 92% 64%)`;
   return (
-    <div
-      ref={ref}
-      style={{
-        position: 'fixed', left: 0, right: 0, bottom: 0, height: 130, zIndex: 2147482999,
-        pointerEvents: 'none', transformOrigin: 'bottom',
-        background: `linear-gradient(to top, ${a}55 0%, ${a}2e 35%, transparent 100%)`,
-        filter: 'blur(14px)',
-        transition: 'opacity 120ms linear',
-      }}
-    />
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 170, zIndex: 2147482999, pointerEvents: 'none', overflow: 'visible' }}>
+      {LOBES.map((lobe, i) => {
+        const col = [c0, c1, c2][i];
+        return (
+          <div
+            key={i}
+            ref={(el) => { lobeRefs.current[i] = el; }}
+            style={{
+              position: 'absolute', bottom: -40, left: lobe.left, width: lobe.width, height: 190,
+              transform: 'translateX(-50%) scale(1, 0.45)', transformOrigin: 'bottom center',
+              background: `radial-gradient(ellipse at 50% 100%, ${col} 0%, ${col}00 70%)`,
+              filter: 'blur(26px)', opacity: 0.3, willChange: 'transform, opacity',
+            }}
+          />
+        );
+      })}
+      <div
+        style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0, height: 90,
+          background: `linear-gradient(to right, ${c0}44, ${c1}55, ${c2}44)`,
+          maskImage: 'linear-gradient(to top, black 0%, transparent 100%)',
+          WebkitMaskImage: 'linear-gradient(to top, black 0%, transparent 100%)',
+          filter: 'blur(10px)',
+        }}
+      />
+    </div>
   );
 };
 
