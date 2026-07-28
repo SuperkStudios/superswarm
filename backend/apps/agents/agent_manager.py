@@ -227,13 +227,19 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
         except BaseException as e:
             # Catch BaseExceptionGroup from anyio task groups (e.g. concurrent CLI crash + pending approval cancellation) so it doesn't escape and kill the uvicorn process.
             logger.exception(f"Agent {session_id} fatal error: {e}")
-            session.status = "error"
-            error_msg = Message(role="system", content=f"Error: {str(e)}", branch_id=session.active_branch_id)
-            session.messages.append(error_msg)
-            await ws_manager.send_to_session(session_id, "agent:message", {
-                "session_id": session_id,
-                "message": error_msg.model_dump(mode="json"),
-            })
+            # A group's str() names the group, not the cause; unwrap to the real member so a wrapped 429/auth error still gets its friendly card + retry-pill semantics instead of a raw group dump.
+            from backend.apps.agents.core.first_real_exception import first_real_exception
+            p_real = first_real_exception(e)
+            if p_real is not None:
+                await handle_run_error(p_real, session, session_id, turn, p_stderr_buffer)
+            else:
+                session.status = "error"
+                error_msg = Message(role="system", content=f"Error: {str(e)}", branch_id=session.active_branch_id)
+                session.messages.append(error_msg)
+                await ws_manager.send_to_session(session_id, "agent:message", {
+                    "session_id": session_id,
+                    "message": error_msg.model_dump(mode="json"),
+                })
         finally:
             # Only the session's live task finalizes. A stopped task (popped by stop_agent, which already finalized status + saved) or one superseded by a newer turn must not pop the new turn's partial mirror, broadcast a stale terminal status, or overwrite the snapshot the live turn is writing.
             p_is_live_task = self.tasks.get(session_id) is asyncio.current_task()

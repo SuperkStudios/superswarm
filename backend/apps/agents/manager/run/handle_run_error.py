@@ -18,6 +18,7 @@ from backend.apps.agents.core.error_classify import (
     is_out_of_tokens,
     extract_reset_hint,
     is_auth_error,
+    is_cli_binary_missing,
     is_unknown_model_error,
     parse_retry_after,
     redact_for_telemetry,
@@ -94,6 +95,32 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             })
         except Exception:
             logger.debug("submit_diagnostic for context_overflow failed", exc_info=True)
+    elif is_cli_binary_missing(e, extra_text=p_stderr_tail):
+        # The bundled CLI vanished from an installed app (Windows AV quarantine class; 22 of 25 field installs never recovered). The raw "not found at: C:\..." card is unactionable; name the likely cause and the two real fixes.
+        friendly_msg = (
+            "A core OpenSwarm component (the bundled agent runtime) is missing from "
+            "this install, which usually means antivirus software quarantined it. "
+            "Restore it from your antivirus quarantine and add an exclusion for "
+            "OpenSwarm, or reinstall from openswarm.com. Your chats and settings "
+            "are kept either way."
+        )
+        error_msg = Message(role="system", content=friendly_msg, branch_id=session.active_branch_id)
+        session.messages.append(error_msg)
+        await ws_manager.send_to_session(session_id, "agent:message", {
+            "session_id": session_id,
+            "message": error_msg.model_dump(mode="json"),
+        })
+        try:
+            from backend.apps.service.client import submit_diagnostic
+            submit_diagnostic({
+                "kind": "cli_binary_missing",
+                "where": "manager.run.handle_run_error",
+                "session_id": session_id,
+                "model": session.model,
+                "error_preview": redact_for_telemetry(str(e), limit=400),
+            })
+        except Exception:
+            logger.debug("submit_diagnostic cli_binary_missing failed", exc_info=True)
     elif is_transient_capacity_error(e, extra_text=p_stderr_tail):
         # A genuine throttle (429/overload/capacity) that already burned the whole silent-backoff budget (the only way one reaches here). It's a limit, not a failure, so don't append a system-message card; emit a transient signal for the muted pill and mark the turn completed so it doesn't read as an error.
         session.status = "completed"
@@ -245,7 +272,12 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             })
         except Exception:
             logger.debug("submit_diagnostic model_error failed", exc_info=True)
-        error_msg = Message(role="system", content=f"Error: {str(e)}", branch_id=session.active_branch_id)
+        # The SDK's ProcessError masks the cause behind "Check stderr output for details"; append the scrubbed stderr tail so the card (and its analytics copy) names what actually broke instead of shipping a dead end.
+        p_card_text = f"Error: {str(e)}"
+        p_cause = redact_for_telemetry(p_stderr_tail, limit=400).strip()
+        if p_cause and "check stderr" in str(e).lower():
+            p_card_text += f"\n\nRuntime log tail:\n{p_cause}"
+        error_msg = Message(role="system", content=p_card_text, branch_id=session.active_branch_id)
         session.messages.append(error_msg)
         await ws_manager.send_to_session(session_id, "agent:message", {
             "session_id": session_id,
