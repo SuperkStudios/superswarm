@@ -18,6 +18,7 @@ import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import WindowControls from './WindowControls';
+import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useTiledStyle } from './tileZones';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { API_BASE, getAuthToken } from '@/shared/config';
@@ -329,7 +330,7 @@ const DashboardViewCard: React.FC<Props> = ({
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(cardKey, 'view');
   }, [cardX, cardY, onDragStart, cardKey, getCanvasState, tileZone]);
 
@@ -369,19 +370,19 @@ const DashboardViewCard: React.FC<Props> = ({
     recomputeDragPos();
   }, [recomputeDragPos]);
 
-  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
       // Snap to 24px grid; Shift bypasses.
-      if (!e.shiftKey) {
+      if (!shiftKey) {
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
@@ -398,8 +399,19 @@ const DashboardViewCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, cardKey, onDragEnd, getCanvasState]);
+
+  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+  useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
   const resizeRef = useRef<{
     dir: ResizeDir; startX: number; startY: number;
@@ -612,6 +624,8 @@ const DashboardViewCard: React.FC<Props> = ({
         onPointerDown={handleDragPointerDown}
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         onPointerEnter={() => { if (headerCollapsed) setHeaderPeek(true); }}
         onPointerLeave={() => setHeaderPeek(false)}
         sx={{

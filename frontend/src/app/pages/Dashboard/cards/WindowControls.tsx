@@ -23,7 +23,6 @@ const GREEN = '#28c840';
 const GROUPS: { label: string; zones: string[] }[] = [
   { label: 'Fill & Halves', zones: ['fill', 'left', 'right', 'top', 'bottom'] },
   { label: 'Quarters', zones: ['tl', 'tr', 'bl', 'br'] },
-  { label: 'Thirds', zones: ['t3l', 't3c', 't3r'] },
 ];
 
 const dotSx = (color: string): Record<string, unknown> => ({

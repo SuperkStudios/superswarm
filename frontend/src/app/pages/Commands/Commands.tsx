@@ -86,14 +86,7 @@ export const CommandsContent: React.FC = () => {
       description: s.description || 'Skill',
       command: s.command || s.id,
     })),
-    ...Object.values(modesMap).map((m) => ({
-      id: m.id,
-      type: 'mode' as const,
-      name: m.name,
-      description: m.description || 'Switch to this mode',
-      command: m.name.toLowerCase().replace(/\s+/g, '-'),
-    })),
-  ], [skills, modesMap]);
+  ], [skills]);
 
   const atCommands: AtCommand[] = useMemo(() => {
     const items: AtCommand[] = [

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, type Dispatch, type SetStateActi
 import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
 import { store } from '@/shared/state/store';
-import { collapseSession, expandSession } from '@/shared/state/agentsSlice';
+import { expandSession } from '@/shared/state/agentsSlice';
 import { bringToFront } from '@/shared/state/dashboardLayoutSlice';
 import { setScrollFocusedCard } from '@/shared/cardScrollFocus';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
@@ -80,16 +80,10 @@ export function useDashboardInteractions({
     // it or glide the camera; it leaves the mode via its own controls (yellow, Esc, dock swap).
     if (store.getState().dashboardLayout.tiledCards[id]) return;
 
-    const alreadyExpanded = type === 'agent' && expandedSessionIds.includes(id);
-
-    if (alreadyExpanded) {
-      // Delay single-click collapse so double-click can override. Double-click handler (handleCardDoubleClick) clears clickTimerRef.
-      clickTimerRef.current = setTimeout(() => {
-        clickTimerRef.current = null;
-        dispatch(collapseSession(id));
-      }, 250);
-      return;
-    }
+    // Single-click on an already-expanded chat is focus, never collapse: the old delayed-collapse
+    // toggle made a click land, collapse the chat, and force a second click to reopen ("takes
+    // multiple clicks"). Collapse lives on the yellow light / Esc / canvas click instead.
+    if (type === 'agent' && expandedSessionIds.includes(id)) return;
 
     // Expand (if not already) + center + zoom + bring to front
     if (type === 'agent') {

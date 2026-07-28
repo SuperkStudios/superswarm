@@ -40,6 +40,7 @@ import { useTiledStyle } from './tileZones';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { extractLatestTodos } from '../desktop/agentTodos';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
+import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { getWebview } from '@/shared/browserRegistry';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
@@ -453,7 +454,7 @@ const AgentCard: React.FC<Props> = ({
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(session.id, 'agent');
   }, [cardX, cardY, onDragStart, session.id, getCanvasState, tileZone]);
 
@@ -493,14 +494,14 @@ const AgentCard: React.FC<Props> = ({
     recomputeDragPos();
   }, [recomputeDragPos]);
 
-  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
@@ -511,7 +512,7 @@ const AgentCard: React.FC<Props> = ({
       }
 
       // Snap to 24px grid (Shift bypasses).
-      if (!e.shiftKey) {
+      if (!shiftKey) {
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
@@ -525,8 +526,19 @@ const AgentCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, session.id, onDragEnd, snapColumn, cardHeight, getCanvasState]);
+
+  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+  useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
   const resizeRef = useRef<{
     dir: ResizeDir;
@@ -967,6 +979,18 @@ const AgentCard: React.FC<Props> = ({
         />
       )}
 
+      {/* Grab band: the top sliver of an expanded card drags it, matching the "grab the window by
+          its top edge" instinct; the pop-above header remains the labeled handle. */}
+      {expanded && !tiledStyle && !pillMode && (
+        <Box
+          onPointerDown={handleDragPointerDown}
+          onPointerMove={handleDragPointerMove}
+          onPointerUp={handleDragPointerUp}
+          onPointerCancel={abortDrag}
+          onLostPointerCapture={abortDrag}
+          sx={{ position: 'absolute', top: 0, left: 12, right: 12, height: 14, zIndex: 18, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+        />
+      )}
       {pillMode && (
         <Box
           onPointerDown={handleDragPointerDown}
@@ -1013,6 +1037,8 @@ const AgentCard: React.FC<Props> = ({
         onPointerDown={handleDragPointerDown}
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         sx={{
           ...(expanded
             ? tiledStyle
