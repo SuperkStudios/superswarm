@@ -112,7 +112,6 @@ const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) =>
 
   return (
     <Box>
-      <Typography sx={{ ...sectionSx, mt: 3 }}>Data &amp; Privacy</Typography>
 
       <Box sx={{ ...rowSx, borderBottom: `1px solid ${c.border.subtle}` }}>
         <Box>

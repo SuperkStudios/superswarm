@@ -35,7 +35,6 @@ const GeneralAdvanced: React.FC<{
 
   return (
     <>
-      <Typography sx={{ ...sectionSx, mt: 3 }}>Advanced</Typography>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('dev_mode', 'Developer mode', 'Advanced', 'Show transport details, env vars, and technical metadata throughout the app.')}>
         <Box sx={{ mr: 3 }}>

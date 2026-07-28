@@ -28,7 +28,6 @@ const GeneralInterface: React.FC<{
 
   return (
     <>
-      <Typography sx={{ ...sectionSx, mt: 3 }}>Interface</Typography>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('theme', 'Theme', 'Interface', 'Application color scheme.')}>
         <Box sx={{ mr: 3 }}>

@@ -33,7 +33,6 @@ const GeneralAgentDefaults: React.FC<{
 
   return (
     <>
-      <Typography sx={sectionSx}>Agent Defaults</Typography>
 
       <Box sx={rowSx} {...settingSelectAttrs('default_system_prompt', 'System prompt', 'Agent Defaults', 'Prepended to every agent session before mode-specific instructions.')}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
