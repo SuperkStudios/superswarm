@@ -8,21 +8,28 @@ export function makeSettingsStyles(c: any) {
 
   const sectionSx = {
     fontSize: '0.6875rem',
-    fontWeight: 600,
-    letterSpacing: '0.06em',
+    fontWeight: 700,
+    letterSpacing: '0.07em',
     textTransform: 'uppercase' as const,
-    color: c.text.tertiary,
-    mb: 0.5,
-    mt: 0.5,
+    color: c.text.muted,
+    mb: 1,
+    mt: 2.5,
+    px: 0.5,
   };
 
+  // Apple/ChatGPT settings grammar: each row is its own soft contained chip, not a hairline in a
+  // long scroll; the pane reads as a stack of quiet cards.
   const rowSx = {
-    py: 2,
-    borderBottom: `1px solid ${c.border.subtle}`,
+    px: 2,
+    py: 1.5,
+    mb: 1,
+    bgcolor: c.bg.surface,
+    border: `1px solid ${c.border.subtle}`,
+    borderRadius: '10px',
   };
 
   const rowLastSx = {
-    py: 2,
+    ...rowSx,
   };
 
   const inlineRowSx = {
