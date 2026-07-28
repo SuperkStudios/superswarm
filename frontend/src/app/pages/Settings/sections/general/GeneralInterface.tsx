@@ -24,7 +24,7 @@ const GeneralInterface: React.FC<{
   const c = useClaudeTokens();
   const { washOpacity, grain, setWashOpacity, setGrain } = useThemeWash();
   const [recordingShortcut, setRecordingShortcut] = useState(false);
-  const { fieldSx, sectionSx, rowSx, rowLastSx, inlineRowSx, inlineRowLastSx, labelSx, descSx } = styles;
+  const { fieldSx, sectionSx, rowSx, rowLastSx, inlineRowSx, inlineRowLastSx, labelSx, descSx, toggleGroupSx, switchSx } = styles;
 
   return (
     <>
@@ -39,23 +39,7 @@ const GeneralInterface: React.FC<{
           exclusive
           onChange={(_, v) => { if (v) setForm({ ...form, theme: v }); }}
           size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: c.text.muted,
-              borderColor: c.border.medium,
-              textTransform: 'none',
-              px: 2,
-              py: 0.5,
-              gap: 0.5,
-              fontSize: '0.8125rem',
-              '&.Mui-selected': {
-                bgcolor: `${c.accent.primary}15`,
-                color: c.accent.primary,
-                borderColor: c.accent.primary,
-                '&:hover': { bgcolor: `${c.accent.primary}20` },
-              },
-            },
-          }}
+          sx={toggleGroupSx}
         >
           <ToggleButton value="light">
             <LightModeIcon sx={{ fontSize: 16 }} /> Light
@@ -76,22 +60,7 @@ const GeneralInterface: React.FC<{
           exclusive
           onChange={(_, v) => { if (v) setForm({ ...form, ui_font_scale: v }); }}
           size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: c.text.muted,
-              borderColor: c.border.medium,
-              textTransform: 'none',
-              px: 1.75,
-              py: 0.5,
-              fontSize: '0.8125rem',
-              '&.Mui-selected': {
-                bgcolor: `${c.accent.primary}15`,
-                color: c.accent.primary,
-                borderColor: c.accent.primary,
-                '&:hover': { bgcolor: `${c.accent.primary}20` },
-              },
-            },
-          }}
+          sx={toggleGroupSx}
         >
           <ToggleButton value={0.9}>Small</ToggleButton>
           <ToggleButton value={1}>Default</ToggleButton>
@@ -116,22 +85,7 @@ const GeneralInterface: React.FC<{
             if (v) void window.openswarm?.voiceRequestHoldPermission?.();
           }}
           size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: c.text.muted,
-              borderColor: c.border.medium,
-              textTransform: 'none',
-              px: 1.75,
-              py: 0.5,
-              fontSize: '0.8125rem',
-              '&.Mui-selected': {
-                bgcolor: `${c.accent.primary}15`,
-                color: c.accent.primary,
-                borderColor: c.accent.primary,
-                '&:hover': { bgcolor: `${c.accent.primary}20` },
-              },
-            },
-          }}
+          sx={toggleGroupSx}
         >
           <ToggleButton value={true}>Hold to talk</ToggleButton>
           <ToggleButton value={false}>Tap to toggle</ToggleButton>
@@ -245,10 +199,7 @@ const GeneralInterface: React.FC<{
         <Switch
           checked={form.auto_select_mode_on_new_agent}
           onChange={(e) => setForm({ ...form, auto_select_mode_on_new_agent: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
@@ -260,10 +211,7 @@ const GeneralInterface: React.FC<{
         <Switch
           checked={form.expand_new_chats_in_dashboard}
           onChange={(e) => setForm({ ...form, expand_new_chats_in_dashboard: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
@@ -275,10 +223,7 @@ const GeneralInterface: React.FC<{
         <Switch
           checked={form.auto_reveal_sub_agents}
           onChange={(e) => setForm({ ...form, auto_reveal_sub_agents: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 

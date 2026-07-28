@@ -22,7 +22,7 @@ const GeneralAdvanced: React.FC<{
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const appVersion = useAppSelector((s) => s.update.appVersion);
-  const { sectionSx, rowSx, inlineRowSx, inlineRowLastSx, labelSx, descSx } = styles;
+  const { sectionSx, rowSx, inlineRowSx, inlineRowLastSx, labelSx, descSx, switchSx } = styles;
 
   // Provenance: the exact commit this build was cut from. Surfaced so a support screenshot of Settings is enough to identify the shipped code. Empty in dev / web (no Electron bridge or unknown sha), in which case we hide the row.
   const [buildLabel, setBuildLabel] = React.useState<string | null>(null);
@@ -44,10 +44,7 @@ const GeneralAdvanced: React.FC<{
         <Switch
           checked={form.dev_mode}
           onChange={(e) => setForm({ ...form, dev_mode: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
@@ -59,10 +56,7 @@ const GeneralAdvanced: React.FC<{
         <Switch
           checked={form.allow_experimental_updates}
           onChange={(e) => setForm({ ...form, allow_experimental_updates: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
