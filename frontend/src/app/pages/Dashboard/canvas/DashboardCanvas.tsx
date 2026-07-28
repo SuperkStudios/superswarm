@@ -364,6 +364,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
+            // Arc fullscreen: the float sits on a clean themed ground, the dot texture is canvas-only.
+            display: anyFullscreen ? 'none' : undefined,
             backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
               `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
             )}")`,

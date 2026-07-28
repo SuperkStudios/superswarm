@@ -56,7 +56,7 @@ import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const SIDEBAR_MIN = 160;
@@ -148,6 +148,11 @@ const AppShell: React.FC = () => {
   const hasModelConnected = useAppSelector(selectHasModelConnected);
   // While onboarding owns the window, the floating sidebar (and its hover-peek strip) must not exist; both out-z the overlay.
   const v3FlowActive = useAppSelector((st) => st.onboardingV3.flowActive);
+  // Arc/Zen fullscreen ground: ONE themed wash across the whole window (sidebar sits on it borderless,
+  // the content floats as a rounded card). Mirrors the DashboardCanvas wash formula.
+  const { accent: themeAccent, gradient: themeGradient } = useThemeAccent();
+  const { washOpacity: themeWashOpacity } = useThemeWash();
+  const fsWashStops = themeGradient ?? (themeAccent ? [themeAccent] : null);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
     const d = s.settings.data as any;
@@ -702,7 +707,10 @@ const AppShell: React.FC = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary }}>
+    <Box sx={{
+      display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
+      ...(fsActive && fsWashStops ? { backgroundImage: `linear-gradient(115deg, ${fsWashStops.map((hex, i) => `${hex}${Math.round(themeWashOpacity * 255).toString(16).padStart(2, '0')} ${fsWashStops.length > 1 ? (i / (fsWashStops.length - 1)) * 100 : 100}%`).join(', ')})` } : {}),
+    }}>
       {sidebarAway && !sidePeek && !v3FlowActive && (
         <Box onMouseEnter={() => { cancelPeekClose(); setSidePeek(true); }} sx={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: 14, zIndex: 2147483000, pointerEvents: 'auto' }} />
       )}
@@ -939,11 +947,10 @@ const AppShell: React.FC = () => {
             transition: 'transform 240ms cubic-bezier(0.22,1,0.36,1)',
             pointerEvents: sidePeek && !v3FlowActive ? 'auto' : 'none',
           } : fsActive ? {
-            // Fullscreen with the sidebar pinned: the panel sits beside a full-bleed surface, so its
-            // dashboard-facing right corners curve like a pill; normal docked mode stays square.
-            borderRadius: '0 14px 14px 0',
-            overflow: 'hidden',
-            borderRight: `1px solid ${c.border.subtle}`,
+            // Fullscreen with the sidebar pinned = Arc: no slab, no seam line, the sidebar sits
+            // directly on the shared window wash and the content floats beside it as a rounded card.
+            bgcolor: 'transparent',
+            border: 'none',
           } : {}),
         }}
       >
