@@ -25,6 +25,7 @@ export interface ScanResult {
 
 export interface PrepResponse {
   headline: string;
+  epithets?: string[];
   greeting: string;
   starters: PersonalizedStarter[];
   app_title: string;

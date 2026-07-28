@@ -57,6 +57,8 @@ class PrepResponse(BaseModel):
     # A punchy <=10-word identity hook, read at a glance in the reveal's focal beat (the greeting is the
     # longer warm read for the chat; the headline is the scannable one-liner most people actually read).
     headline: str = ""
+    # 2-4 word identity titles tailored to this user; the Swarm Card leads with these over the static list.
+    epithets: List[str] = Field(default_factory=list)
     greeting: str = ""
     starters: List[PersonalizedStarter] = Field(default_factory=list)
     app_title: str = ""

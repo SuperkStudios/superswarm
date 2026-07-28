@@ -208,7 +208,7 @@ const OnboardingV3Root: React.FC = () => {
               )}
               {beat === 'apps' && <BeatApps c={c} picks={picks} setPicks={setPicks} onNext={leaveApps} onBack={() => setBeat('connect')} />}
               {beat === 'theme' && <BeatTheme c={c} onNext={() => setBeat('card')} onBack={() => setBeat('apps')} />}
-              {beat === 'card' && <BeatCard c={c} identity={pipeline.identity} onFinish={(name) => { void leaveCard(name); }} onBack={() => setBeat('theme')} />}
+              {beat === 'card' && <BeatCard c={c} identity={pipeline.identity} personalizedEpithets={pipeline.getPrepEpithets()} onFinish={(name) => { void leaveCard(name); }} onBack={() => setBeat('theme')} />}
             </motion.div>
           </AnimatePresence>
         </motion.div>

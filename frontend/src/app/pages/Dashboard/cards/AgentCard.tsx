@@ -906,6 +906,8 @@ const AgentCard: React.FC<Props> = ({
           border: isFullscreen ? 'none' : isSelected ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.08)',
           borderRadius: tiledStyle ? '12px' : '20px',
           boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
+          // The hover header floats ABOVE the card; the root must not clip it (the chat body clips itself).
+          ...(tiledStyle ? {} : { overflow: 'visible' }),
         }),
       }}
     >
@@ -1059,7 +1061,7 @@ const AgentCard: React.FC<Props> = ({
             onPointerDown={(e) => e.stopPropagation()}
             sx={{ display: 'flex', alignItems: 'center', mr: 0.75, flexShrink: 0 }}
           >
-            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} fullscreen={isFullscreen} />
+            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
           </Box>
           <Box
             sx={{

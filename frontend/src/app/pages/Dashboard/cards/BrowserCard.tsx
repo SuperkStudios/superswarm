@@ -1002,7 +1002,6 @@ const BrowserCard: React.FC<Props> = ({
             onMinimize={handleMinimize}
             onTile={onTile}
             tiled={!!tileZone}
-            fullscreen={tileZone === 'fullscreen'}
           />
         </Box>
         <Box

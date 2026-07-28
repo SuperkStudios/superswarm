@@ -1,6 +1,5 @@
 import React, { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
-import FullscreenExitRoundedIcon from '@mui/icons-material/FullscreenExitRounded';
 import { TILE_ZONES } from './tileZones';
 
 interface WindowControlsProps {
@@ -8,9 +7,6 @@ interface WindowControlsProps {
   onMinimize: () => void;
   onTile: (zone: string) => void; // a TILE_ZONES key, or 'restore'
   tiled?: boolean;
-  // Full size view: the native macOS lights sit right above this corner, so a second dot cluster
-  // reads as double chrome; collapse to ONE exit control and let the natives own window ops.
-  fullscreen?: boolean;
   // Green = direct fullscreen toggle, no Fill/Halves/Quarters submenu (for surfaces that only
   // support fullscreen, like the Workflows window, where half-tiling has nowhere to land).
   noTileMenu?: boolean;
@@ -57,7 +53,7 @@ export const ARC_CHIP_SX: Record<string, unknown> = {
   '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(3)': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
 };
 
-function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTileMenu }: WindowControlsProps): React.ReactElement {
+function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: WindowControlsProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   // Menu DOM (12 tiles + labels, ~30 nodes) mounts on first green-dot hover, not per card at boot.
   const [menuHot, setMenuHot] = useState(false);
@@ -70,32 +66,6 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, fullscreen, noTile
   };
   const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 180); };
   const stop = (e: React.PointerEvent | React.MouseEvent): void => { e.stopPropagation(); };
-
-  if (fullscreen) {
-    return (
-      <Box className="osw-window-lights" onPointerDown={stop} sx={{ display: 'flex', alignItems: 'center', flex: 'none' }}>
-        <Box
-          component="button"
-          type="button"
-          aria-label="Exit full screen"
-          title="Exit full screen (Esc)"
-          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onTile('restore'); }}
-          onPointerDown={stop}
-          sx={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 24, height: 24, p: 0, border: 'none', borderRadius: '7px',
-            // Neutral chip at rest so it reads on ANY ground (the fullscreen chat wash is dark, the
-            // browser chrome is light); hover goes explicit white-on-dark so it can never disappear.
-            background: 'rgba(128,128,128,0.28)', color: 'inherit', opacity: 0.9, cursor: 'pointer',
-            transition: 'opacity 120ms, background 120ms, color 120ms',
-            '&:hover': { opacity: 1, background: 'rgba(0,0,0,0.5)', color: '#fff' },
-          }}
-        >
-          <FullscreenExitRoundedIcon sx={{ fontSize: 16 }} />
-        </Box>
-      </Box>
-    );
-  }
 
   const btn = (color: string, symbol: string, onClick: () => void, label: string): React.ReactElement => (
     <Box component="button" type="button" aria-label={label}

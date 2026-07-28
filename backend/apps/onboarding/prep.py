@@ -30,7 +30,7 @@ P_SYSTEM = (
     "You write first-run starter tasks for OpenSwarm, a desktop AI agent platform that can "
     "organize local files, browse the web in a real browser, build small apps, and run agents in parallel. "
     "Given facts about the user's machine and the apps they picked, respond with STRICT JSON only: "
-    '{"headline": string, "greeting": string, "starters": [{"title": string, "prompt": string, "reason": string}], "app_title": string, "app_prompt": string, "app_reason": string, "research_title": string, "research_prompt": string, "research_reason": string, "browser_title": string, "browser_prompt": string, "browser_reason": string, "automations": [{"title": string, "prompt": string, "cadence": "daily"|"weekday"|"weekly"}]}. '
+    '{"headline": string, "greeting": string, "epithets": [string, string, string], "starters": [{"title": string, "prompt": string, "reason": string}], "app_title": string, "app_prompt": string, "app_reason": string, "research_title": string, "research_prompt": string, "research_reason": string, "browser_title": string, "browser_prompt": string, "browser_reason": string, "automations": [{"title": string, "prompt": string, "cadence": "daily"|"weekday"|"weekly"}]}. '
     "First, silently infer a short, confident profile of this user: who they are and what they are working on. "
     "If usage_summary is present it is the STRONGEST signal (a distilled profile of who this person is and what "
     "they actually work on, read from their real AI conversations); weight it above everything else. Do NOT let a "
@@ -126,6 +126,7 @@ P_SYSTEM = (
     "defining trait, no filler, no full sentence, no period. It is read at a glance in big type, so it must NOT be "
     "a paragraph. Example shapes only (never copy, tailor to THEM): 'OpenSwarm founder who measures everything, "
     "vertical jump to agent latency' or 'Ships iOS apps, obsessed with the last 5% of polish'. Sharp, not wordy. "
+    "epithets: exactly 3 short identity titles for this person, 2-4 plain words each (like 'QUIET POWER USER' but THEIRS, drawn from their real work and interests in the profile), confident and warm, never punny, never generic. "
     "The greeting is one or two warm, punchy sentences that make this person feel INSTANTLY understood, the "
     "'wait, it actually gets me' hook. Lead with the single most specific true thing about them from the profile "
     "(their actual project BY NAME, their real craft, the obsession they keep returning to), then add ONE more "
@@ -165,6 +166,7 @@ def parse_prep(text: str) -> Optional[PrepResponse]:
     starters = build_starters(data.get("starters") if isinstance(data.get("starters"), list) else [])
     automations = p_build_automations(data.get("automations") if isinstance(data.get("automations"), list) else [])
     headline = str(data.get("headline", "")).strip()
+    epithets = [strip_dashes(str(x)).strip() for x in (data.get("epithets") or []) if str(x).strip()][:3]
     greeting = str(data.get("greeting", "")).strip()
     app_title = str(data.get("app_title", "")).strip()
     app_prompt = str(data.get("app_prompt", "")).strip()
@@ -213,6 +215,7 @@ def parse_prep(text: str) -> Optional[PrepResponse]:
         return None
     return PrepResponse(
         headline=strip_dashes(headline),
+        epithets=epithets,
         greeting=strip_dashes(greeting),
         starters=starters[:4],
         app_title=strip_dashes(app_title),

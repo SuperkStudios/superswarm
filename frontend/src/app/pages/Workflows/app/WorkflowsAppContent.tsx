@@ -85,7 +85,6 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader }> = ({ header }) => {
             onMinimize={() => dispatch(closeWorkflowsApp())}
             onTile={() => dispatch(toggleWorkflowsHubFullscreen())}
             tiled={isFullscreen}
-            fullscreen={isFullscreen}
             noTileMenu
           />
         </span>

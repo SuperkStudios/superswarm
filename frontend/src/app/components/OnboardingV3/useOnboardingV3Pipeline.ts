@@ -118,5 +118,8 @@ export function useOnboardingV3Pipeline() {
     dispatch(setFlowActive(false));
   }, [dispatch, accent, gradient, mode]);
 
-  return { identity, kickIdentity, kickScan, kickUsageRead, kickPrep, finish };
+  // Read synchronously at card-beat time: prep has usually resolved by the last beat.
+  const getPrepEpithets = useCallback((): string[] => prepReadyRef.current?.epithets ?? [], []);
+
+  return { identity, kickIdentity, kickScan, kickUsageRead, kickPrep, finish, getPrepEpithets };
 }

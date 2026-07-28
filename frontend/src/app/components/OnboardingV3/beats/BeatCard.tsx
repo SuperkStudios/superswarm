@@ -47,16 +47,24 @@ function readableInk(base: string, c: ClaudeTokens): string {
 const BeatCard: React.FC<{
   c: ClaudeTokens;
   identity: ProviderIdentity[];
+  // Prep-written identity titles for THIS user; the dice leads with these, statics are the floor.
+  personalizedEpithets?: string[];
   onFinish: (name: string | null) => void;
   onBack: () => void;
-}> = ({ c, identity, onFinish, onBack }) => {
+}> = ({ c, identity, personalizedEpithets, onFinish, onBack }) => {
   const { accent, gradient } = useThemeAccent();
   const [name, setName] = useState(() => nameFromIdentity(identity));
   // finish() can legitimately wait up to PREP_WAIT_CAP_MS on prep; the button must say so, once.
   const [submitting, setSubmitting] = useState(false);
-  const seed = useMemo(() => Math.floor(Math.random() * EPITHETS.length), []);
+  const pool = useMemo(() => {
+    const personal = (personalizedEpithets ?? []).map((e) => e.toUpperCase()).filter(Boolean);
+    return personal.length > 0 ? [...personal, ...EPITHETS] : EPITHETS;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Personalized titles lead; only a pure-static pool starts on a random one.
+  const seed = useMemo(() => ((personalizedEpithets ?? []).length > 0 ? 0 : Math.floor(Math.random() * pool.length)), [pool]);
   const [roll, setRoll] = useState(0);
-  const epithet = EPITHETS[(seed + roll) % EPITHETS.length];
+  const epithet = pool[(seed + roll) % pool.length];
   const today = useMemo(() => new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }), []);
   const [tilt, setTilt] = useState<{ rx: number; ry: number; mx: number; my: number } | null>(null);
   const [copied, setCopied] = useState(false);
