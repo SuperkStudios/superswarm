@@ -72,7 +72,7 @@ const GeneralInterface: React.FC<{
       <Box sx={inlineRowSx} {...settingSelectAttrs('voice_hold_to_talk', 'Dictation', 'Interface', 'Hold to talk, or tap to start and stop.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Dictation</Typography>
-          <Typography sx={descSx}>How the mic button and the mic key (F5) work.</Typography>
+          <Typography sx={descSx}>{`How the mic button and the dictation shortcut (${/Mac/.test(navigator.platform) ? '\u2318\u21e7D' : 'Ctrl+Shift+D'}) work.`}</Typography>
         </Box>
         <ToggleButtonGroup
           value={form.voice_hold_to_talk ?? true}

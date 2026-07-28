@@ -571,6 +571,17 @@ function addMissingCards<T extends { x: number; y: number; width: number; height
   }
 }
 
+// One docked surface per chat: the slot is a single rect, so docking a new browser/app releases
+// whatever was previously docked there (it falls back to its stored free position).
+function clearOtherDocks(state: { browserCards: Record<string, BrowserCardPosition>; viewCards: Record<string, ViewCardPosition> }, sessionId: string): void {
+  for (const bc of Object.values(state.browserCards)) {
+    if (bc.docked_to === sessionId) bc.docked_to = null;
+  }
+  for (const vc of Object.values(state.viewCards)) {
+    if (vc.docked_to === sessionId) vc.docked_to = null;
+  }
+}
+
 const dashboardLayoutSlice = createSlice({
   name: 'dashboardLayout',
   initialState,
@@ -852,7 +863,7 @@ const dashboardLayoutSlice = createSlice({
         zOrder: state.nextZOrder++,
         parent_session_id: parentSessionId || null,
         // An agent-built app defaults to living INSIDE its chat, same as spawned browsers.
-        docked_to: parentSessionId || null,
+        docked_to: (parentSessionId && (clearOtherDocks(state, parentSessionId), parentSessionId)) || null,
         preview_deferred: previewDeferred || undefined,
       };
       state.pendingFocusViewCardId = cardKey;
@@ -938,11 +949,15 @@ const dashboardLayoutSlice = createSlice({
 
     setViewDocked(state, action: PayloadAction<{ cardKey: string; dockedTo: string | null }>) {
       const vc = state.viewCards[action.payload.cardKey];
-      if (vc) vc.docked_to = action.payload.dockedTo;
+      if (!vc) return;
+      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo);
+      vc.docked_to = action.payload.dockedTo;
     },
     setBrowserDocked(state, action: PayloadAction<{ browserId: string; dockedTo: string | null }>) {
       const bc = state.browserCards[action.payload.browserId];
-      if (bc) bc.docked_to = action.payload.dockedTo;
+      if (!bc) return;
+      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo);
+      bc.docked_to = action.payload.dockedTo;
     },
     addBrowserCardFromBackend(state, action: PayloadAction<BrowserCardPosition>) {
       const card = action.payload;
@@ -1801,6 +1816,9 @@ const dashboardLayoutSlice = createSlice({
           for (const bc of Object.values(state.browserCards)) {
             if (bc.spawned_by !== session.id) continue;
             const pos = placeBrowserBesideChat(state, parentCard, session.id, bc.width, bc.height, bc.browser_id);
+            // Default home is inside the chat, same as the non-racing spawn path.
+            clearOtherDocks(state, session.id);
+            bc.docked_to = session.id;
             bc.x = pos.x;
             bc.y = pos.y;
             state.glowingBrowserCards[bc.browser_id] = { sourceId: session.id, fading: false, label: 'Use Browser' };

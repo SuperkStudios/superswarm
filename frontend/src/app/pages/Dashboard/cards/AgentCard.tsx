@@ -710,10 +710,10 @@ const AgentCard: React.FC<Props> = ({
     if ((session.messages || []).length === 0) dispatch(fetchSession(session.id));
   }, [pillMode, session.messages, session.id, dispatch]);
 
-  // f7's collapsed state: a session that spawned a browser shows that window under the pill.
+  // f7's collapsed state: a session's browser (spawned by it or docked into it) shows under the pill.
   const spawnedBrowserId = useAppSelector((s) => {
     for (const bc of Object.values(s.dashboardLayout.browserCards)) {
-      if (bc.spawned_by === session.id) return bc.browser_id;
+      if (bc.spawned_by === session.id || bc.docked_to === session.id) return bc.browser_id;
     }
     return null;
   });

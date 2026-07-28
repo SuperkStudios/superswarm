@@ -2407,7 +2407,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   data-browser-slot={id}
                   sx={{
                     flexShrink: 0,
-                    height: 320,
+                    height: 'clamp(240px, 42%, 560px)',
                     mx: 1.5,
                     mb: 1,
                     borderRadius: '10px',

@@ -973,6 +973,9 @@ const BrowserCard: React.FC<Props> = ({
             : c.shadow.md;
 
   const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's live shot,
+  // instead of teleporting back to wherever it sat before docking.
+  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
 
   return (
     <Box
@@ -982,7 +985,7 @@ const BrowserCard: React.FC<Props> = ({
       data-select-id={browserId}
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
       // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
-      data-keepalive-hidden={keepAliveHidden || isMinimized ? '1' : undefined}
+      data-keepalive-hidden={keepAliveHidden || isMinimized || dockParked ? '1' : undefined}
       onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
         items: [
           { label: 'New Tab', onClick: () => dispatch(addBrowserTab({ browserId, url: browserHomepage })) },
@@ -1011,13 +1014,13 @@ const BrowserCard: React.FC<Props> = ({
       sx={{
         position: 'absolute',
         // Kept-alive card from another dashboard: parked far off-screen so its webview surface can't bleed onto the dashboard you're viewing; click-through, webContents stays mounted.
-        pointerEvents: keepAliveHidden || isMinimized ? 'none' : undefined,
+        pointerEvents: keepAliveHidden || isMinimized || dockParked ? 'none' : undefined,
         // contain: webview repaints don't shake neighbor cards.
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden || isMinimized ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
-        top: tiledStyle && !(keepAliveHidden || isMinimized) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
+        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: tiledStyle && !(keepAliveHidden || isMinimized || dockParked) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
         transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
         transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
         width: tiledStyle ? tiledStyle.width : dockActive ? dockRect!.w : displayW,

@@ -1,6 +1,6 @@
 import React from 'react';
-import Typography from '@mui/material/Typography';
 import LanguageIcon from '@mui/icons-material/Language';
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { MessageCircle } from 'lucide-react';
@@ -96,11 +96,8 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, not
       label: appName,
       rect: vc,
       tileBg: 'linear-gradient(135deg, #ef9552, #d96a2b)',
-      icon: (
-        <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#fff', lineHeight: 1 }}>
-          {appName.charAt(0).toUpperCase()}
-        </Typography>
-      ),
+      // Never letters in the dock: a real symbol reads as an app, a glyph initial reads as a bug.
+      icon: <GridViewRoundedIcon sx={{ fontSize: 16, color: '#fff' }} />,
       thumbnail: output?.thumbnail,
     });
   }

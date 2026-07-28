@@ -261,6 +261,8 @@ export function useTethers({
     // An "app:<output_id>" glow key targets a VIEW card (AppAgent driving an app); everything else is a browser card.
     const glowTarget = (id: string) => (id.startsWith('app:') ? viewCards[id.slice(4)] : browserCards[id]);
     for (const [browserId, { sourceId, fading, label }] of Object.entries(glowingBrowserCards)) {
+      // A docked browser renders INSIDE its chat; an arrow from the chat to it points at nothing.
+      if (browserCards[browserId]?.docked_to) continue;
       const t = cardTether(
         glowTarget(browserId),
         browserId,
