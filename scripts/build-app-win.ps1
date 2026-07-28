@@ -486,6 +486,30 @@ $BuildInfo = [ordered]@{
 $BuildInfo | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $ProjectRoot 'electron\build-info.json') -Encoding utf8
 Write-Host "Stamped build-info.json: sha=$BuildShortSha channel=$BuildChannel"
 
+# --- Step 4.5: Sign the bundled Claude CLI before packaging ---
+# The Bun-compiled claude.exe ships unsigned inside python-env, and Windows AV
+# quarantines it out of installed apps (field class: "Claude Code not found",
+# permanent product death). Sign it with the same Azure Trusted Signing hook as
+# the app exe, then smoke it: Authenticode appends to the PE, and a Bun exe that
+# locates its embedded bundle end-of-file-relative would break; a broken CLI must
+# fail the build here, never ship.
+if ($Sign) {
+    $BundledCli = Join-Path $ProjectRoot 'electron\python-env\Lib\site-packages\claude_agent_sdk\_bundled\claude.exe'
+    if (-not (Test-Path $BundledCli)) { throw "bundled claude.exe not found at $BundledCli (python-env layout changed?)" }
+    Write-Host "[4.5/5] Signing bundled Claude CLI..."
+    Push-Location $ProjectRoot
+    try {
+        & node -e "require('./electron/build/sign-windows.js').default({ path: process.argv[1] }).then(() => process.exit(0), (e) => { console.error(e); process.exit(1); })" $BundledCli
+        if ($LASTEXITCODE -ne 0) { throw "signing bundled claude.exe failed" }
+    } finally {
+        Pop-Location
+    }
+    & $BundledCli --version
+    if ($LASTEXITCODE -ne 0) { throw "signed claude.exe no longer runs (signing corrupted the Bun binary); aborting build" }
+    Write-Host "Bundled Claude CLI signed and still runs."
+    Write-Host ""
+}
+
 # --- Step 5: Package with electron-builder ---
 Write-Host "[5/5] Packaging with electron-builder..."
 Push-Location (Join-Path $ProjectRoot 'electron')

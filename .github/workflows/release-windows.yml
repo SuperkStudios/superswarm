@@ -172,6 +172,9 @@ jobs:
         run: |
           node scripts/ci/verify-signature.js --require-signed --target electron/dist/win-unpacked/OpenSwarm.exe
           if ($LASTEXITCODE -ne 0) { throw "inner OpenSwarm.exe is not validly signed" }
+          # The bundled Claude CLI must ship signed too: AV quarantine of the unsigned Bun exe is the field's "Claude Code not found" permanent-death class.
+          node scripts/ci/verify-signature.js --require-signed --target electron/dist/win-unpacked/resources/python-env/Lib/site-packages/claude_agent_sdk/_bundled/claude.exe
+          if ($LASTEXITCODE -ne 0) { throw "bundled claude.exe is not validly signed" }
           # Squirrel writes Setup.exe into dist\squirrel-windows\, not dist\ root.
           node scripts/ci/verify-signature.js --require-signed --target electron/dist/squirrel-windows/OpenSwarm-Setup-x64.exe
           if ($LASTEXITCODE -ne 0) { throw "OpenSwarm-Setup-x64.exe (installer) is not validly signed" }
