@@ -61,8 +61,16 @@ export function useOnboardingV3Pipeline() {
       : Promise.resolve(null);
   }, []);
 
-  const kickPrep = useCallback((pickedApps: string[]) => {
-    if (prepRef.current) return;
+  const kickPrep = useCallback((pickedApps: string[], rerunIfGrounded = false) => {
+    // A real connect landing AFTER an aux-less prep re-runs it once, so a slow OAuth never locks the
+    // reveal to the scan-grounded template (the prep raced the connect and had no model to call).
+    if (prepRef.current) {
+      if (!rerunIfGrounded) return;
+      const prev = prepReadyRef.current;
+      if (prev === null || prev.used_llm) return;
+      prepRef.current = null;
+      prepReadyRef.current = null;
+    }
     const scanPromise = scanRef.current ?? Promise.resolve(null);
     const usagePromise = usageReadRef.current ?? Promise.resolve();
     prepRef.current = Promise.all([scanPromise, usagePromise])

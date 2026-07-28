@@ -146,6 +146,8 @@ const AppShell: React.FC = () => {
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
   // "Connected" = the user's OWN model (key/sub/pro/custom), NOT a non-empty /models list: the free-trial Haiku is always in that list now, so a byProvider-length check would falsely read as connected and hide the out-of-runs banner.
   const hasModelConnected = useAppSelector(selectHasModelConnected);
+  // While onboarding owns the window, the floating sidebar (and its hover-peek strip) must not exist; both out-z the overlay.
+  const v3FlowActive = useAppSelector((st) => st.onboardingV3.flowActive);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
     const d = s.settings.data as any;
@@ -701,7 +703,7 @@ const AppShell: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary }}>
-      {sidebarAway && !sidePeek && (
+      {sidebarAway && !sidePeek && !v3FlowActive && (
         <Box onMouseEnter={() => { cancelPeekClose(); setSidePeek(true); }} sx={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: 14, zIndex: 2147483000, pointerEvents: 'auto' }} />
       )}
       {/* Top bar dropped (Arc/Zen): a zero-height anchor left only to float the agent-activity island at top-center; the island renders nothing when idle. */}
@@ -933,9 +935,9 @@ const AppShell: React.FC = () => {
             position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 1000002,
             borderRadius: '0 14px 14px 0', overflow: 'hidden',
             boxShadow: '8px 0 32px rgba(0,0,0,0.28)', borderRight: `1px solid ${c.border.medium}`,
-            transform: sidePeek ? 'translateX(0)' : 'translateX(-118%)',
+            transform: sidePeek && !v3FlowActive ? 'translateX(0)' : 'translateX(-118%)',
             transition: 'transform 240ms cubic-bezier(0.22,1,0.36,1)',
-            pointerEvents: sidePeek ? 'auto' : 'none',
+            pointerEvents: sidePeek && !v3FlowActive ? 'auto' : 'none',
           } : fsActive ? {
             // Fullscreen with the sidebar pinned: the panel sits beside a full-bleed surface, so its
             // dashboard-facing right corners curve like a pill; normal docked mode stays square.

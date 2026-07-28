@@ -104,19 +104,17 @@ const Tools: React.FC = () => {
   }, [regServersRaw, a.regSource, CURATED_MCP_NAMES]);
 
   return (
-    <Box sx={{ p: 3, height: '100%', overflow: 'auto' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-        <Box>
-          <Typography variant="h5" sx={{ color: c.text.primary, fontWeight: 700, mb: 0.5 }}>Tool Library</Typography>
-          <Typography sx={{ color: c.text.tertiary, fontSize: '0.875rem' }}>Define and manage custom tools for your Claude Code agents.</Typography>
-        </Box>
+    <Box sx={{ px: 3, pt: 1, pb: 3, height: '100%', overflow: 'auto' }}>
+      {/* The pane header already says "Tools"; a slim action row beats a second page title. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mb: 1.5 }}>
         <Box>
           <Button
+            size="small"
             variant="contained"
-            startIcon={<AddIcon />}
-            endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 18 }} />}
+            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
+            endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16 }} />}
             onClick={handleMenuOpen}
-            sx={{ bgcolor: c.accent.primary, '&:hover': { bgcolor: c.accent.pressed }, textTransform: 'none', borderRadius: 2 }}
+            sx={{ bgcolor: c.accent.primary, '&:hover': { bgcolor: c.accent.pressed }, textTransform: 'none', borderRadius: 2, fontSize: '0.8125rem' }}
           >
             New Tool
           </Button>

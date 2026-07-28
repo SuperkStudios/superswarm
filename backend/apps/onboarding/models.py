@@ -75,3 +75,5 @@ class PrepResponse(BaseModel):
     automations: List[PersonalizedAutomation] = Field(default_factory=list)
     # The hero's two-level menu (4 categories x 4 tailored starters); None only if prep never ran.
     menu: Optional[PersonalizedMenu] = None
+    # False = scan-grounded fallback (no aux lane at call time); lets the pipeline re-run prep once a real connect lands.
+    used_llm: bool = False

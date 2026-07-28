@@ -390,6 +390,7 @@ async def build_prep(settings: AppSettings, request: PrepRequest) -> PrepRespons
         parsed = parse_prep(safe_resp_text(resp))
         if parsed is not None:
             parsed.menu = await menu_task
+            parsed.used_llm = True
             return parsed
     except Exception:
         pass

@@ -117,8 +117,10 @@ export function selectSubscriptionConnections(
 ): SubscriptionConnection[] {
   const providers = state.subscriptions.status?.providers;
   if (!providers) return EMPTY_CONNECTIONS;
-  if (Array.isArray(providers)) return providers;
-  return providers.connections ?? EMPTY_CONNECTIONS;
+  const rows = Array.isArray(providers) ? providers : (providers.connections ?? EMPTY_CONNECTIONS);
+  // The free-trial/Pro lane is an OpenSwarm-managed router row, not a connection the USER made; counting it made a fresh trial look "connected" (dead Connect-beat rows, premature onConnected, phantom green rings).
+  const filtered = rows.filter((p) => !/\(OpenSwarm-managed\)/.test(p.name ?? ''));
+  return filtered.length === rows.length ? rows : filtered;
 }
 
 export function hasAnyActiveSubscription(state: WithSubscriptions): boolean {

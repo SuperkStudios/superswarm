@@ -38,6 +38,7 @@ export interface PrepResponse {
   browser_reason: string;
   automations: PersonalizedAutomation[];
   menu?: PersonalizedMenu | null;
+  used_llm?: boolean;
 }
 
 export async function fetchIdentity(): Promise<ProviderIdentity[]> {

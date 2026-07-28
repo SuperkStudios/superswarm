@@ -130,7 +130,7 @@ const OnboardingV3Root: React.FC = () => {
     kickIdentity();
     kickScan(true);
     if (connectedProvider) kickUsageRead(connectedProvider, true);
-    kickPrep(picks);
+    kickPrep(picks, true);
   }, [kickIdentity, kickScan, kickUsageRead, kickPrep, connectedProvider, picks]);
 
   // Backstop: onConnected fires prep for subscription/api-key connects; this covers any path where it
