@@ -41,30 +41,17 @@ const SectionHeader: React.FC<{
   subtitle: string;
   count?: number;
   c: any;
-}> = ({ icon, title, subtitle, count, c }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-    <Box sx={{ color: c.accent.primary, display: 'flex', alignItems: 'center' }}>{icon}</Box>
-    <Box sx={{ flex: 1 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
-          {title}
-        </Typography>
-        {count !== undefined && (
-          <Chip
-            label={count}
-            size="small"
-            sx={{
-              height: 20,
-              fontSize: '0.7rem',
-              fontWeight: 600,
-              bgcolor: `${c.accent.primary}15`,
-              color: c.accent.primary,
-            }}
-          />
-        )}
-      </Box>
-      <Typography sx={{ color: c.text.tertiary, fontSize: '0.8rem' }}>{subtitle}</Typography>
+}> = ({ title, subtitle, count, c }) => (
+  <Box sx={{ mb: 1.25, px: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+      <Typography sx={{ color: c.text.muted, fontWeight: 700, fontSize: '0.6875rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        {title}
+      </Typography>
+      {count !== undefined && (
+        <Typography sx={{ color: c.text.ghost, fontSize: '0.6875rem', fontWeight: 600 }}>{count}</Typography>
+      )}
     </Box>
+    <Typography sx={{ color: c.text.tertiary, fontSize: '0.75rem', mt: 0.25 }}>{subtitle}</Typography>
   </Box>
 );
 
@@ -99,14 +86,7 @@ export const CommandsContent: React.FC = () => {
       description: s.description || 'Skill',
       command: s.command || s.id,
     })),
-    ...Object.values(modesMap).map((m) => ({
-      id: m.id,
-      type: 'mode' as const,
-      name: m.name,
-      description: m.description || 'Switch to this mode',
-      command: m.name.toLowerCase().replace(/\s+/g, '-'),
-    })),
-  ], [skills, modesMap]);
+  ], [skills]);
 
   const atCommands: AtCommand[] = useMemo(() => {
     const items: AtCommand[] = [
@@ -213,7 +193,7 @@ export const CommandsContent: React.FC = () => {
           <SectionHeader
             icon={<TerminalIcon sx={{ fontSize: 22 }} />}
             title="Slash Commands"
-            subtitle="Type / in chat to invoke skills and modes"
+            subtitle="Type / in chat to invoke skills"
             count={slashCommands.length}
             c={c}
           />
@@ -230,8 +210,8 @@ export const CommandsContent: React.FC = () => {
               }}
             >
               <TerminalIcon sx={{ fontSize: 36, opacity: 0.3 }} />
-              <Typography sx={{ fontSize: '0.85rem' }}>
-                No slash commands yet. Create skills or modes to see them here.
+              <Typography sx={{ fontSize: '0.875rem' }}>
+                No slash commands yet. Create skills to see them here.
               </Typography>
             </Box>
           ) : (
@@ -264,7 +244,7 @@ export const CommandsContent: React.FC = () => {
                   <Typography
                     sx={{
                       color: c.text.primary,
-                      fontSize: '0.85rem',
+                      fontSize: '0.875rem',
                       fontFamily: c.font.mono,
                       fontWeight: 500,
                       minWidth: 140,
@@ -277,19 +257,17 @@ export const CommandsContent: React.FC = () => {
                     size="small"
                     sx={{
                       height: 20,
-                      fontSize: '0.65rem',
+                      fontSize: '0.625rem',
                       fontWeight: 600,
                       textTransform: 'uppercase',
-                      bgcolor: cmd.type === 'mode' ? `${modesMap[cmd.id]?.color || c.accent.primary}15`
-                        : `${c.status.success}15`,
-                      color: cmd.type === 'mode' ? (modesMap[cmd.id]?.color || c.accent.primary)
-                        : c.status.success,
+                      bgcolor: c.bg.secondary,
+                      color: c.text.muted,
                     }}
                   />
                   <Typography
                     sx={{
                       color: c.text.muted,
-                      fontSize: '0.8rem',
+                      fontSize: '0.8125rem',
                       flex: 1,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -327,7 +305,7 @@ export const CommandsContent: React.FC = () => {
               }}
             >
               <AlternateEmailIcon sx={{ fontSize: 36, opacity: 0.3 }} />
-              <Typography sx={{ fontSize: '0.85rem' }}>
+              <Typography sx={{ fontSize: '0.875rem' }}>
                 No @ commands yet. Install MCP actions to see them here.
               </Typography>
             </Box>
@@ -367,17 +345,17 @@ export const CommandsContent: React.FC = () => {
                     size="small"
                     sx={{
                       height: 20,
-                      fontSize: '0.65rem',
+                      fontSize: '0.625rem',
                       fontWeight: 600,
                       textTransform: 'uppercase',
-                      bgcolor: cmd.source === 'builtin' ? `${c.accent.primary}12` : cmd.source === 'view' ? '#f472b615' : `${c.status.info}15`,
-                      color: cmd.source === 'builtin' ? c.accent.primary : cmd.source === 'view' ? '#f472b6' : c.status.info,
+                      bgcolor: c.bg.secondary,
+                      color: c.text.muted,
                     }}
                   />
                   <Typography
                     sx={{
                       color: c.text.muted,
-                      fontSize: '0.8rem',
+                      fontSize: '0.8125rem',
                       flex: 1,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { store } from '@/shared/state/store';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -37,12 +38,19 @@ import {
   reorderBrowserTab,
   moveBrowserTab,
   recordClosedCard,
+  toggleMinimizeCard,
+  setTiledCard,
+  clearTiledCard,
+  setBrowserDocked,
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
+import WindowControls from './WindowControls';
+import { useTiledStyle, computeTiledStyle } from './tileZones';
+import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { handleApproval } from '@/shared/state/agentsSlice';
+import { handleApproval, expandSession } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import {
   registerWebview,
@@ -51,15 +59,26 @@ import {
   registerPendingLoad,
   wakePendingLoad,
   type BrowserWebview,
+  getWebview,
 } from '@/shared/browserRegistry';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
 import { getActionLabel } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
 import BrowserAgentOverlay from './BrowserAgentOverlay';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
+
+// Fixed light chrome for the macOS-window look; deliberately theme-independent, like a real browser window.
+const CHROME_BG = '#f2eff5';
+const CHROME_SURFACE = '#ffffff';
+const CHROME_PAGE = '#faf9fc';
+const CHROME_BORDER = 'rgba(0,0,0,0.08)';
+const CHROME_TEXT = '#3c3744';
+const CHROME_TEXT_MUTED = '#8a8494';
+
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -206,6 +225,65 @@ const BrowserCard: React.FC<Props> = ({
     [browserId],
   );
   const browserAgentSession = useAppSelector(selectBrowserAgentSession);
+  const isMinimized = useAppSelector((s) => Boolean(s.dashboardLayout.minimizedCards[browserId]));
+  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[browserId]);
+  // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
+  const [tileTick, setTileTick] = useState(0);
+  useEffect(() => {
+    if (!tileZone) return undefined;
+    const onPan = (): void => setTileTick((t) => t + 1);
+    window.addEventListener('openswarm:canvas-pan-changed', onPan);
+    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
+  }, [tileZone]);
+  void tileTick;
+  const cam = getCanvasState();
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, browserId);
+  const onTile = useCallback((zone: string): void => {
+    if (zone === 'restore') dispatch(clearTiledCard(browserId));
+    else dispatch(setTiledCard({ cardId: browserId, zone }));
+  }, [dispatch, browserId]);
+
+  // ---- In-chat dock: while docked to an expanded chat, the card overlays the chat's slot rect.
+  // Pure geometry in the shared canvas layer (same DOM node), so the webview never remounts.
+  const dockedTo = useAppSelector((state) => state.dashboardLayout.browserCards[browserId]?.docked_to ?? null);
+  const dockParentCard = useAppSelector((state) => (dockedTo ? state.dashboardLayout.cards[dockedTo] ?? null : null));
+  const dockParentExpanded = useAppSelector((state) => (dockedTo ? state.agents.expandedSessionIds.includes(dockedTo) : false));
+  const dockParentTiled = useAppSelector((state) => (dockedTo ? state.dashboardLayout.tiledCards[dockedTo] : undefined));
+  const [dockRect, setDockRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const rootElRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!dockedTo || !dockParentCard || !dockParentExpanded) { setDockRect(null); return undefined; }
+    const measure = (): void => {
+      const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+      const layer = rootElRef.current?.parentElement;
+      if (!slot || !layer) { setDockRect(null); return; }
+      const z = getCanvasState().zoom || 1;
+      const lr = layer.getBoundingClientRect();
+      const sr = slot.getBoundingClientRect();
+      // Slot and card share the transformed layer, so layer-relative coords are camera-invariant.
+      setDockRect({ x: (sr.left - lr.left) / z, y: (sr.top - lr.top) / z, w: sr.width / z, h: sr.height / z });
+    };
+    measure();
+    const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+    const ro = new ResizeObserver(measure);
+    if (slot) ro.observe(slot);
+    if (slot?.parentElement) ro.observe(slot.parentElement);
+    window.addEventListener('resize', measure);
+    // A RO only fires on slot RESIZE; the chat tiling/untiling MOVES the slot without resizing the
+    // window, so re-measure on camera writes + settle timers or the docked card lags behind.
+    window.addEventListener('openswarm:canvas-pan-changed', measure);
+    document.addEventListener('visibilitychange', measure);
+    const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('openswarm:canvas-pan-changed', measure);
+      document.removeEventListener('visibilitychange', measure);
+      timers.forEach((tm) => window.clearTimeout(tm));
+    };
+    // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
+  }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
+  const dockParentZ = dockParentCard?.zOrder ?? 0;
 
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
   const endingState = useAppSelector((state) => state.dashboardLayout.endingBrowserCards[browserId]);
@@ -518,6 +596,26 @@ const BrowserCard: React.FC<Props> = ({
     dispatch(addBrowserTab({ browserId, url: browserHomepage }));
   }, [dispatch, browserId, browserHomepage]);
 
+  // Yellow light: snapshot the live page first so the right-edge stack shows a real thumbnail,
+  // then park the card (webContents stays mounted, same as the keep-alive off-screen park).
+  const handleMinimize = useCallback(() => {
+    const wv = webviewMap.current.get(activeTabId);
+    const capture = wv?.capturePage?.();
+    let parked = false;
+    const park = (): void => { if (parked) return; parked = true; dispatch(toggleMinimizeCard({ cardId: browserId })); };
+    if (capture && typeof (capture as Promise<unknown>).then === 'function') {
+      // capturePage can hang forever on off-screen guests (Electron 42); the timer guarantees the park.
+      // 250ms: captures land in ~100-200ms when visible, and a snappy minimize beats a perfect thumbnail.
+      window.setTimeout(park, 250);
+      (capture as Promise<{ toDataURL(): string }>)
+        .then((img) => { saveMinimizedShot(browserId, img.toDataURL()); })
+        .catch(() => undefined)
+        .finally(park);
+    } else {
+      park();
+    }
+  }, [dispatch, browserId, activeTabId]);
+
   const handleCloseTab = useCallback((tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     // Closing the last tab destroys the whole card, so record it as a browser-card close (reopen brings the card back), not a tab close.
@@ -661,16 +759,17 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(browserId, 'browser');
-  }, [cardX, cardY, onDragStart, browserId, getCanvasState]);
+  }, [cardX, cardY, onDragStart, browserId, getCanvasState, tileZone, dockRect]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -708,21 +807,35 @@ const BrowserCard: React.FC<Props> = ({
     recomputeDragPos();
   }, [recomputeDragPos]);
 
-  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
       // Snap to 24px grid (Shift bypasses).
-      if (!e.shiftKey) {
+      if (!shiftKey) {
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
+      }
+      // Dropping over a chat docks the browser INTO it; anywhere else undocks to a free card.
+      const { clientX: hx, clientY: hy } = lastPointerRef.current;
+      const under = document.elementsFromPoint(hx, hy);
+      const slotHit = under.map((el) => (el as HTMLElement).closest?.('[data-browser-slot]') as HTMLElement | null).find(Boolean);
+      const chatHit = under.map((el) => (el as HTMLElement).closest?.('[data-select-type="agent-card"]') as HTMLElement | null).find(Boolean);
+      const dockTarget = slotHit?.getAttribute('data-browser-slot') || chatHit?.getAttribute('data-select-id') || null;
+      if (dockTarget) {
+        dispatch(setBrowserDocked({ browserId, dockedTo: dockTarget }));
+        // Chats live as collapsed pills by default; docking into a pill used to park the card at
+        // -100000 instantly (it just vanished). Open the chat so the drop visibly lands in the slot.
+        dispatch(expandSession(dockTarget));
+      } else if (dockedTo) {
+        dispatch(setBrowserDocked({ browserId, dockedTo: null }));
       }
       dispatch(setBrowserCardPosition({
         browserId,
@@ -737,8 +850,34 @@ const BrowserCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }, [dispatch, browserId, onDragEnd, getCanvasState]);
+  }, [dispatch, browserId, onDragEnd, getCanvasState, dockedTo]);
+
+  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  // A release the header never hears (pointercancel, capture lost to a mid-drag remount, up eaten
+  // outside the window) used to leave dragState set forever; the pan-repin then glued the card to
+  // the CAMERA until reload. Any of these now commits the drag at the last known pointer.
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+
+  useEffect(() => {
+    if (!isDragging) return undefined;
+    const onUp = (e: PointerEvent): void => { if (dragState.current) finalizeDrag(e.clientX, e.clientY, e.shiftKey); };
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', abortDrag);
+    window.addEventListener('blur', abortDrag);
+    return () => {
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', abortDrag);
+      window.removeEventListener('blur', abortDrag);
+    };
+  }, [isDragging, finalizeDrag, abortDrag]);
 
   const resizeRef = useRef<{
     dir: ResizeDir; startX: number; startY: number;
@@ -752,14 +891,27 @@ const BrowserCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      // Grabbing an edge of a TILED card exits the tile and resizes from exactly where it sat,
+      // macOS-style; without this the handles resized the stale free-position geometry.
+      let origX = cardX, origY = cardY, origW = cardWidth, origH = cardHeight;
+      const zone = store.getState().dashboardLayout.tiledCards[browserId];
+      if (zone) {
+        const cam = getCanvasState();
+        const ts = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
+        if (ts) {
+          origX = ts.left; origY = ts.top; origW = ts.width / cam.zoom; origH = ts.height / cam.zoom;
+          setLocalResize({ x: origX, y: origY, w: origW, h: origH });
+          dispatch(clearTiledCard(browserId));
+        }
+      }
       resizeRef.current = {
         dir, startX: e.clientX, startY: e.clientY,
-        origX: cardX, origY: cardY, origW: cardWidth, origH: cardHeight,
+        origX, origY, origW, origH,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight],
+    [cardX, cardY, cardWidth, cardHeight, getCanvasState, dispatch],
   );
 
   const computeResize = useCallback(
@@ -849,13 +1001,30 @@ const BrowserCard: React.FC<Props> = ({
             ? `0 0 0 1px #3b82f6, ${c.shadow.md}`
             : c.shadow.md;
 
+  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's live shot,
+  // instead of teleporting back to wherever it sat before docking.
+  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+
   return (
     <Box
+      ref={rootElRef}
+      className="osw-card"
       data-select-type="browser-card"
       data-select-id={browserId}
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
       // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
-      data-keepalive-hidden={keepAliveHidden ? '1' : undefined}
+      data-keepalive-hidden={keepAliveHidden || isMinimized || dockParked ? '1' : undefined}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        items: [
+          { label: 'New Tab', onClick: () => dispatch(addBrowserTab({ browserId, url: browserHomepage })) },
+          { label: 'Reload', onClick: () => { try { (getWebview(browserId) as { reload?: () => void } | undefined)?.reload?.(); } catch { /* webview gone */ } } },
+          { label: 'Copy URL', onClick: () => { void navigator.clipboard.writeText(activeUrl); } },
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Minimize', onClick: handleMinimize },
+          { label: 'Close', danger: true, onClick: () => { dispatch(recordClosedCard({ kind: 'browser', id: browserId })); removeBrowserCardCleanly(browserId, dispatch); } },
+        ],
+      })}
       onPointerDownCapture={(e: React.PointerEvent) => {
         onBringToFront?.(browserId, 'browser');
         // Capture-phase so chrome clicks (tab strip, URL bar) the children swallow still select the card; clicks inside the guest page never reach the host at all. Shift keeps the bubbled toggle path. Pass the target so URL-bar/tab presses select without yanking the camera.
@@ -863,7 +1032,9 @@ const BrowserCard: React.FC<Props> = ({
       }}
       onClick={(e: React.MouseEvent) => {
         if (justDraggedRef.current) return;
-        onCardSelect?.(browserId, 'browser', e.shiftKey);
+        // Pass the target here too: with pointer capture the click after a resize lands on the handle,
+        // and without the target this bubbled path skipped the control carve-out and re-centered the camera.
+        onCardSelect?.(browserId, 'browser', e.shiftKey, e.target);
       }}
       onDoubleClick={(e: React.MouseEvent) => {
         e.stopPropagation();
@@ -872,24 +1043,25 @@ const BrowserCard: React.FC<Props> = ({
       sx={{
         position: 'absolute',
         // Kept-alive card from another dashboard: parked far off-screen so its webview surface can't bleed onto the dashboard you're viewing; click-through, webContents stays mounted.
-        pointerEvents: keepAliveHidden ? 'none' : undefined,
+        pointerEvents: keepAliveHidden || isMinimized || dockParked ? 'none' : undefined,
         // contain: webview repaints don't shake neighbor cards.
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden ? -100000 : (dragging ? cardX : displayX),
-        top: dragging ? cardY : displayY,
-        transform: dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined,
-        width: displayW,
-        height: displayH,
-        borderRadius: `${c.radius.lg}px`,
+        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: tiledStyle && !(keepAliveHidden || isMinimized || dockParked) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
+        transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
+        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        width: tiledStyle ? tiledStyle.width : dockActive ? dockRect!.w : displayW,
+        height: tiledStyle ? tiledStyle.height : dockActive ? dockRect!.h : displayH,
+        borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
         border: agentBorder,
         bgcolor: c.bg.surface,
         boxShadow: agentShadow,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {
@@ -921,13 +1093,16 @@ const BrowserCard: React.FC<Props> = ({
         onPointerDown={handleDragPointerDown}
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         sx={{
           position: 'relative',
           zIndex: 16,
           display: 'flex',
           alignItems: 'stretch',
-          bgcolor: agentActive ? `${accentColor}0a` : c.bg.secondary,
-          borderBottom: `1px solid ${agentActive ? `${accentColor}30` : c.border.subtle}`,
+          // Real-browser-window chrome stays light in both app themes, like the window it imitates.
+          bgcolor: agentActive ? `${accentColor}14` : CHROME_BG,
+          borderBottom: `1px solid ${agentActive ? `${accentColor}30` : CHROME_BORDER}`,
           cursor: isDragging ? 'grabbing' : 'grab',
           flexShrink: 0,
           minHeight: 34,
@@ -937,6 +1112,19 @@ const BrowserCard: React.FC<Props> = ({
         }}
       >
         <Box
+          onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+          sx={{ display: 'flex', alignItems: 'center', pl: 1.25, pr: 0.75, flexShrink: 0 }}
+        >
+          <WindowControls
+            onClose={() => { dispatch(recordClosedCard({ kind: 'browser', id: browserId })); removeBrowserCardCleanly(browserId, dispatch); }}
+            onMinimize={handleMinimize}
+            onTile={onTile}
+            tiled={!!tileZone}
+            noTileMenu={tileZone === 'fullscreen'}
+          />
+        </Box>
+        <Box
+          data-card-control
           sx={{
             display: 'flex',
             flex: 1,
@@ -969,13 +1157,13 @@ const BrowserCard: React.FC<Props> = ({
                   maxWidth: 180,
                   flex: '0 1 180px',
                   position: 'relative',
-                  borderRight: `1px solid ${c.border.subtle}`,
-                  bgcolor: isActive ? c.bg.surface : 'transparent',
+                  borderRight: `1px solid ${CHROME_BORDER}`,
+                  bgcolor: isActive ? CHROME_SURFACE : 'transparent',
                   cursor: isBeingDragged ? 'grabbing' : 'pointer',
                   transform: isBeingDragged ? `translateX(${dragTabOffset}px)` : 'none',
                   transition: isBeingDragged ? 'none' : 'background 0.15s ease, transform 0.2s ease',
                   zIndex: isBeingDragged ? 10 : 1,
-                  '&:hover': { bgcolor: isActive ? c.bg.surface : c.bg.secondary },
+                  '&:hover': { bgcolor: isActive ? CHROME_SURFACE : 'rgba(0,0,0,0.04)' },
                   '&:hover .tab-close': { opacity: 1 },
                   ...(isActive && {
                     '&::after': {
@@ -1001,16 +1189,16 @@ const BrowserCard: React.FC<Props> = ({
                       onError={(e: any) => { e.target.style.display = 'none'; }}
                     />
                   ) : (
-                    <LanguageIcon sx={{ fontSize: 13, color: isActive ? accentColor : c.text.ghost }} />
+                    <LanguageIcon sx={{ fontSize: 13, color: isActive ? accentColor : CHROME_TEXT_MUTED }} />
                   )}
                 </Box>
 
                 <Typography
                   sx={{
                     flex: 1,
-                    fontSize: '0.7rem',
+                    fontSize: '0.6875rem',
                     fontWeight: isActive ? 600 : 400,
-                    color: isActive ? c.text.primary : c.text.muted,
+                    color: isActive ? CHROME_TEXT : CHROME_TEXT_MUTED,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -1036,10 +1224,10 @@ const BrowserCard: React.FC<Props> = ({
                     opacity: isActive ? 0.6 : 0,
                     cursor: 'pointer',
                     transition: 'opacity 0.15s, background 0.15s',
-                    '&:hover': { bgcolor: `${c.text.muted}25`, opacity: 1 },
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.09)', opacity: 1 },
                   }}
                 >
-                  <CloseIcon sx={{ fontSize: 10, color: c.text.muted }} />
+                  <CloseIcon sx={{ fontSize: 10, color: CHROME_TEXT_MUTED }} />
                 </Box>
               </Box>
             );
@@ -1059,10 +1247,10 @@ const BrowserCard: React.FC<Props> = ({
               mx: 0.25,
               my: 0.5,
               transition: 'background 0.15s',
-              '&:hover': { bgcolor: `${c.text.muted}15` },
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
             }}
           >
-            <AddIcon sx={{ fontSize: 15, color: c.text.muted }} />
+            <AddIcon sx={{ fontSize: 15, color: CHROME_TEXT_MUTED }} />
           </Box>
         </Box>
 
@@ -1099,22 +1287,12 @@ const BrowserCard: React.FC<Props> = ({
                   },
                 }}
               />
-              <Typography sx={{ fontSize: '0.65rem', fontWeight: 600, color: accentColor, lineHeight: 1 }}>
+              <Typography sx={{ fontSize: '0.625rem', fontWeight: 600, color: accentColor, lineHeight: 1 }}>
                 AI
               </Typography>
             </Box>
           )}
 
-          <Tooltip title="Close browser" placement="top">
-            <IconButton
-              size="small"
-              onClick={handleRemove}
-              onPointerDown={(e) => e.stopPropagation()}
-              sx={{ color: c.text.ghost, p: 0.4, '&:hover': { color: c.status.error } }}
-            >
-              <CloseIcon sx={{ fontSize: 15 }} />
-            </IconButton>
-          </Tooltip>
         </Box>
       </Box>
 
@@ -1126,8 +1304,8 @@ const BrowserCard: React.FC<Props> = ({
           gap: 0.25,
           px: 0.5,
           py: 0.25,
-          bgcolor: c.bg.page,
-          borderBottom: `1px solid ${c.border.subtle}`,
+          bgcolor: CHROME_PAGE,
+          borderBottom: `1px solid ${CHROME_BORDER}`,
           flexShrink: 0,
         }}
       >
@@ -1138,7 +1316,7 @@ const BrowserCard: React.FC<Props> = ({
               onClick={handleBack}
               onPointerDown={(e) => e.stopPropagation()}
               disabled={!activeLocal.canGoBack}
-              sx={{ color: c.text.muted, p: 0.4, '&:hover': { color: c.text.primary } }}
+              sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
             >
               <ArrowBackIcon sx={{ fontSize: 15 }} />
             </IconButton>
@@ -1152,7 +1330,7 @@ const BrowserCard: React.FC<Props> = ({
               onClick={handleForward}
               onPointerDown={(e) => e.stopPropagation()}
               disabled={!activeLocal.canGoForward}
-              sx={{ color: c.text.muted, p: 0.4, '&:hover': { color: c.text.primary } }}
+              sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
             >
               <ArrowForwardIcon sx={{ fontSize: 15 }} />
             </IconButton>
@@ -1164,7 +1342,7 @@ const BrowserCard: React.FC<Props> = ({
             size="small"
             onClick={handleRefresh}
             onPointerDown={(e) => e.stopPropagation()}
-            sx={{ color: c.text.muted, p: 0.4, '&:hover': { color: c.text.primary } }}
+            sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
           >
             <RefreshIcon sx={{ fontSize: 15 }} />
           </IconButton>
@@ -1180,13 +1358,13 @@ const BrowserCard: React.FC<Props> = ({
             ml: 0.5,
             px: 1,
             py: 0.2,
-            bgcolor: c.bg.secondary,
+            bgcolor: '#eceaf1',
             borderRadius: `${c.radius.md}px`,
-            border: `1px solid ${c.border.subtle}`,
+            border: `1px solid ${CHROME_BORDER}`,
           }}
         >
           {isSearch ? (
-            <SearchIcon sx={{ fontSize: 13, color: c.text.muted, flexShrink: 0 }} />
+            <SearchIcon sx={{ fontSize: 13, color: CHROME_TEXT_MUTED, flexShrink: 0 }} />
           ) : isSecure ? (
             <LockIcon sx={{ fontSize: 12, color: c.status.success, flexShrink: 0 }} />
           ) : null}
@@ -1200,12 +1378,12 @@ const BrowserCard: React.FC<Props> = ({
             placeholder="Search Google or enter URL..."
             sx={{
               flex: 1,
-              fontSize: '0.74rem',
+              fontSize: '0.75rem',
               fontFamily: c.font.mono,
-              color: c.text.secondary,
+              color: CHROME_TEXT,
               py: 0,
-              '& input': { py: '2px' },
-              '& input::placeholder': { color: c.text.ghost, opacity: 1 },
+              '& input': { py: '2px', textAlign: 'center' },
+              '& input::placeholder': { color: CHROME_TEXT_MUTED, opacity: 1 },
             }}
           />
         </Box>
@@ -1270,7 +1448,7 @@ const BrowserCard: React.FC<Props> = ({
                   bgcolor: c.bg.surface,
                 }}
               >
-                <Typography sx={{ color: c.text.ghost, fontSize: '0.9rem', px: 2, textAlign: 'center' }}>
+                <Typography sx={{ color: c.text.ghost, fontSize: '0.875rem', px: 2, textAlign: 'center' }}>
                   {activeTitle || activeUrl}
                 </Typography>
               </Box>
@@ -1319,14 +1497,14 @@ const BrowserCard: React.FC<Props> = ({
                   bgcolor: c.bg.surface,
                 }}
               >
-                <Typography sx={{ color: c.text.primary, fontSize: '0.95rem', fontWeight: 500 }}>
+                <Typography sx={{ color: c.text.primary, fontSize: '1rem', fontWeight: 500 }}>
                   {endingState?.status === 'error' ? 'Task ended with an error.' : 'Task done.'}
                 </Typography>
                 <Button
                   onClick={() => dispatch(cancelBrowserCardEnding(browserId))}
                   sx={{
                     textTransform: 'none',
-                    fontSize: '0.82rem',
+                    fontSize: '0.8125rem',
                     fontWeight: 600,
                     bgcolor: c.accent.primary,
                     color: '#fff',
@@ -1354,7 +1532,7 @@ const BrowserCard: React.FC<Props> = ({
                   bgcolor: c.bg.surface,
                 }}
               >
-                <Typography sx={{ color: c.text.primary, fontSize: '0.95rem', fontWeight: 500 }}>
+                <Typography sx={{ color: c.text.primary, fontSize: '1rem', fontWeight: 500 }}>
                   This page stopped responding.
                 </Typography>
                 <Button
@@ -1362,7 +1540,7 @@ const BrowserCard: React.FC<Props> = ({
                   startIcon={<RefreshIcon sx={{ fontSize: '1rem' }} />}
                   sx={{
                     textTransform: 'none',
-                    fontSize: '0.82rem',
+                    fontSize: '0.8125rem',
                     fontWeight: 600,
                     bgcolor: c.accent.primary,
                     color: '#fff',
@@ -1395,7 +1573,7 @@ const BrowserCard: React.FC<Props> = ({
             Passkeys aren't supported
           </DialogTitle>
           <DialogContent sx={{ pb: 1 }}>
-            <Typography sx={{ fontSize: '0.85rem', color: c.text.secondary, lineHeight: 1.5 }}>
+            <Typography sx={{ fontSize: '0.875rem', color: c.text.secondary, lineHeight: 1.5 }}>
               Sorry, OpenSwarm doesn't support passkeys. Please sign in with a password or another method.
             </Typography>
           </DialogContent>
@@ -1404,7 +1582,7 @@ const BrowserCard: React.FC<Props> = ({
               onClick={() => setPasskeyDialogOpen(false)}
               sx={{
                 textTransform: 'none',
-                fontSize: '0.82rem',
+                fontSize: '0.8125rem',
                 fontWeight: 600,
                 bgcolor: c.accent.primary,
                 color: '#fff',

@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from typing import Optional, Literal, Any
 from datetime import datetime
 from uuid import uuid4
+from backend.apps.settings.models import DEFAULT_MODEL
 
 
 # Each "tier" in the permission chain: notify in app, fall through to text after N minutes if no response, then to call after a further N minutes/hours. Matches images 17 to 19 (Schedule edit). Order in the list = escalation order.
@@ -97,7 +98,7 @@ class Workflow(BaseModel):
     # Tool names observed in the source chat when this workflow was generated. This preserves conversion context without pretending those calls map to generated workflow step ids. Explicit approval decisions still live in remembered_approvals and are the only values reused as permissions.
     source_tools: list[str] = Field(default_factory=list)
     dashboard_id: Optional[str] = None
-    model: str = "sonnet"
+    model: str = DEFAULT_MODEL
     mode: str = "agent"
     provider: str = "anthropic"
     created_at: datetime = Field(default_factory=datetime.now)

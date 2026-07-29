@@ -36,7 +36,10 @@ NINEROUTER_MODEL_PREFIXES = ("cc/", "cx/", "gc/", "ag/", "gemini/", "openrouter/
 # Entry fields: value, label, context_window, model_id, router_model_id, api, subscription_only, reasoning, route ("cc"|"api"|"openrouter"|None). 9Router prefixes: cc/ Claude sub (dashes), cx/ Codex sub (dots), gc/ Gemini CLI.
 BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
     "Anthropic": [
-        # Opus 4.8 (released 2026-05-28): Anthropic's flagship, recommended for the most complex work. Adaptive thinking (not extended), effort param defaults to high. 1M ctx, 128k max output, $5/$25. Verified live on the cc sub route (this app runs on it) and the API.
+        # Opus 5 (added 2026-07-26): drop-in Opus 4.8 successor, same $5/$25, 1M ctx, 128k out. Thinking is ON by default; explicit thinking:disabled is only valid at effort<=high, which is all this app ever sends (run_options_helpers caps at "high"), so the off toggle stays safe.
+        {"value": "opus-5", "label": "Claude Opus 5", "context_window": 1_000_000,
+         "model_id": "claude-opus-5", "router_model_id": "cc/claude-opus-5", "api": "anthropic", "reasoning": True},
+        # Opus 4.8 (released 2026-05-28): previous Opus flagship. Adaptive thinking (not extended), effort param defaults to high. 1M ctx, 128k max output, $5/$25. Verified live on the cc sub route (this app runs on it) and the API.
         {"value": "opus-4-8", "label": "Claude Opus 4.8", "context_window": 1_000_000,
          "model_id": "claude-opus-4-8", "router_model_id": "cc/claude-opus-4-8", "api": "anthropic", "reasoning": True},
         # Opus 4.7: SDK currently strips plaintext thinking deltas (encrypted only) so the live "Thought for Ns" pill loses mid-turn text. Final answer + tokens fine.
@@ -52,6 +55,8 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
         {"value": "haiku", "label": "Claude Haiku 4.5", "context_window": 200_000,
          "model_id": "claude-haiku-4-5", "router_model_id": "cc/claude-haiku-4-5-20251001", "api": "anthropic", "reasoning": True},
         # cc/ pins the user's Claude sub regardless of connection_mode.
+        {"value": "opus-5-cc", "label": "Claude Opus 5", "context_window": 1_000_000,
+         "model_id": "claude-opus-5", "router_model_id": "cc/claude-opus-5", "api": "anthropic", "reasoning": True, "route": "cc"},
         {"value": "opus-4-8-cc", "label": "Claude Opus 4.8", "context_window": 1_000_000,
          "model_id": "claude-opus-4-8", "router_model_id": "cc/claude-opus-4-8", "api": "anthropic", "reasoning": True, "route": "cc"},
         {"value": "opus-4-7-cc", "label": "Claude Opus 4.7", "context_window": 1_000_000,
@@ -70,6 +75,8 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
          "model_id": "claude-fable-5", "router_model_id": "cc/claude-fable-5", "api": "anthropic", "reasoning": True, "route": "cc"},
         {"value": "fable-5-api", "label": "Claude Fable 5 (API key)", "context_window": 1_000_000,
          "model_id": "claude-fable-5", "router_model_id": "claude-fable-5", "api": "anthropic", "reasoning": True, "route": "api"},
+        {"value": "opus-5-api", "label": "Claude Opus 5 (API key)", "context_window": 1_000_000,
+         "model_id": "claude-opus-5", "router_model_id": "claude-opus-5", "api": "anthropic", "reasoning": True, "route": "api"},
         {"value": "opus-4-8-api", "label": "Claude Opus 4.8 (API key)", "context_window": 1_000_000,
          "model_id": "claude-opus-4-8", "router_model_id": "claude-opus-4-8", "api": "anthropic", "reasoning": True, "route": "api"},
         {"value": "opus-4-7-api", "label": "Claude Opus 4.7 (API key)", "context_window": 1_000_000,
@@ -85,7 +92,21 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
     ],
 
     "OpenAI": [
-        # GPT-5.5 subscription entry PULLED: cx/gpt-5.5 404s on 9Router 0.3.60 (our pin), so a Codex user who picked it (the newest, top OpenAI option) 404'd every turn = "codex is broken". Same treatment as gemini-3.1-pro (no working lane = not offered). The API-key route (gpt-5.5-api below) works; restore a cx entry only after the pin moves and cx/gpt-5.5 resolves.
+        # Codex sub lanes re-probed 2026-07-26: cx/gpt-5.6-{sol,terra,luna} AND the previously pulled
+        # cx/gpt-5.5 all return real completions on the pinned 0.3.60 (the old 404 healed upstream;
+        # the cx translator forwards to the ChatGPT Responses backend, which now serves them).
+        {"value": "gpt-5.6", "label": "GPT-5.6 Sol",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-sol",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.6-terra", "label": "GPT-5.6 Terra",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-terra",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.6-luna", "label": "GPT-5.6 Luna",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.6-luna",
+         "api": "codex", "subscription_only": True, "reasoning": True},
+        {"value": "gpt-5.5", "label": "GPT-5.5",
+         "context_window": 1_000_000, "router_model_id": "cx/gpt-5.5",
+         "api": "codex", "subscription_only": True, "reasoning": True},
         {"value": "gpt-5.4", "label": "GPT-5.4",
          "context_window": 1_000_000, "router_model_id": "cx/gpt-5.4",
          "api": "codex", "subscription_only": True, "reasoning": True},
@@ -93,13 +114,20 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
          "context_window": 400_000, "router_model_id": "cx/gpt-5.4-mini",
          "api": "codex", "subscription_only": True, "reasoning": True},
         # gpt-5.3-codex (+ high/xhigh) removed: superseded by GPT-5.5 as OpenAI's recommended Codex model, and high/xhigh were never separate models (just reasoning-effort variants), so they were redundant clutter. API-key entries: route through 9Router's `cp-openai` provider-node (registered by sync_openai_api_key) so 9Router's translator dispatches to our local openai-passthrough proxy. The passthrough renames `max_tokens` → `max_completion_tokens` before forwarding to api.openai.com, fixing OpenAI's GPT-5 family 400. The bare router_model_id (e.g. "gpt-5.5") still appears in the request body; only the routing prefix changes.
-        # GPT-5.6 (Sol / Terra / Luna, 2026-07) is HELD, not offered: it is Responses-API-only
-        # (api model ids gpt-5.6-sol [alias gpt-5.6], gpt-5.6-terra, gpt-5.6-luna; per-1M in/out
-        # $5/$30, $2.50/$15, $1/$6). Our lane goes user -> 9Router 0.3.60 -> cp-openai passthrough,
-        # and 0.3.60 only speaks /chat/completions, so a gpt-5.6 request hits the wrong endpoint and
-        # OpenAI rejects it (plus it is a trusted-partner limited preview, so most keys 404 anyway).
-        # No working lane = not offered (same rule as gpt-5.5's cx entry). Enable all three tiers
-        # once 9Router can translate to /v1/responses AND the model is generally available.
+        # GPT-5.6 (Sol / Terra / Luna) hit GA 2026-07-09 on ChatGPT, Codex, AND /chat/completions,
+        # so the old Responses-only HOLD is lifted for the API-key lane: the ids ride the proven
+        # cp-openai passthrough, whose scrubs prefix-match "gpt-5" (max_tokens rename, sampling strip,
+        # and the reasoning_effort-with-tools drop that 5.6 still requires on /chat/completions).
+        # 1M+ ctx, 128k out; $5/$30 Sol, $2.50/$15 Terra, $1/$6 Luna per 1M.
+        {"value": "gpt-5.6-api", "label": "GPT-5.6 Sol (API key)",
+         "context_window": 1_000_000, "router_model_id": "cp-openai/gpt-5.6-sol", "model_id": "gpt-5.6-sol",
+         "api": "openai", "reasoning": True, "route": "api"},
+        {"value": "gpt-5.6-terra-api", "label": "GPT-5.6 Terra (API key)",
+         "context_window": 1_000_000, "router_model_id": "cp-openai/gpt-5.6-terra", "model_id": "gpt-5.6-terra",
+         "api": "openai", "reasoning": True, "route": "api"},
+        {"value": "gpt-5.6-luna-api", "label": "GPT-5.6 Luna (API key)",
+         "context_window": 1_000_000, "router_model_id": "cp-openai/gpt-5.6-luna", "model_id": "gpt-5.6-luna",
+         "api": "openai", "reasoning": True, "route": "api"},
         {"value": "gpt-5.5-api", "label": "GPT-5.5 (API key)",
          "context_window": 1_000_000, "router_model_id": "cp-openai/gpt-5.5", "model_id": "gpt-5.5",
          "api": "openai", "reasoning": True, "route": "api"},
@@ -118,6 +146,15 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
          "api": "gemini-cli", "subscription_only": True, "reasoning": True},
         # gemini-3-pro removed 2026-03-09 and gemini-3-flash removed 2026-07-03: gemini-3-flash-preview aged out upstream (API-key route hangs with no fail-fast; only an Antigravity sub still masked it). 3.5-flash / 3.1-flash-lite cover the slots.
         # API-key entries: bypass 9Router, call generativelanguage.googleapis.com.
+        # Gemini 3.6 Flash + 3.5 Flash-Lite (both GA 2026-07-21, changelog-verified ids) are API-key
+        # only for the same reason as 3.5 Flash: the pinned 0.3.60 gc/ registry predates them. No 3.5
+        # Pro exists yet (delayed upstream), don't invent a row for it.
+        {"value": "gemini-3.6-flash-api", "label": "Gemini 3.6 Flash (API key)",
+         "context_window": 1_000_000, "router_model_id": "gemini-3.6-flash", "model_id": "gemini-3.6-flash",
+         "api": "gemini", "reasoning": True, "route": "api"},
+        {"value": "gemini-3.5-flash-lite-api", "label": "Gemini 3.5 Flash Lite (API key)",
+         "context_window": 1_000_000, "router_model_id": "gemini-3.5-flash-lite", "model_id": "gemini-3.5-flash-lite",
+         "api": "gemini", "reasoning": True, "route": "api"},
         {"value": "gemini-3.5-flash-api", "label": "Gemini 3.5 Flash (API key)",
          "context_window": 1_000_000, "router_model_id": "gemini-3.5-flash", "model_id": "gemini-3.5-flash",
          "api": "gemini", "reasoning": True, "route": "api"},
@@ -372,9 +409,17 @@ COST_PER_1M_TOKENS: dict[tuple[str, str], tuple[float, float]] = {
     ("Anthropic", "opus"): (5.0, 25.0),
     ("Anthropic", "opus-4-7"): (5.0, 25.0),
     ("Anthropic", "opus-4-8"): (5.0, 25.0),
+    ("Anthropic", "opus-5"): (5.0, 25.0),
     ("Anthropic", "fable-5-api"): (10.0, 50.0),
     ("Anthropic", "haiku"): (1.0, 5.0),
+    # OpenAI API-key rates (GPT-5.6 tiers, GA 2026-07-09)
+    ("OpenAI", "gpt-5.6-api"): (5.0, 30.0),
+    ("OpenAI", "gpt-5.6-terra-api"): (2.5, 15.0),
+    ("OpenAI", "gpt-5.6-luna-api"): (1.0, 6.0),
     # OpenAI; Codex subscription path, user pays nothing per token
+    ("OpenAI", "gpt-5.6"): (0.0, 0.0),
+    ("OpenAI", "gpt-5.6-terra"): (0.0, 0.0),
+    ("OpenAI", "gpt-5.6-luna"): (0.0, 0.0),
     ("OpenAI", "gpt-5.5"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4"): (0.0, 0.0),
     ("OpenAI", "gpt-5.4-mini"): (0.0, 0.0),

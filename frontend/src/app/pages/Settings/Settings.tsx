@@ -10,13 +10,20 @@ import { updateSettingsPatch, closeSettingsModal, AppSettings } from '@/shared/s
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { fetchModels } from '@/shared/state/modelsSlice';
 import { fetchModes } from '@/shared/state/modesSlice';
-import { useThemeMode, useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useThemeMode, useThemeAccent, useClaudeTokens } from '@/shared/styles/ThemeContext';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import { X } from 'lucide-react';
 import DirectoryBrowser from '@/app/components/editor/DirectoryBrowser';
 import { CommandsContent } from '@/app/pages/Commands/Commands';
-import GeneralTab from './sections/general/GeneralTab';
+import AccountCard from './sections/subscription/AccountCard';
+import GeneralAgentDefaults from './sections/general/GeneralAgentDefaults';
+import GeneralInterface from './sections/general/GeneralInterface';
+import GeneralAdvanced from './sections/general/GeneralAdvanced';
+import DataPrivacySection from './sections/general/DataPrivacySection';
 import ModelsTab from './sections/models/ModelsTab';
 import UsageStats from './sections/usage/UsageStats';
-import SettingsHeader from './sections/SettingsHeader';
+import SettingsRail, { railLabelFor } from './sections/SettingsRail';
 import { makeSettingsStyles } from './sections/settingsStyles';
 
 // Skills/Tools moved here from the old sidebar Customization section; lazy since both pull heavy deps and Settings opens nearly every session.
@@ -44,6 +51,7 @@ let lastOpenTab: string | null = null;
 
 // Shown only in the brief window before the live model list loads from the backend. Keep the flagship current so the default-model dropdown isn't stale.
 const DEFAULT_MODEL_FALLBACK = [
+  { value: 'opus-5', label: 'Claude Opus 5' },
   { value: 'opus-4-8', label: 'Claude Opus 4.8' },
   { value: 'sonnet', label: 'Claude Sonnet 4.6' },
   { value: 'opus', label: 'Claude Opus 4.6' },
@@ -58,6 +66,7 @@ const Settings: React.FC = () => {
   const loaded = useAppSelector((s) => s.settings.loaded);
   const modes = useAppSelector((s) => s.modes.items);
   const { setMode: setThemeMode } = useThemeMode();
+  const { setAccent, setGradient } = useThemeAccent();
 
   const modesList = useMemo(() => Object.values(modes), [modes]);
 
@@ -90,7 +99,7 @@ const Settings: React.FC = () => {
   }, [modelsByProvider, modelsLoaded, settings.connection_mode, settings.default_model]);
 
   const initialTab = useAppSelector((s) => s.settings.initialTab);
-  const TAB_VALUES = ['general', 'models', 'skills', 'tools', 'commands', 'usage'] as const;
+  const TAB_VALUES = ['account', 'general', 'appearance', 'privacy', 'advanced', 'models', 'skills', 'tools', 'commands', 'usage'] as const;
   type SettingsTab = typeof TAB_VALUES[number];
   const isValidTab = (t: string | null | undefined): t is SettingsTab =>
     !!t && (TAB_VALUES as readonly string[]).includes(t);
@@ -168,6 +177,24 @@ const Settings: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.theme]);
 
+  // Accent + gradient apply live too, same contract as theme: instant paint, debounced persist.
+  useEffect(() => {
+    if (open && loaded) {
+      setAccent(form.accent_color ?? null);
+      setGradient(form.accent_gradient ?? null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.accent_color, form.accent_gradient]);
+
+  // Text size applies live too; AppShell re-applies the persisted value on every boot.
+  useEffect(() => {
+    if (open && loaded) {
+      const scale = Math.min(1.4, Math.max(0.8, form.ui_font_scale ?? 1));
+      document.documentElement.style.fontSize = `${scale * 100}%`;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.ui_font_scale]);
+
   useEffect(() => {
     if (!open || !loaded) return;
     if (!buildSubmit()) return;
@@ -222,23 +249,30 @@ const Settings: React.FC = () => {
       maxWidth={false}
       PaperProps={{
         sx: {
-          width: 780,
+          width: 880,
           height: '85vh',
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'row',
           bgcolor: c.bg.page,
           borderRadius: 2,
           border: `1px solid ${c.border.subtle}`,
           boxShadow: c.shadow.md,
           transition: 'none',
+          overflow: 'hidden',
         },
       }}
     >
-      <SettingsHeader
-        activeTab={activeTab}
-        onTabChange={(v) => setActiveTab(v)}
-        onClose={handleRequestClose}
-      />
+      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
+
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 1.75, pb: 0.75, flexShrink: 0 }}>
+        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
+          {railLabelFor(activeTab)}
+        </Typography>
+        <IconButton onClick={handleRequestClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
+          <X size={18} />
+        </IconButton>
+      </Box>
 
       <DialogContent sx={{
         px: 3,
@@ -251,17 +285,35 @@ const Settings: React.FC = () => {
         scrollbarWidth: 'thin',
         scrollbarColor: `${c.border.medium} transparent`,
       }}>
-      {activeTab === 'general' ? (
-        <GeneralTab
-          form={form}
-          setForm={setForm}
-          styles={styles}
-          setBrowseOpen={setBrowseOpen}
-          modelOptions={modelOptions}
-          modesList={modesList}
-          providerColors={PROVIDER_COLORS}
-          openswarmGradient={OPENSWARM_GRADIENT}
-        />
+      {activeTab === 'account' ? (
+        <Box sx={{ pt: 1.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <AccountCard />
+        </Box>
+      ) : activeTab === 'general' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralAgentDefaults
+            form={form}
+            setForm={setForm}
+            styles={styles}
+            setBrowseOpen={setBrowseOpen}
+            modelOptions={modelOptions}
+            modesList={modesList}
+            providerColors={PROVIDER_COLORS}
+            openswarmGradient={OPENSWARM_GRADIENT}
+          />
+        </Box>
+      ) : activeTab === 'appearance' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralInterface form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'privacy' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <DataPrivacySection styles={styles} />
+        </Box>
+      ) : activeTab === 'advanced' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralAdvanced form={form} setForm={setForm} styles={styles} />
+        </Box>
       ) : activeTab === 'models' ? (
         <ModelsTab
           form={form}
@@ -292,6 +344,7 @@ const Settings: React.FC = () => {
       </Box>
       )}
       </DialogContent>
+      </Box>
 
       <DirectoryBrowser
         open={browseOpen}

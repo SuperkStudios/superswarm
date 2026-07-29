@@ -64,3 +64,11 @@ preview_updated_at
 # cross-module call. resolve_attached_skills next to it isn't flagged only
 # because tests also call it directly.
 resolve_forced_tools
+
+# Wire fields (same class as preview_updated_at): assigned in Python, read only
+# through model_dump()/JSON by the frontend, so vulture can't see the read.
+# used_llm: prep tells the onboarding pipeline whether the reveal is aux-grounded.
+# usage_summary: harvest summary handed to prep. last_run_at: workflow row badge.
+used_llm
+usage_summary
+last_run_at

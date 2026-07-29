@@ -48,14 +48,19 @@ interface Props {
   prefillPrompt?: string;
   // Replaces the default "Agent, @ for context..." placeholder (e.g. "Ask about this run...").
   placeholderOverride?: string;
+  // Predicted next prompt (in the user's voice) shown as ghost text in the empty composer; Tab fills it.
+  ghostSuggestion?: string;
   // A workflow run shown as a small removable chip inside the composer.
   runContext?: WorkflowsRunContext;
   onClearRunContext?: () => void;
 }
 
-const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, onModeChange, model, onModelChange, provider, onProviderChange, isRunning, onStop, autoRunMode, contextEstimate, embedded, autoFocus, sessionId, queueLength = 0, thinkingLevel = 'auto', onThinkingLevelChange, onActivityLabelChange, prefillPrompt, placeholderOverride, runContext, onClearRunContext }, ref) => {
+const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, onModeChange, model, onModelChange, provider, onProviderChange, isRunning, onStop, autoRunMode, contextEstimate, embedded, autoFocus, sessionId, queueLength = 0, thinkingLevel = 'auto', onThinkingLevelChange, onActivityLabelChange, prefillPrompt, placeholderOverride, ghostSuggestion, runContext, onClearRunContext }, ref) => {
   const c = useClaudeTokens();
   const editorRef = useRef<HTMLDivElement>(null);
+  // Live ref so the keydown closure reads the current suggestion without re-creating handlers.
+  const ghostSuggestionRef = useRef<string>('');
+  ghostSuggestionRef.current = ghostSuggestion || '';
   const containerRef = useRef<HTMLDivElement>(null);
   const generalFileInputRef = useRef<HTMLInputElement>(null);
   const dispatch = useAppDispatch();
@@ -108,6 +113,10 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
   }, [prefillPrompt]);
 
   const [hasContent, setHasContent] = useState(() => !!loadDraft(ownerId));
+  // Web-search mode: a conversation-level toggle (like Open WebUI's search switch). While on, every
+  // send forces the WebSearch/WebFetch tools so the model actually searches instead of answering
+  // from memory. Merged into forcedTools at send time so it doesn't clutter the attachment chips.
+  const [webSearchOn, setWebSearchOn] = useState(false);
   const [attachedSkills, setAttachedSkills] = useState<Record<string, AttachedSkill>>({});
   const [previewPasteId, setPreviewPasteId] = useState<string | null>(null);
   const attachedSkillsRef = useRef(attachedSkills);
@@ -248,6 +257,11 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
 
     const sendImages = allImages.length > 0 ? allImages : undefined;
     const allForcedToolNames = forcedTools.flatMap((ft) => ft.tools);
+    if (webSearchOn) {
+      for (const t of ['WebSearch', 'WebFetch']) {
+        if (!allForcedToolNames.includes(t)) allForcedToolNames.push(t);
+      }
+    }
     const currentSkills = Object.values(attachedSkillsRef.current);
     const sendSkills = currentSkills.length > 0
       ? currentSkills.map((s) => ({ id: s.id, name: s.name, content: s.content }))
@@ -285,7 +299,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
     setAttachedSkills({});
     setHasContent(false);
     elementSelection?.clearOwnerElements(ownerId);
-  }, [disabled, images, contextPaths, forcedTools, onSend, elementSelection, ownerId, summarizingPath, summarizingAll, oversizeQueue, pendingSendRef, sessionId, currentModelCtx, contextEstimate, sessionFrameworkOverhead, setSendBlock, onActivityLabelChange]);
+  }, [disabled, images, contextPaths, forcedTools, webSearchOn, onSend, elementSelection, ownerId, summarizingPath, summarizingAll, oversizeQueue, pendingSendRef, sessionId, currentModelCtx, contextEstimate, sessionFrameworkOverhead, setSendBlock, onActivityLabelChange]);
 
   const {
     picker: editorPicker, setPicker,
@@ -298,6 +312,7 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
     elementSelection, setHasContent, setAttachedSkills, setForcedTools, onModeChange,
     addImageFiles, uploadAndAttachFiles, handleSend,
     onPasteExpand: setPreviewPasteId,
+    ghostSuggestionRef,
   });
 
   useDraftLoad(editorRef, ownerId, setPreviewPasteId, removePasteCard, c.font.mono, c.status.error);
@@ -352,7 +367,10 @@ const ChatInput = forwardRef<ChatInputHandle, Props>(({ onSend, disabled, mode, 
       isRunning={isRunning}
       queueLength={queueLength}
       modeConf={modeConf}
+      webSearchOn={webSearchOn}
+      onToggleWebSearch={() => setWebSearchOn((v) => !v)}
       placeholderOverride={placeholderOverride}
+      ghostSuggestion={ghostSuggestion}
       runContext={runContext}
       onClearRunContext={onClearRunContext}
       handleInput={handleInput}

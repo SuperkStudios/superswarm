@@ -1,4 +1,6 @@
-const { app, components, BrowserWindow, ipcMain, shell, session, dialog, crashReporter, powerMonitor, Menu, clipboard } = require('electron');
+const { app, components, BrowserWindow, ipcMain, shell, session, dialog, crashReporter, powerMonitor, Menu, clipboard, globalShortcut } = require('electron');
+const whisperService = require('./voice/whisperService');
+const { injectText } = require('./voice/textInjector');
 
 // Browser cards live in their own persistent partition so cookies/localStorage/IndexedDB survive reload + quit (Discord etc. stay logged in) and site data stays isolated from the app's defaultSession. The "clear browsing data" wipe nukes only this partition. MUST match BROWSER_PARTITION in frontend BrowserCard.tsx.
 const BROWSER_PARTITION = 'persist:openswarm-browser';
@@ -54,6 +56,8 @@ const { spawn, execFileSync } = require('child_process');
 const os = require('os');
 const fs = require('fs');
 const hiddenBrowser = require('./hiddenBrowser');
+const usageHarvest = require('./usageHarvest');
+const { installVoiceHotkey } = require('./voiceHotkey');
 const getPort = require('get-port');
 const http = require('http');
 const affiliateTracking = require('./affiliateTracking');
@@ -766,6 +770,35 @@ function getPythonPath() {
   return path.join(__dirname, '..', 'backend', '.venv', 'bin', 'python3');
 }
 
+// Read the user's provider session cookies via a one-shot bundled-python invocation, so the
+// offscreen harvest can inject them and pass provider Cloudflare with a real Chrome TLS
+// handshake. Spawned, NEVER an HTTP endpoint, so a token-holding agent can't reach it: only
+// the app shell invokes it. Always resolves (to [] on any failure) so the harvest just falls
+// back to the opportunistic path. mirrors startBackend's python env (projectRoot + site-packages).
+function p_readProviderCookies(domain) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const root = isPackaged ? process.resourcesPath : path.join(__dirname, '..');
+      const env = { ...process.env, PYTHONUTF8: '1', PYTHONDONTWRITEBYTECODE: '1' };
+      if (isPackaged) {
+        const sitePackages = process.platform === 'win32'
+          ? path.join(process.resourcesPath, 'python-env', 'Lib', 'site-packages')
+          : path.join(process.resourcesPath, 'python-env', 'lib', 'python3.13', 'site-packages');
+        env.PYTHONPATH = [root, sitePackages].join(path.delimiter);
+      }
+      const proc = spawn(getPythonPath(), ['-m', 'backend.apps.onboarding.usage.dump_cookies', String(domain)], { cwd: root, env });
+      let out = '';
+      proc.stdout.on('data', (d) => { out += d.toString(); });
+      proc.on('error', () => finish([]));
+      proc.on('close', () => { try { const j = JSON.parse(out); finish(Array.isArray(j) ? j : []); } catch (_) { finish([]); } });
+      setTimeout(() => { try { proc.kill(); } catch (_) {} finish([]); }, 25000);
+    } catch (_) { finish([]); }
+  });
+}
+usageHarvest.configure({ readCookies: p_readProviderCookies });
+
 // Path to a real Node.js binary bundled in extraResources, or null if not
 // shipped (dev mode, or build that skipped the node-fetch step). Backend
 // reads OPENSWARM_NODE_PATH env var to prefer this over both system `node`
@@ -1208,9 +1241,14 @@ function createWindow() {
     },
   });
 
+  // Arc-style traffic lights: hidden until the renderer's top-edge hover asks for them.
+  if (process.platform === 'darwin') {
+    try { mainWindow.setWindowButtonVisibility(false); } catch (err) { console.warn('[main] setWindowButtonVisibility failed:', err.message); }
+  }
+
   if (isDev) {
-    // Dev only: OPENSWARM_DEV_PORT lets a second worktree's Electron point at its own webpack-dev-server (default 3000) instead of colliding on the shared port. Packaged builds never hit this branch.
-    mainWindow.loadURL(`http://localhost:${process.env.OPENSWARM_DEV_PORT || 3000}`);
+    // Dev only: OPENSWARM_DEV_URL (full override) or OPENSWARM_DEV_PORT lets a second worktree's Electron point at its own webpack-dev-server instead of colliding on the shared :3000. Packaged builds never hit this branch.
+    mainWindow.loadURL(process.env.OPENSWARM_DEV_URL || `http://localhost:${process.env.OPENSWARM_DEV_PORT || 3000}`);
   } else if (frontendServerPort) {
     mainWindow.loadURL(`http://127.0.0.1:${frontendServerPort}/index.html`);
   } else {
@@ -1739,6 +1777,35 @@ function installMacMouseClamp() {
   }
 }
 
+// Trackpad haptic taps (macOS, Force Touch only): dictation start/stop feedback. Fail-open like
+// mouseclamp; a missing addon or non-mac just makes 'haptic:perform' return false.
+let hapticsAddon = null;
+function installHaptics() {
+  if (process.platform !== 'darwin') return;
+  try {
+    const nodePath = isPackaged
+      ? path.join(process.resourcesPath, 'haptics', 'haptics.node')
+      : path.join(__dirname, 'build-staging', 'haptics', process.arch, 'haptics.node');
+    if (!fs.existsSync(nodePath)) {
+      console.log('[haptics] addon not present, skipping:', nodePath);
+      return;
+    }
+    hapticsAddon = require(nodePath);
+    console.log('[haptics] addon loaded');
+  } catch (e) {
+    console.log('[haptics] load failed (continuing):', e && e.message);
+  }
+}
+ipcMain.handle('haptic:perform', (event, pattern) => {
+  try {
+    if (!hapticsAddon) return false;
+    const p = pattern === 'alignment' ? 1 : pattern === 'level' ? 2 : 0;
+    return hapticsAddon.perform(p);
+  } catch (_) {
+    return false;
+  }
+});
+
 app.whenReady().then(async () => {
   // We made it here, so any prior update swap finished. Drop a stale updating.lock
   // (the watchdog never deletes it) so a real crash later isn't silently swallowed.
@@ -1750,6 +1817,12 @@ app.whenReady().then(async () => {
 
   // Off-window mouse-release crash dodge (macOS). Safe to call before windows exist.
   installMacMouseClamp();
+  installHaptics();
+
+  // Voice dictation hotkey (F5 / Cmd-Ctrl+Shift+D). Native uiohook key tap = true keyboard
+  // hold-to-talk on every platform; falls back to the old press-to-toggle when the tap can't run
+  // (module missing, or macOS without the Accessibility grant). Tiers live in voiceHotkey.js.
+  installVoiceHotkey(() => mainWindow);
 
   // PASSKEY SPIKE (macOS only): turn on the Secure-Enclave/Touch ID WebAuthn authenticator that Electron 42 added. Without this, isUserVerifyingPlatformAuthenticatorAvailable() is hardwired false (why the old reject-shim existed). keychainAccessGroup MUST match the keychain-access-groups entitlement (Y26NUZH4NG.<bundle>.webauthn) or this throws. Windows has no equivalent, so the reject-shim still runs there.
   if (process.platform === 'darwin' && typeof app.configureWebAuthn === 'function') {
@@ -2152,6 +2225,51 @@ function buildBrowserContextMenu(contents, params, webContentsId) {
   } catch (_) {}
 }
 
+// The app's OWN renderer (chat, outputs, sidebar) gets no native menu from Electron by default, so
+// right-clicking text used to do nothing. This is the browser menu minus the nav items that mean
+// nothing inside a single-page app: spelling, copy-link, and the edit/copy roles.
+function buildAppContextMenu(contents, params) {
+  const template = [];
+  const sep = () => template.push({ type: 'separator' });
+
+  if (params.misspelledWord) {
+    const suggestions = params.dictionarySuggestions || [];
+    if (suggestions.length) {
+      for (const s of suggestions) template.push({ label: s, click: () => { try { contents.replaceMisspelling(s); } catch (_) {} } });
+    } else {
+      template.push({ label: 'No spelling suggestions', enabled: false });
+    }
+    template.push({ label: 'Add to Dictionary', click: () => { try { contents.session.addWordToSpellCheckerDictionary(params.misspelledWord); } catch (_) {} } });
+    sep();
+  }
+
+  if (params.linkURL) {
+    template.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) });
+    sep();
+  }
+
+  const flags = params.editFlags || {};
+  if (params.isEditable) {
+    template.push({ role: 'cut', enabled: flags.canCut !== false });
+    template.push({ role: 'copy', enabled: flags.canCopy !== false });
+    template.push({ role: 'paste', enabled: flags.canPaste !== false });
+    template.push({ role: 'selectAll' });
+  } else if (params.selectionText) {
+    template.push({ role: 'copy' });
+  }
+
+  if (isDev) {
+    if (template.length) sep();
+    template.push({ label: 'Inspect Element', click: () => { try { contents.inspectElement(params.x, params.y); } catch (_) {} } });
+  }
+
+  // Nothing worth showing (empty right-click on non-dev chrome): let the OS do nothing.
+  if (!template.length) return;
+  try {
+    Menu.buildFromTemplate(template).popup({ window: mainWindow || undefined });
+  } catch (_) {}
+}
+
 app.on('web-contents-created', (_event, contents) => {
   // Block Cmd+W from closing the main window, whether the window chrome or one of
   // its embedded webviews has focus. OAuth popups (their own 'window' contents,
@@ -2160,6 +2278,11 @@ app.on('web-contents-created', (_event, contents) => {
   if (isCreatingMainWindow || contents.getType() === 'webview') {
     contents.on('before-input-event', swallowCloseWindowShortcut);
     contents.on('before-input-event', routeReloadShortcut);
+  }
+  // The main app window (created while this flag is set) gets a text-focused native menu; OAuth
+  // popups are 'window' contents created with the flag OFF, so they keep the OS default.
+  if (isCreatingMainWindow) {
+    contents.on('context-menu', (_e, params) => buildAppContextMenu(contents, params));
   }
   if (contents.getType() === 'webview') {
     const wcId = contents.id;
@@ -2688,6 +2811,8 @@ app.on('before-quit', async (event) => {
 
 app.on('will-quit', () => {
   if (!isDev) killBackend();
+  try { globalShortcut.unregisterAll(); } catch (_) {}
+  try { whisperService.stopServer(); } catch (_) {}
 });
 
 app.on('activate', () => {
@@ -2772,6 +2897,36 @@ ipcMain.handle = (channel, handler) => {
 };
 
 ipcMain.handle('get-backend-port', () => backendPort);
+
+// ---- Voice dictation (local whisper.cpp) ----
+function voiceResourceDir() {
+  return getResourcePath('whisper');
+}
+function voiceUserDataDir() {
+  try { return app.getPath('userData'); } catch (_) { return __dirname; }
+}
+// Renderer records the mic, encodes a 16kHz-mono WAV, and hands us the bytes; we run them through the
+// warm whisper server and return text. Fail-soft: any error becomes { ok:false } so the pill can show
+// a clean "couldn't hear that" instead of the app throwing.
+ipcMain.handle('voice:transcribe', async (_e, wavArrayBuffer) => {
+  try {
+    const buf = Buffer.from(wavArrayBuffer);
+    const text = await whisperService.transcribe(voiceResourceDir(), voiceUserDataDir(), buf);
+    return { ok: true, text };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
+});
+// Warm the model ahead of the first phrase so dictation feels instant, not "1s to boot then type".
+ipcMain.handle('voice:warmup', async () => {
+  try { await whisperService.ensureServer(voiceResourceDir(), voiceUserDataDir()); return { ok: true }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
+});
+// First-run model download progress so the pill can show "Preparing voice N%".
+ipcMain.handle('voice:status', () => whisperService.modelStatus());
+// Paste the text into the frontmost app (dictate-anywhere). Returns whether the OS paste actually fired.
+ipcMain.handle('voice:inject', async (_e, text) => {
+  try { const pasted = await injectText(String(text || '')); return { ok: true, pasted }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
+});
 // Sync mirrors so preload.js can expose window.openswarm synchronously (no await), closing the race where React renders before the async exposure resolves and window.openswarm is briefly undefined. backendPort is assigned in app.whenReady before any BrowserWindow is created, so it is always set by the time preload runs.
 ipcMain.on('get-backend-port-sync', (event) => { event.returnValue = backendPort; });
 ipcMain.on('get-webview-preload-path-sync', (event) => {
@@ -2798,11 +2953,28 @@ ipcMain.handle('get-auth-token', async () => {
 ipcMain.on('perf:first-agent-response', () => perfMark('first-agent-response'));
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+ipcMain.handle('set-window-buttons-visible', (_e, visible) => {
+  if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.setWindowButtonVisibility(!!visible); } catch (err) { console.warn('[main] setWindowButtonVisibility failed:', err.message); }
+});
 // Phase 2 provenance: the renderer's About panel shows the commit this build
 // was cut from, so a screenshot is enough to identify the exact code shipped.
 ipcMain.handle('get-build-info', () => getBuildInfo());
 ipcMain.handle('get-webview-preload-path', () => {
   return `file://${path.join(__dirname, 'webview-preload.js')}`;
+});
+
+// Reveal a diagnostics bundle in the file manager so the user can drag it into a GitHub issue.
+// Scoped HARD to the backend's diagnostics dir: this must never become an arbitrary-path opener.
+ipcMain.handle('help:reveal-bundle', (event, folderPath) => {
+  try {
+    const p = path.resolve(String(folderPath || ''));
+    if (!p.includes(`${path.sep}diagnostics${path.sep}`) || !fs.existsSync(p)) return { ok: false };
+    shell.showItemInFolder(p);
+    return { ok: true };
+  } catch (_) {
+    return { ok: false };
+  }
 });
 
 // Wipe ONLY the browser-card partition (cookies/cache/localStorage/IndexedDB), never the app's defaultSession. Surfaced as Settings -> Data & Privacy -> Clear browsing data.
@@ -2834,6 +3006,14 @@ async function readPartitionCookies(domain) {
   }
 }
 ipcMain.handle('get-partition-cookies', (_e, domain) => readPartitionCookies(domain));
+
+// Silently read the user's own chatgpt.com / claude.ai history from the browser
+// partition's logged-in session (offscreen, no card) so onboarding can personalize.
+// Provider-gated + main-owned script (see usageHarvest.js); fails open to the empty
+// shape when no session exists in the partition.
+ipcMain.handle('harvest-usage', (_e, provider) =>
+  usageHarvest.harvest(BROWSER_PARTITION, provider).catch(() => ({ ok: false, total: 0, titles: [], memories: [] })),
+);
 
 // Suspend/resume state capsules: the app renderer stages a resumed webview's sessionStorage snapshot here (keyed by that guest's webContents id) right before loadURL; the guest preload sync-takes it at document-start with an origin match, so page scripts see restored state and logins survive suspension. In-memory only, single-shot, short TTL; a guest can only ever take its OWN capsule.
 const pendingSessionCapsules = new Map();
@@ -3039,6 +3219,69 @@ ipcMain.handle('open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) {
     shell.openExternal(url);
   }
+});
+
+// Applications launcher support. Names are bare .app basenames from the local scan; both
+// handlers hard-validate the name and resolve strictly inside /Applications so a hostile
+// renderer string can't traverse anywhere else.
+const APP_NAME_RE = /^[\w .&'()+-]{1,80}$/;
+const appIconCache = new Map();
+function resolveApplicationPath(name) {
+  if (typeof name !== 'string' || !APP_NAME_RE.test(name) || name.includes('..')) return null;
+  const path = require('path');
+  const resolved = path.join('/Applications', `${name}.app`);
+  if (path.dirname(resolved) !== '/Applications') return null;
+  return resolved;
+}
+
+ipcMain.handle('get-app-icon', async (_event, name) => {
+  const target = resolveApplicationPath(name);
+  if (!target) return null;
+  if (appIconCache.has(name)) return appIconCache.get(name);
+  try {
+    let dataUrl = null;
+    if (process.platform === 'darwin') {
+      // NEVER app.getFileIcon here: a corrupt .icns raises a native ObjC exception no JS try/catch
+      // can contain and SIGTRAPs the whole app (reproduced 2026-07-20: last IPC get-app-icon,
+      // crashpad in_range_cast warning, death). sips does the decode in a disposable child instead.
+      const { execFile } = require('child_process');
+      const os = require('os');
+      const run = (cmd, args) => new Promise((resolve, reject) => {
+        execFile(cmd, args, { timeout: 5000 }, (err, stdout) => (err ? reject(err) : resolve(String(stdout).trim())));
+      });
+      const resources = path.join(target, 'Contents', 'Resources');
+      let icnsName = await run('/usr/bin/defaults', ['read', path.join(target, 'Contents', 'Info'), 'CFBundleIconFile']).catch(() => '');
+      if (icnsName && !icnsName.endsWith('.icns')) icnsName += '.icns';
+      let icns = icnsName ? path.join(resources, icnsName) : '';
+      if (!icns || !fs.existsSync(icns)) {
+        const alt = fs.existsSync(resources) ? fs.readdirSync(resources).find((f) => f.endsWith('.icns')) : null;
+        icns = alt ? path.join(resources, alt) : '';
+      }
+      if (icns && fs.existsSync(icns)) {
+        const outPng = path.join(os.tmpdir(), `osw-icon-${process.pid}-${Date.now()}.png`);
+        await run('/usr/bin/sips', ['-s', 'format', 'png', '-z', '128', '128', icns, '--out', outPng]).catch(() => '');
+        if (fs.existsSync(outPng)) {
+          dataUrl = `data:image/png;base64,${fs.readFileSync(outPng).toString('base64')}`;
+          fs.rmSync(outPng, { force: true });
+        }
+      }
+    } else {
+      const icon = await app.getFileIcon(target, { size: 'large' });
+      dataUrl = icon && !icon.isEmpty() ? icon.toDataURL() : null;
+    }
+    appIconCache.set(name, dataUrl);
+    return dataUrl;
+  } catch (_) {
+    appIconCache.set(name, null);
+    return null;
+  }
+});
+
+ipcMain.handle('open-application', (_event, name) => {
+  const target = resolveApplicationPath(name);
+  if (!target) return false;
+  shell.openPath(target);
+  return true;
 });
 
 // Affiliate install state. Returns the persisted install.json contents so

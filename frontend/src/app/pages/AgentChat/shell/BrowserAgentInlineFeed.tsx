@@ -219,7 +219,12 @@ const BrowserAgentInlineFeed: React.FC<Props> = ({ parentSessionId, browserId })
       const entries: FeedEntry[] = [];
       for (const msg of session.messages) {
         const entry = formatMessage(msg);
-        if (entry) entries.push(entry);
+        if (!entry) continue;
+        // Retries emit the same status line back-to-back ("Picking up what I learned..." x4); one
+        // row carries the information, the repeats were pure noise in the transcript.
+        const prev = entries[entries.length - 1];
+        if (prev && prev.type === entry.type && prev.text === entry.text) continue;
+        entries.push(entry);
       }
       return { session, entries };
     });
@@ -293,7 +298,7 @@ const BrowserAgentInlineFeed: React.FC<Props> = ({ parentSessionId, browserId })
               <LanguageIcon sx={{ fontSize: 12, color: accentColor, opacity: 0.7 }} />
               <Typography
                 sx={{
-                  fontSize: '0.65rem',
+                  fontSize: '0.625rem',
                   fontWeight: 600,
                   color: accentColor,
                   opacity: 0.8,
@@ -310,7 +315,7 @@ const BrowserAgentInlineFeed: React.FC<Props> = ({ parentSessionId, browserId })
           {!showLabels && entries.length === 0 && session.status === 'running' && (
             <Typography
               sx={{
-                fontSize: '0.7rem',
+                fontSize: '0.6875rem',
                 color: c.text.tertiary,
                 fontStyle: 'italic',
                 fontFamily: c.font.mono,
@@ -347,7 +352,7 @@ const BrowserAgentInlineFeed: React.FC<Props> = ({ parentSessionId, browserId })
                 <PanToolOutlinedIcon sx={{ fontSize: 12, color: '#f59e0b', flexShrink: 0, mt: '2px' }} />
                 <Typography
                   sx={{
-                    fontSize: '0.72rem',
+                    fontSize: '0.75rem',
                     fontWeight: 600,
                     color: '#f59e0b',
                     flex: 1,
@@ -428,7 +433,7 @@ const EntryRow = React.memo<{ entry: FeedEntry; accentColor: string; fc: FeedCol
         />
         <Typography
           sx={{
-            fontSize: '0.7rem',
+            fontSize: '0.6875rem',
             color: fc.thought,
             lineHeight: 1.45,
             wordBreak: 'break-word',
@@ -448,7 +453,7 @@ const EntryRow = React.memo<{ entry: FeedEntry; accentColor: string; fc: FeedCol
         <ActionIcon sx={{ fontSize: 11, color: accentColor, mt: '2px', flexShrink: 0 }} />
         <Typography
           sx={{
-            fontSize: '0.7rem',
+            fontSize: '0.6875rem',
             fontFamily: c.font.mono,
             color: accentColor,
             lineHeight: 1.45,
@@ -466,7 +471,7 @@ const EntryRow = React.memo<{ entry: FeedEntry; accentColor: string; fc: FeedCol
       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'flex-start', minWidth: 0, pl: 1.25 }}>
         <Typography
           sx={{
-            fontSize: '0.65rem',
+            fontSize: '0.625rem',
             fontFamily: c.font.mono,
             color: fc.result,
             lineHeight: 1.45,
@@ -485,7 +490,7 @@ const EntryRow = React.memo<{ entry: FeedEntry; accentColor: string; fc: FeedCol
         <ErrorOutlineIcon sx={{ fontSize: 10, color: fc.errorIcon, flexShrink: 0 }} />
         <Typography
           sx={{
-            fontSize: '0.68rem',
+            fontSize: '0.6875rem',
             fontFamily: c.font.mono,
             color: fc.error,
             lineHeight: 1.45,

@@ -3,11 +3,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Paper from '@mui/material/Paper';
 import PsychologyIcon from '@mui/icons-material/Psychology';
-import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
-import QuestionAnswerOutlinedIcon from '@mui/icons-material/QuestionAnswerOutlined';
-import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
-import CategoryOutlinedIcon from '@mui/icons-material/CategoryOutlined';
-import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import LanguageIcon from '@mui/icons-material/Language';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
@@ -66,14 +61,6 @@ interface Props {
   visible: boolean;
 }
 
-const MODE_ICON_MAP: Record<string, React.ComponentType<{ sx?: object }>> = {
-  smart_toy: SmartToyOutlinedIcon,
-  question_answer: QuestionAnswerOutlinedIcon,
-  map: MapOutlinedIcon,
-  category: CategoryOutlinedIcon,
-  tune: TuneOutlinedIcon,
-};
-
 function highlightMatch(text: string, query: string, color: string): React.ReactNode {
   if (!query) return text;
   const idx = text.toLowerCase().indexOf(query.toLowerCase());
@@ -91,7 +78,6 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const skills = useAppSelector((s) => s.skills.items);
-  const modesMap = useAppSelector((s) => s.modes.items);
   const builtinTools = useAppSelector((s) => s.tools.builtinTools);
   const customTools = useAppSelector((s) => s.tools.items);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -121,20 +107,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
         icon: <PsychologyIcon sx={{ fontSize: 15 }} />,
       }));
 
-      const modeItems: CommandPickerItem[] = Object.values(modesMap).map((m) => {
-        const IconComp = MODE_ICON_MAP[m.icon] || SmartToyOutlinedIcon;
-        return {
-          id: m.id,
-          type: 'mode' as const,
-          category: 'Modes',
-          name: m.name,
-          description: m.description || 'Switch to this mode',
-          command: m.name.toLowerCase().replace(/\s+/g, '-'),
-          icon: <IconComp sx={{ fontSize: 15 }} />,
-        };
-      });
-
-      all = [...skillItems, ...modeItems];
+      all = skillItems;
     } else {
       const atItems: CommandPickerItem[] = [
         {
@@ -259,7 +232,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
         item.command.toLowerCase().includes(lower) ||
         item.description.toLowerCase().includes(lower),
     );
-  }, [trigger, skills, modesMap, builtinTools, customTools, filter]);
+  }, [trigger, skills, builtinTools, customTools, filter]);
 
   const flatItems = useMemo(() => {
     const result: { item: CommandPickerItem; isGroupStart: boolean; category: string }[] = [];
@@ -274,10 +247,6 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
   const getIconColor = (item: CommandPickerItem): string => {
     switch (item.type) {
       case 'skill': return c.status.success;
-      case 'mode': {
-        const mode = modesMap[item.id];
-        return mode?.color || c.accent.primary;
-      }
       case 'context': return c.text.tertiary;
       default: return c.text.tertiary;
     }
@@ -412,7 +381,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
                 component="span"
                 sx={{
                   color: c.text.primary,
-                  fontSize: '0.8rem',
+                  fontSize: '0.8125rem',
                   fontWeight: 500,
                   fontFamily: c.font.mono,
                   whiteSpace: 'nowrap',
@@ -425,7 +394,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
                 component="span"
                 sx={{
                   color: c.text.muted,
-                  fontSize: '0.72rem',
+                  fontSize: '0.75rem',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -459,7 +428,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
           <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.375 }}>
             <Typography
               sx={{
-                fontSize: '0.58rem',
+                fontSize: '0.625rem',
                 fontFamily: c.font.mono,
                 color: c.text.ghost,
                 bgcolor: c.bg.secondary,
@@ -472,7 +441,7 @@ const CommandPicker: React.FC<Props> = ({ trigger, filter, onSelect, onClose, vi
             >
               {keys}
             </Typography>
-            <Typography sx={{ fontSize: '0.58rem', color: c.text.ghost }}>
+            <Typography sx={{ fontSize: '0.625rem', color: c.text.ghost }}>
               {label}
             </Typography>
           </Box>

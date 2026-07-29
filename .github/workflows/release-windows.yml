@@ -244,3 +244,68 @@ jobs:
             electron/dist/squirrel-windows/latest.yml
           if-no-files-found: error
           retention-days: 14
+
+  # Dispatch-only live smoke of the exact signed artifact this run just built (Squirrel layout: the
+  # root OpenSwarm.exe is a stub, the real app lives in app-<version>\; python.exe appearing is the
+  # install-done signal). Publish runs skip this: tags ship through the draft flow.
+  verify-windows:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish != 'true'
+    needs: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download the signed installer built by this run
+        uses: actions/download-artifact@v4
+        with:
+          name: openswarm-windows-x64
+          path: installer
+
+      - name: silent install (Squirrel)
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "installer\OpenSwarm-Setup-x64.exe" -ArgumentList "--silent"
+          $deadline = (Get-Date).AddMinutes(10)
+          do {
+            Start-Sleep -Seconds 5
+            $py = Get-ChildItem "$env:LOCALAPPDATA\openswarm\app-*\resources\python-env\python.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          } until ($py -or (Get-Date) -gt $deadline)
+          if (-not $py) { Get-ChildItem "$env:LOCALAPPDATA\openswarm" -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName -First 40; throw "installed python-env not found" }
+          $appDir = $py.FullName -replace '\\resources\\python-env\\python\.exe$', ''
+          echo "APP_EXE=$appDir\OpenSwarm.exe" >> $env:GITHUB_ENV
+          echo "APP_DIR=$appDir" >> $env:GITHUB_ENV
+          echo "installed at $appDir"
+
+      - name: native uiohook binary shipped outside the asar
+        shell: pwsh
+        run: |
+          $node = Get-ChildItem $env:APP_DIR -Recurse -Filter "uiohook-napi.node" -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "win32-x64" } | Select-Object -First 1
+          if (-not $node) { throw "uiohook-napi win32-x64 prebuild not found on disk (asar swallowed it => keyboard hold-to-talk silently dead)" }
+          echo "uiohook prebuild: $($node.FullName)"
+
+      - name: bundled python + claude CLI run on real Windows x64
+        shell: pwsh
+        run: |
+          $py = Join-Path $env:APP_DIR "resources\python-env\python.exe"
+          & $py --version
+          if ($LASTEXITCODE -ne 0) { throw "python --version failed" }
+          & $py -c "import fastapi, anthropic, pydantic, httpx, jsonschema, claude_agent_sdk; print('deps ok')"
+          if ($LASTEXITCODE -ne 0) { throw "import smoke failed" }
+          $cli = Get-ChildItem (Join-Path $env:APP_DIR "resources\python-env") -Recurse -Filter "claude*" -ErrorAction SilentlyContinue | Where-Object { $_.Directory.Name -eq "_bundled" } | Select-Object -First 1
+          if (-not $cli) { throw "bundled claude CLI not found" }
+          & $cli.FullName --version
+          if ($LASTEXITCODE -ne 0) { throw "claude --version failed" }
+
+      - name: boot the installed app, poll backend health
+        shell: pwsh
+        run: |
+          $env:OPENSWARM_E2E = "1"
+          Start-Process -FilePath $env:APP_EXE
+          $code = 0
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 3
+            try { $code = (Invoke-WebRequest -Uri "http://127.0.0.1:8324/api/health/check" -UseBasicParsing -TimeoutSec 2).StatusCode } catch { $code = 0 }
+            if ($code -eq 200) { break }
+          }
+          echo "health=$code"
+          Stop-Process -Name "OpenSwarm" -Force -ErrorAction SilentlyContinue
+          if ($code -ne 200) { throw "backend never became healthy" }

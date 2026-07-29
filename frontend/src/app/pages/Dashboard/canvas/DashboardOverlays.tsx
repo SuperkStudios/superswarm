@@ -2,11 +2,15 @@ import React, { type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import DashboardToolbar from '../DashboardToolbar';
 import CanvasControls from '../controls/CanvasControls';
+import HelpPill from '../desktop/HelpPill';
+import CardContextMenu from '../desktop/CardContextMenu';
 import CardSearchPalette from '../controls/CardSearchPalette';
 import DirectionHints from '../controls/DirectionHints';
 import WorkflowRunningToast from '@/app/pages/Workflows/WorkflowRunningToast';
 import MissedRunsToast from '@/app/pages/Workflows/MissedRunsToast';
 import ProviderHealthToast from '@/app/components/overlays/ProviderHealthToast';
+import ScheduleOfferToast from '@/app/components/nudges/ScheduleOfferToast';
+import PrepKeepToast from '@/app/components/nudges/PrepKeepToast';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -22,6 +26,7 @@ type Direction = 'left' | 'right' | 'up' | 'down';
 type NeighborDirections = { left: boolean; right: boolean; up: boolean; down: boolean };
 
 interface DashboardOverlaysProps {
+  anyFullscreen: boolean;
   canvas: Canvas;
   dashboardId: string;
   sessions: Record<string, AgentSession>;
@@ -36,6 +41,7 @@ interface DashboardOverlaysProps {
   toolbarOpen: boolean;
   searchPaletteOpen: boolean;
   newAgentBounce: boolean;
+  canvasEmpty: boolean;
   toolbarRef: RefObject<HTMLDivElement>;
   onNewAgent: () => void;
   onToolbarCancel: () => void;
@@ -47,12 +53,15 @@ interface DashboardOverlaysProps {
   onNewAgentBounceEnd: () => void;
   onFitToView: () => void;
   onTidy: () => void;
+  onDeleteSelected: () => void;
+  hasSelection: boolean;
   onSearchPaletteClose: () => void;
   toolbarPrefill?: string;
   toolbarPrefillMode?: string;
 }
 
 const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
+  anyFullscreen,
   canvas,
   dashboardId,
   sessions,
@@ -67,6 +76,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
   toolbarOpen,
   searchPaletteOpen,
   newAgentBounce,
+  canvasEmpty,
   toolbarRef,
   onNewAgent,
   onToolbarCancel,
@@ -78,13 +88,16 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
   onNewAgentBounceEnd,
   onFitToView,
   onTidy,
+  onDeleteSelected,
+  hasSelection,
   onSearchPaletteClose,
   toolbarPrefill,
   toolbarPrefillMode,
 }) => {
   return (
     <>
-      {/* Floating bottom toolbar */}
+      {/* Floating bottom toolbar (all floating chrome steps aside while anything is fullscreen) */}
+      {!anyFullscreen && (
       <Box sx={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
         <DashboardToolbar
           ref={toolbarRef}
@@ -98,11 +111,21 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
           onAddNote={onAddNote}
           dashboardId={dashboardId}
           newAgentBounce={newAgentBounce}
+          canvasEmpty={canvasEmpty}
           onNewAgentBounceEnd={onNewAgentBounceEnd}
           prefillPrompt={toolbarPrefill}
           prefillMode={toolbarPrefillMode}
         />
       </Box>
+      )}
+
+      {/* Desktop help pill */}
+      {!anyFullscreen && (
+      <Box sx={{ position: 'absolute', top: 14, right: 16, zIndex: 10 }}>
+        <HelpPill />
+      <CardContextMenu />
+      </Box>
+      )}
 
       {/* Arrow navigation hints when zoomed in on a card */}
       {focusedCardId && canvas.zoom >= 0.4 && (
@@ -116,12 +139,15 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
       )}
 
       {/* Floating zoom controls + minimap */}
+      {!anyFullscreen && (
       <Box sx={{ position: 'absolute', bottom: 16, right: 16, zIndex: 10 }}>
         <CanvasControls
           zoom={canvas.zoom}
           actions={canvas.actions}
           onFitToView={onFitToView}
           onTidy={onTidy}
+          onDeleteSelected={onDeleteSelected}
+          hasSelection={hasSelection}
           minimapProps={{
             panX: canvas.panX,
             panY: canvas.panY,
@@ -136,6 +162,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
           onMinimapPan={(px, py) => canvas.actions.setState({ panX: px, panY: py, zoom: canvas.zoom })}
         />
       </Box>
+      )}
 
       {/* Card search palette (Cmd+F) */}
       <CardSearchPalette
@@ -156,6 +183,15 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
 
       {/* Launch nudge when a subscription login died while the app was closed */}
       <ProviderHealthToast />
+
+      {/* One-shot dependency beat: first completed personalized starter offers to become a weekly job */}
+      <ScheduleOfferToast dashboardId={dashboardId} />
+
+      {/* The reveal's payoff is the hold-to-enter gradient flood (BeatEnter) landing you on the live work,
+          not a summary card, so no modal here. */}
+
+      {/* Accept-or-deny for the audit + app the flow started on the user's behalf */}
+      <PrepKeepToast />
     </>
   );
 };

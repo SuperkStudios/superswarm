@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useAppDispatch } from '@/shared/hooks';
+import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setWorkflowsHubPosition, setWorkflowsHubSize } from '@/shared/state/dashboardLayoutSlice';
+import { TILE_ZONES, useTiledStyle } from '@/app/pages/Dashboard/cards/tileZones';
+import { useDragEndBackstops } from '@/app/pages/Dashboard/hooks/interaction/useDragEndBackstops';
 import { useWC } from './uiKit';
 import WorkflowsAppContent from './WorkflowsAppContent';
 
@@ -53,10 +55,23 @@ const WorkflowsAppCard: React.FC<Props> = ({
 }) => {
   const WC = useWC();
   const dispatch = useAppDispatch();
+  const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.workflowsHub?.fullscreen);
+  // Fullscreen pins the card to the viewport, so its geometry must track pan/zoom like the tiled
+  // agent/browser cards; reuse the exact same helper. Subscribe to pan only while fullscreen.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!isFullscreen) return undefined;
+    const onPan = (): void => forceTick((t) => t + 1);
+    window.addEventListener('openswarm:canvas-pan-changed', onPan);
+    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
+  }, [isFullscreen]);
+  const cam = getCanvasState();
+  const fsStyle = useTiledStyle(isFullscreen ? 'fullscreen' : undefined, cam.panX, cam.panY, cam.zoom, getCanvasState, 'workflows-hub');
 
 
   // ---- Drag (title bar is the handle) ----
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number; startPanX: number; startPanY: number } | null>(null);
+  const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [localDragPos, setLocalDragPos] = useState<{ x: number; y: number } | null>(null);
   const didDrag = useRef(false);
@@ -67,6 +82,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
 
   const onHeaderPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    if (isFullscreen) return;  // pinned to the viewport, no drag until restored
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag], button, [role="button"], input, textarea, select')) return;
     e.preventDefault();
@@ -85,6 +101,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
     const rawDy = e.clientY - dragState.current.startY;
     if (!didDrag.current && Math.sqrt(rawDx * rawDx + rawDy * rawDy) < DRAG_THRESHOLD) return;
     didDrag.current = true;
+    lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
@@ -95,20 +112,20 @@ const WorkflowsAppCard: React.FC<Props> = ({
     onDragMove?.(dx, dy, e.clientX, e.clientY);
   }, [onDragMove, getCanvasState]);
 
-  const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       justDraggedRef.current = true;
       setTimeout(() => { justDraggedRef.current = false; }, 0);
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
-      if (!e.shiftKey) { finalX = Math.round(finalX / 24) * 24; finalY = Math.round(finalY / 24) * 24; }
+      if (!shiftKey) { finalX = Math.round(finalX / 24) * 24; finalY = Math.round(finalY / 24) * 24; }
       dispatch(setWorkflowsHubPosition({ x: finalX, y: finalY }));
     }
     onDragEnd?.(dx, dy, didDrag.current);
@@ -116,8 +133,19 @@ const WorkflowsAppCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, onDragEnd, getCanvasState]);
+
+  const onHeaderPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+  useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
   // ---- Resize ----
   const resizeRef = useRef<{ dir: ResizeDir; sx0: number; sy0: number; ox: number; oy: number; ow: number; oh: number } | null>(null);
@@ -197,15 +225,20 @@ const WorkflowsAppCard: React.FC<Props> = ({
         position: 'absolute',
         contain: 'layout style',
         willChange: 'transform',
-        left: dx, top: dy, width: dw, height: dh,
+        left: fsStyle ? fsStyle.left : dx,
+        top: fsStyle ? fsStyle.top : dy,
+        width: fsStyle ? fsStyle.width : dw,
+        height: fsStyle ? fsStyle.height : dh,
+        transform: fsStyle ? fsStyle.transform : undefined,
+        transformOrigin: fsStyle ? fsStyle.transformOrigin : undefined,
         background: WC.page,
-        border,
+        border: fsStyle ? 'none' : border,
         borderRadius: WC.radius.lg,
         boxShadow: (isDragging || isResizing) ? WC.shadow.lg : WC.shadow.md,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: fsStyle ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.3s ease, border-color 0.2s ease',
       }}
     >
@@ -214,11 +247,22 @@ const WorkflowsAppCard: React.FC<Props> = ({
           onPointerDown: onHeaderPointerDown,
           onPointerMove: onHeaderPointerMove,
           onPointerUp: onHeaderPointerUp,
+          onPointerCancel: abortDrag,
+          onLostPointerCapture: abortDrag,
           dragging: isDragging,
+        }}
+        onTileZone={(zone) => {
+          const z = TILE_ZONES[zone];
+          const vp = document.querySelector('[data-canvas-viewport]')?.getBoundingClientRect();
+          if (!z || !vp) return;
+          const cam = getCanvasState();
+          const GAP = 8;
+          dispatch(setWorkflowsHubPosition({ x: (z.x * vp.width + GAP - cam.panX) / cam.zoom, y: (z.y * vp.height + GAP - cam.panY) / cam.zoom }));
+          dispatch(setWorkflowsHubSize({ width: (z.w * vp.width - GAP * 2) / cam.zoom, height: (z.h * vp.height - GAP * 2) / cam.zoom }));
         }}
       />
 
-      {HANDLE_DEFS.map(({ dir, css }) => (
+      {!isFullscreen && HANDLE_DEFS.map(({ dir, css }) => (
         <div
           key={dir}
           data-no-drag

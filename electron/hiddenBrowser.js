@@ -6,7 +6,7 @@
 //
 // Main-process only (offscreen BrowserWindow isn't a renderer webview). Every
 // path destroys its window in a finally, so a failure can never leak a window.
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, session } = require('electron');
 
 const SCRAPE_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const SETTLE_MS = 2800;
@@ -36,9 +36,9 @@ function makeWindow(partition) {
   }
 }
 
-async function withWindow(partition, fn) {
+async function withWindow(partition, fn, extraGraceMs = 0) {
   const win = makeWindow(partition);
-  const killer = setTimeout(() => { try { win.destroy(); } catch (_) {} }, LOAD_TIMEOUT_MS + SETTLE_MS + 8000);
+  const killer = setTimeout(() => { try { win.destroy(); } catch (_) {} }, LOAD_TIMEOUT_MS + SETTLE_MS + 8000 + extraGraceMs);
   try {
     return await fn(win);
   } finally {
@@ -46,6 +46,11 @@ async function withWindow(partition, fn) {
     try { if (!win.isDestroyed()) win.destroy(); } catch (_) {}
   }
 }
+
+// The provider-history harvest paginates a genuinely slow endpoint (ChatGPT's
+// /backend-api/conversations runs ~4s/page), so its offscreen window must outlive a
+// plain fetch/search window or it gets killed mid-pagination and the whole read is lost.
+const HARVEST_GRACE_MS = 20000;
 
 async function loadAndSettle(win, url) {
   // loadURL rejects on a sub-resource abort even when the main frame is fine, so a rejection is a warning, not a failure; we still try to read the DOM.
@@ -66,6 +71,53 @@ async function hiddenFetch(partition, url) {
     if (!clean) return { error: 'empty page (blocked or no rendered text)' };
     return { title: String(title).slice(0, 300), text: clean, url };
   });
+}
+
+// Load a URL offscreen on the given partition (so it inherits that partition's
+// logged-in session) and run an app-authored script in the page context, returning
+// whatever it resolves to. Used to read the user's own provider history (chatgpt.com /
+// claude.ai) with no visible card. The script is caller-owned and must be app code,
+// never anything a remote page or the renderer can choose; the offscreen window is
+// destroyed in withWindow's finally regardless of outcome.
+async function hiddenEval(partition, url, js) {
+  return withWindow(partition, async (win) => {
+    await loadAndSettle(win, url);
+    return win.webContents.executeJavaScript(js, true).catch(() => null);
+  }, HARVEST_GRACE_MS);
+}
+
+// Inject the user's own session cookies (read + decrypted by the Python backend) into a
+// throwaway IN-MEMORY session, then run an app-authored read from a real Chromium context.
+// This is how we beat provider Cloudflare: a raw HTTP client's TLS handshake gets fingerprint-
+// blocked, but this IS Chrome, so it passes exactly like the user's browser. The partition has
+// no "persist:" prefix, so nothing ever hits disk; cookies are cleared before AND after.
+const HARVEST_PARTITION = 'osw-usage-harvest';
+
+async function hiddenEvalWithCookies(url, cookieRecords, js) {
+  const ses = session.fromPartition(HARVEST_PARTITION);
+  const wipe = async () => { try { await ses.clearStorageData({ storages: ['cookies'] }); } catch (_) {} };
+  await wipe();
+  for (const c of cookieRecords || []) {
+    try {
+      await ses.cookies.set({
+        url,
+        name: c.name,
+        value: c.value,
+        domain: c.domain || undefined,
+        path: c.path || '/',
+        secure: c.secure !== false,
+        httpOnly: !!c.httponly,
+      });
+    } catch (_) { /* skip a malformed cookie, never abort the set */ }
+  }
+  try {
+    return await withWindow(HARVEST_PARTITION, async (win) => {
+      await loadAndSettle(win, url);
+      return win.webContents.executeJavaScript(js, true).catch(() => null);
+    }, HARVEST_GRACE_MS);
+  } finally {
+    await wipe();
+  }
 }
 
 // Google first (direct result URLs, best quality); DuckDuckGo in a real browser
@@ -101,4 +153,4 @@ async function hiddenSearch(partition, query, numResults) {
   return { error: 'all browser search engines failed', detail: errors.join('; ') };
 }
 
-module.exports = { hiddenFetch, hiddenSearch };
+module.exports = { hiddenFetch, hiddenSearch, hiddenEval, hiddenEvalWithCookies };

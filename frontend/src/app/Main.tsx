@@ -203,9 +203,10 @@ const DeepLinkListener: React.FC<{ children: React.ReactNode }> = ({ children })
 const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const dispatch = useAppDispatch();
   const { setMode: setThemeMode } = useThemeMode();
-  const { setAccent } = useThemeAccent();
+  const { setAccent, setGradient } = useThemeAccent();
   const theme = useAppSelector((s) => s.settings.data.theme);
   const accentColor = useAppSelector((s) => s.settings.data.accent_color);
+  const accentGradient = useAppSelector((s) => s.settings.data.accent_gradient);
   const loaded = useAppSelector((s) => s.settings.loaded);
   const allowExperimentalUpdates = useAppSelector((s) => s.settings.data.allow_experimental_updates);
   useEffect(() => {
@@ -263,6 +264,13 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
     if (loaded) setAccent(accentColor ?? null);
   }, [loaded, accentColor, setAccent]);
 
+  // Object identity churns on every settings fetch, so key the effect on the serialized stops.
+  const gradientKey = JSON.stringify(accentGradient ?? null);
+  useEffect(() => {
+    if (loaded) setGradient(accentGradient ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, gradientKey, setGradient]);
+
   useEffect(() => {
     if (!loaded) return;
     (window as any).openswarm?.setAllowPrerelease?.(allowExperimentalUpdates);
@@ -281,9 +289,9 @@ const DEFAULT_MODEL_PRIORITY: string[] = [
 ];
 
 const DEFAULT_MODEL_PICKS: Record<string, string[]> = {
-  Anthropic: ['sonnet-cc', 'sonnet'],
-  OpenAI: ['gpt-5.4-mini', 'gpt-5.4'],
-  Google: ['gemini-2.5-flash', 'gemini-3-flash', 'gemini-2.5-pro'],
+  Anthropic: ['opus-5-cc', 'opus-5', 'opus-5-api', 'sonnet-5-cc', 'sonnet-5'],
+  OpenAI: ['gpt-5.6', 'gpt-5.6-api', 'gpt-5.5', 'gpt-5.5-api'],
+  Google: ['gemini-3.6-flash-api', 'gemini-3.5-flash-api', 'gemini-3.1-flash-lite'],
   'OpenSwarm Pro': ['sonnet', 'opus'],
   OpenSwarm: ['gpt-5-mini', 'claude-haiku-4.5', 'gpt-4.1'],
 };
@@ -381,7 +389,7 @@ const DefaultModelGuard: React.FC<{ children: React.ReactNode }> = ({ children }
           severity="info"
           variant="filled"
           onClose={() => setSessionSwitch(null)}
-          sx={{ fontSize: '0.8rem' }}
+          sx={{ fontSize: '0.8125rem' }}
         >
           {sessionSwitch && (sessionSwitch.toFreeTrial ? (
             <>Your model isn't connected, you're on the free trial now{sessionSwitch.runs != null ? <> ({sessionSwitch.runs} runs left)</> : null}.</>
@@ -422,7 +430,7 @@ const CrashRecoveryChip: React.FC = () => {
         bgcolor: 'background.paper',
         border: '1px solid', borderColor: 'divider',
         boxShadow: 3, borderRadius: '10px',
-        px: 1.75, py: 1, fontSize: '0.85rem',
+        px: 1.75, py: 1, fontSize: '0.875rem',
         maxWidth: 360,
       }}>
         <Box component="span" sx={{

@@ -1,28 +1,19 @@
-import React, { useState, useEffect, useRef, useCallback, startTransition, useMemo } from 'react';
-import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, startTransition, useMemo } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { getLastInteractedBrowser, getKeepAliveBrowserIds, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import Box from '@mui/material/Box';
-import ListItemButton from '@mui/material/ListItemButton';
-import ListItemIcon from '@mui/material/ListItemIcon';
-import ListItemText from '@mui/material/ListItemText';
+import { VoiceDictationProvider } from '@/shared/voice/VoiceDictationContext';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
-import Tooltip from '@mui/material/Tooltip';
 import Collapse from '@mui/material/Collapse';
 import Button from '@mui/material/Button';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import InputBase from '@mui/material/InputBase';
-// One outlined icon language for the sidebar: thin monoline glyphs (not the filled Material clip-art) so the rail reads as designed, not assembled.
-import { LayoutDashboard } from 'lucide-react';
-import { LayoutGrid } from 'lucide-react';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Settings as LucideSettings } from 'lucide-react';
-import { ArrowLeft, ArrowRight, Plus, Clock } from 'lucide-react';
-import { AnimatedPanelLeft } from './animatedIcons';
+import { Clock } from 'lucide-react';
+
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import CloseIcon from '@mui/icons-material/Close';
@@ -37,23 +28,19 @@ import { useLastDashboardId } from '@/shared/hooks/useLastDashboardId';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { hasModelConnected as selectHasModelConnected } from '@/app/components/Onboarding/steps/skipPredicates';
 import { shallowEqual } from 'react-redux';
-import { fetchDashboards, createDashboard, renameDashboard } from '@/shared/state/dashboardsSlice';
-import { Typewriter } from '@/app/components/feedback/Animated';
+import { fetchDashboards, createDashboard } from '@/shared/state/dashboardsSlice';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
-import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard } from '@/shared/state/dashboardLayoutSlice';
+import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard } from '@/shared/state/dashboardLayoutSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
+import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
+import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
-const SIDEBAR_MIN = 160;
-const SIDEBAR_MAX = 400;
-// 260 matches Claude.ai's nav-sidebar width: roomy enough that names don't truncate.
-const SIDEBAR_DEFAULT = 260;
-const SIDEBAR_WIDTH_KEY = 'openswarm-sidebar-width';
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
 const AppShell: React.FC = () => {
@@ -71,28 +58,9 @@ const AppShell: React.FC = () => {
   }, [navigateRaw]);
   const location = useLocation();
   // React Router (HashRouter) stores a monotonic index in history state. location re-renders on every nav, by which point window.history.state.idx is updated.
-  const historyIdx = (window.history.state?.idx as number | undefined) ?? 0;
-  const maxHistoryIdx = useRef(0);
-  maxHistoryIdx.current = Math.max(maxHistoryIdx.current, historyIdx);
-  const canGoBack = historyIdx > 0;
-  const canGoForward = historyIdx < maxHistoryIdx.current;
-  const [dashboardsExpanded, setDashboardsExpanded] = useState(true);
-  const [appsExpanded, setAppsExpanded] = useState(true);
-  // Starts collapsed so a fresh boot lands on a clean canvas; the toggle brings it back.
+  // Desktop shell: the wallpaper canvas IS the home surface, so the sidebar starts docked away
+  // (left-edge hover peeks it; the pin toggle brings it back full-time).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [renamingDashboardId, setRenamingDashboardId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-      if (stored) {
-        const w = Number(stored);
-        if (w >= SIDEBAR_MIN && w <= SIDEBAR_MAX) return w;
-      }
-    } catch {}
-    return SIDEBAR_DEFAULT;
-  });
-  const isResizing = useRef(false);
 
   const updateStatus = useAppSelector((state) => state.update.status);
   const availableVersion = useAppSelector((state) => state.update.availableVersion);
@@ -122,6 +90,13 @@ const AppShell: React.FC = () => {
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
   // "Connected" = the user's OWN model (key/sub/pro/custom), NOT a non-empty /models list: the free-trial Haiku is always in that list now, so a byProvider-length check would falsely read as connected and hide the out-of-runs banner.
   const hasModelConnected = useAppSelector(selectHasModelConnected);
+  // While onboarding owns the window, the floating sidebar (and its hover-peek strip) must not exist; both out-z the overlay.
+  const v3FlowActive = useAppSelector((st) => st.onboardingV3.flowActive);
+  // Arc/Zen fullscreen ground: ONE themed wash across the whole window (sidebar sits on it borderless,
+  // the content floats as a rounded card). Mirrors the DashboardCanvas wash formula.
+  const { accent: themeAccent, gradient: themeGradient } = useThemeAccent();
+  const { washOpacity: themeWashOpacity } = useThemeWash();
+  const fsWashStops = effectiveWashStops(themeGradient, themeAccent);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
     const d = s.settings.data as any;
@@ -211,15 +186,6 @@ const AppShell: React.FC = () => {
   const dashboardList = React.useMemo(
     () => Object.values(dashboardItems).sort(byPreviewRecency),
     [dashboardItems],
-  );
-
-  const outputItems = useAppSelector(
-    (state) => state.outputs.items,
-    shallowEqual,
-  );
-  const appsList = React.useMemo(
-    () => Object.values(outputItems).sort(byPreviewRecency),
-    [outputItems],
   );
 
   useEffect(() => {
@@ -376,10 +342,6 @@ const AppShell: React.FC = () => {
   }, [dispatch]);
 
   useEffect(() => {
-    try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)); } catch {}
-  }, [sidebarWidth]);
-
-  useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail || {};
       const { sessionId, dashboardId } = detail as { sessionId?: string; dashboardId?: string };
@@ -393,205 +355,108 @@ const AppShell: React.FC = () => {
     return () => window.removeEventListener('openswarm:notification-click', handler as EventListener);
   }, [navigate, dispatch]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    isResizing.current = true;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!isResizing.current) return;
-      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX)));
-    };
-
-    const onMouseUp = () => {
-      isResizing.current = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, []);
-
-  const handleResizeDoubleClick = useCallback(() => {
-    setSidebarWidth(SIDEBAR_DEFAULT);
-  }, []);
-
   const isDashboardRoute = location.pathname === '/' || location.pathname.startsWith('/dashboard/');
   const isDashboardViewActive = location.pathname.startsWith('/dashboard/');
+  // macOS full screen: a fullscreen-tiled card owns the window, so every shell chrome piece hides. Gated on the dashboard view so navigating away restores the chrome even mid-fullscreen.
+  const fullscreenCardId = useAppSelector(selectFullscreenCardId);
+  // Zen compact mode: the sidebar is the only chrome now, so whenever it's "away" (user collapsed it,
+  // OR a fullscreen card hides everything) a left-edge hover floats it back in as an overlay.
+  const fsActive = !!fullscreenCardId && isDashboardViewActive;
+  // Arc: the sidebar toggle PINS the sidebar open inside fullscreen (docked, card shrinks beside it);
+  // unpinned fullscreen keeps the hover-peek overlay.
+  const [fsSidebarPinned, setFsSidebarPinned] = useState(false);
+  const sidebarAway = (sidebarCollapsed || (fsActive && !fsSidebarPinned)) && isDashboardViewActive;
+  // When the sidebar docks away, the canvas runs flush to the window's left edge, so the floating
+  // dashboard header would sit right under the macOS traffic lights. Publish an inset the header reads
+  // (only on macOS, where the lights exist) so it clears them; the sidebar carries its own clearance.
+  useEffect(() => {
+    const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+    const root = document.documentElement;
+    if (sidebarAway && isMac) root.style.setProperty('--osw-header-inset', '80px');
+    else root.style.removeProperty('--osw-header-inset');
+    return () => { root.style.removeProperty('--osw-header-inset'); };
+  }, [sidebarAway]);
+  // Global text-size ratio (Settings > Interface). Scaling the root font-size scales every rem-based
+  // size in one shot, so type grows or shrinks together with no layout breakage. Clamped to a sane band
+  // so a corrupt value can never wreck the whole UI.
+  const uiFontScale = useAppSelector((s) => s.settings.data.ui_font_scale ?? 1);
+  useEffect(() => {
+    const clamped = Math.min(1.4, Math.max(0.8, uiFontScale || 1));
+    document.documentElement.style.fontSize = `${Math.round(clamped * 100)}%`;
+  }, [uiFontScale]);
+  // When the sidebar is docked, the macOS traffic lights sit over its top strip, which is a window
+  // drag region that swallows mousemove, so the canvas hover-reveal can never fire there. Broadcast
+  // "chrome docked" so the canvas keeps the native lights visible while the sidebar is open (they only
+  // hide-until-hover in the immersive collapsed/fullscreen state). detail.docked = sidebar is present.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('openswarm:chrome-docked', { detail: { docked: !sidebarAway } }));
+  }, [sidebarAway]);
+  // Fullscreen still hides the top-center island anchor + banners; the sidebar floats in on peek.
+  const fsHideChrome = fsActive;
   const isAppsRoute = false;  // /apps route removed; app cards live on the dashboard now.
   const activeDashboardId = location.pathname.startsWith('/dashboard/')
     ? location.pathname.split('/dashboard/')[1]
     : null;
 
+  // Flip to the previous/next dashboard, clamped at the ends (no surprise wrap). Shared by the sidebar
+  // swipe and the Cmd/Ctrl+Alt+arrow keyboard path.
+  const switchDashboard = useCallback((dir: -1 | 1) => {
+    if (dashboardList.length < 2) return;
+    const idx = dashboardList.findIndex((d) => d.id === activeDashboardId);
+    if (idx < 0) return;
+    const next = Math.min(dashboardList.length - 1, Math.max(0, idx + dir));
+    if (next !== idx) navigate(`/dashboard/${dashboardList[next].id}`);
+  }, [dashboardList, activeDashboardId, navigate]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !e.altKey || e.shiftKey) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); switchDashboard(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); switchDashboard(1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [switchDashboard]);
+
   const [lastDashboardId, setLastDashboardId] = useLastDashboardId();
-  // Apps no longer have a full-page editor; clicking one in the sidebar drops (or focuses) its live card on the current dashboard. Fold-in of the old App Builder.
+  // Apps no longer have a full-page editor; clicking one in the sidebar drops (or focuses) its live card on the current dashboard. Fold-in of the old App Builder. While a card is fullscreen the click SWAPS the pinned card to this app (Arc: the sidebar switches what fills the screen), otherwise the new card would land invisibly behind it.
   const navigateToApp = useCallback((id: string) => {
     dispatch(addViewCard({ outputId: id }));
+    if (fullscreenCardId) {
+      if (fullscreenCardId !== id) dispatch(clearTiledCard(fullscreenCardId));
+      dispatch(setTiledCard({ cardId: id, zone: 'fullscreen' }));
+      return;
+    }
     if (lastDashboardId && location.pathname !== `/dashboard/${lastDashboardId}`) {
       navigate(`/dashboard/${lastDashboardId}`);
     }
-  }, [dispatch, navigate, lastDashboardId, location.pathname]);
-  // With the /apps route gone, an app row is "active" when its card is open on the dashboard, not from the URL.
-  const openViewCardOutputIds = useAppSelector((s) =>
-    new Set(Object.values(s.dashboardLayout.viewCards).map((vc) => vc.output_id)),
-  );
+  }, [dispatch, navigate, lastDashboardId, location.pathname, fullscreenCardId]);
 
-  const handleDashboardsClick = () => {
-    if (isDashboardRoute && location.pathname === '/') {
-      setDashboardsExpanded((prev) => !prev);
-    } else {
-      navigate('/');
-      setDashboardsExpanded(true);
-    }
-  };
-
-  const handleDashboardItemClick = (dashboardId: string) => {
-    if (renamingDashboardId === dashboardId) return;
-    navigate(`/dashboard/${dashboardId}`);
-  };
-
-  const handleStartDashboardRename = (id: string, currentName: string) => {
-    setRenamingDashboardId(id);
-    setRenameValue(currentName);
-  };
-
-  const handleDashboardRenameSubmit = (id: string) => {
-    const trimmed = renameValue.trim();
-    const previousName = dashboardItems[id]?.name;
-    if (trimmed && trimmed !== previousName) {
-      dispatch(renameDashboard({ id, name: trimmed, previousName }));
-    }
-    setRenamingDashboardId(null);
-  };
-
-  const handleCreateDashboard = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const result = await dispatch(createDashboard('Untitled Dashboard'));
-    if (createDashboard.fulfilled.match(result)) {
-      navigate(`/dashboard/${result.payload.id}`);
-    }
-  };
-
-  const handleAppsClick = () => {
-    setAppsExpanded((prev) => !prev);
-  };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary }}>
+    <Box sx={{
+      display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
+      ...(fsWashStops ? { backgroundImage: washBackgroundUrl(fsWashStops, themeWashOpacity), backgroundSize: '100% 100%' } : {}),
+    }}>
+      {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
+          spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}
+      {isDashboardViewActive && !v3FlowActive && <SpacesStrip />}
+      <Box sx={{ position: 'fixed', top: 3, left: 260, right: 0, height: 22, zIndex: 5, WebkitAppRegion: 'drag' }} />
+      {/* Top bar dropped (Arc/Zen): a zero-height anchor left only to float the agent-activity island at top-center; the island renders nothing when idle. */}
       <Box
         sx={{
-          height: 38,
+          height: 0,
           flexShrink: 0,
-          bgcolor: 'transparent',
-          display: 'flex',
-          alignItems: 'center',
           position: 'relative',
           overflow: 'visible',
-          WebkitAppRegion: 'drag',
-          userSelect: 'none',
-          pl: '78px',
-          gap: 0.25,
+          zIndex: 10,
+          display: fsHideChrome ? 'none' : 'block',
         }}
       >
-        <Tooltip title={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}>
-          <IconButton
-            size="small"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            // Onboarding runtime reads aria-expanded to detect a collapsed sidebar.
-            data-onboarding="sidebar-toggle"
-            aria-expanded={!sidebarCollapsed}
-            sx={{
-              WebkitAppRegion: 'no-drag',
-              color: c.text.tertiary,
-              p: 0.5,
-              borderRadius: 1,
-              '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
-            }}
-          >
-            <AnimatedPanelLeft size={18} />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Back">
-          {/* span wrapper so a disabled button still shows its Tooltip; lucide
-              glyph + hover-slide kept from the redesign, disabled-state from #68. */}
-          <span>
-            <IconButton
-              size="small"
-              onClick={() => navigate(-1)}
-              disabled={!canGoBack}
-              sx={{
-                WebkitAppRegion: 'no-drag',
-                color: c.text.tertiary,
-                p: 0.5,
-                borderRadius: 1,
-                '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
-                '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
-                '&:hover svg': { transform: 'translateX(-2px)' },
-              }}
-            >
-              <ArrowLeft size={18} />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Forward">
-          <span>
-            <IconButton
-              size="small"
-              onClick={() => navigate(1)}
-              disabled={!canGoForward}
-              sx={{
-                WebkitAppRegion: 'no-drag',
-                color: c.text.tertiary,
-                p: 0.5,
-                borderRadius: 1,
-                '& svg': { transition: 'transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)' },
-                '&:hover': { color: c.text.secondary, bgcolor: `${c.text.tertiary}14` },
-                '&:hover svg': { transform: 'translateX(2px)' },
-              }}
-            >
-              <ArrowRight size={18} />
-            </IconButton>
-          </span>
-        </Tooltip>
-
         <DynamicIsland />
-
-        <Box sx={{ flex: 1 }} />
-
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 0.75,
-            pr: 1.5,
-            WebkitAppRegion: 'no-drag',
-          }}
-        >
-          <Box
-            component="img"
-            src="./logo.png"
-            alt="OpenSwarm"
-            sx={{ width: 20, height: 20, borderRadius: 0.5, opacity: 0.85 }}
-          />
-          <Typography
-            sx={{
-              color: c.text.secondary,
-              fontSize: '0.9rem',
-              fontWeight: 600,
-              letterSpacing: 0.2,
-              lineHeight: 1,
-            }}
-          >
-            OpenSwarm
-          </Typography>
-        </Box>
       </Box>
 
-      <Collapse in={showWarningBanner} timeout={350} unmountOnExit>
+      <Collapse in={showWarningBanner && !fsHideChrome} timeout={350} unmountOnExit>
         <Box
           sx={{
             display: 'flex',
@@ -610,7 +475,7 @@ const AppShell: React.FC = () => {
           }}
         >
           <ErrorSlime size={22} />
-          <Typography sx={{ fontSize: '0.86rem', color: '#ef4444', flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
+          <Typography sx={{ fontSize: '0.875rem', color: '#ef4444', flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
             {!isOnline
               ? 'No internet connection; agents cannot reach AI models or external services'
               : (
@@ -636,9 +501,9 @@ const AppShell: React.FC = () => {
         </Box>
       </Collapse>
 
-      <Collapse in={showFreeTrialNudge} timeout={300} unmountOnExit>
+      <Collapse in={showFreeTrialNudge && !fsHideChrome} timeout={300} unmountOnExit>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.5, flexShrink: 0 }}>
-          <Typography sx={{ fontSize: '0.82rem', color: c.text.secondary, flex: 1, letterSpacing: '0.01em' }}>
+          <Typography sx={{ fontSize: '0.8125rem', color: c.text.secondary, flex: 1, letterSpacing: '0.01em' }}>
             {freeTrialSpent
               ? (refillLabel ? `Out of free runs, fresh ones in ${refillLabel}. ` : "You're out of free runs for now. ")
               : "Nice, you're rolling. "}
@@ -656,7 +521,7 @@ const AppShell: React.FC = () => {
               role="button"
               aria-label="Dismiss"
               onClick={() => { try { localStorage.setItem('os_ft_nudge_dismissed', '1'); } catch {} setFtNudgeDismissed(true); }}
-              sx={{ color: c.text.muted, cursor: 'pointer', fontSize: '0.95rem', lineHeight: 1, px: 0.5, '&:hover': { color: c.text.secondary } }}
+              sx={{ color: c.text.muted, cursor: 'pointer', fontSize: '1rem', lineHeight: 1, px: 0.5, '&:hover': { color: c.text.secondary } }}
             >
               ×
             </Box>
@@ -664,7 +529,7 @@ const AppShell: React.FC = () => {
         </Box>
       </Collapse>
 
-      <Collapse in={showUsageNudge} timeout={300} unmountOnExit>
+      <Collapse in={showUsageNudge && !fsHideChrome} timeout={300} unmountOnExit>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 0.5, flexShrink: 0 }}>
           {/* the bar is the message: how full your Pro window is. calm accent, never red. */}
           <Box sx={{ width: 132, height: 5, borderRadius: 3, bgcolor: c.border.medium, overflow: 'hidden', flexShrink: 0 }}>
@@ -673,14 +538,14 @@ const AppShell: React.FC = () => {
           {usageResetLabel && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: c.text.secondary }}>
               <Clock size={12} style={{ flexShrink: 0 }} />
-              <Typography sx={{ fontSize: '0.8rem', letterSpacing: '0.01em' }}>{usageResetLabel}</Typography>
+              <Typography sx={{ fontSize: '0.8125rem', letterSpacing: '0.01em' }}>{usageResetLabel}</Typography>
             </Box>
           )}
           {proMaxed && (
             <Box
               component="span"
               onClick={() => dispatch(openSettingsModal('models'))}
-              sx={{ color: c.accent.primary, cursor: 'pointer', fontSize: '0.8rem', '&:hover': { textDecoration: 'underline' } }}
+              sx={{ color: c.accent.primary, cursor: 'pointer', fontSize: '0.8125rem', '&:hover': { textDecoration: 'underline' } }}
             >
               Upgrade
             </Box>
@@ -688,7 +553,7 @@ const AppShell: React.FC = () => {
         </Box>
       </Collapse>
 
-      {showUpdateBanner && (
+      {showUpdateBanner && !fsHideChrome && (
         <Box
           sx={{
             display: 'flex',
@@ -702,7 +567,7 @@ const AppShell: React.FC = () => {
           }}
         >
           <SystemUpdateAltIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />
-          <Typography sx={{ fontSize: '0.8rem', color: c.text.secondary, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Typography sx={{ fontSize: '0.8125rem', color: c.text.secondary, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {updateStatus === 'available' && `OpenSwarm${verSuffix} is available`}
             {updateStatus === 'downloading' && `Downloading OpenSwarm${verSuffix}…`}
             {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} is ready to install`}
@@ -722,7 +587,7 @@ const AppShell: React.FC = () => {
             />
           )}
           {updateStatus === 'downloading' && (
-            <Typography sx={{ fontSize: '0.72rem', color: c.text.tertiary, flexShrink: 0 }}>
+            <Typography sx={{ fontSize: '0.75rem', color: c.text.tertiary, flexShrink: 0 }}>
               {Math.round(downloadPercent)}%
             </Typography>
           )}
@@ -784,408 +649,42 @@ const AppShell: React.FC = () => {
       )}
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
-      {!sidebarCollapsed && (
-      <>
-      <Box
-        sx={{
-          width: sidebarWidth,
-          flexShrink: 0,
-          bgcolor: c.bg.secondary,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <Box sx={{
-          flex: 1,
-          overflow: 'auto',
-          pt: 0.5,
-          '&::-webkit-scrollbar': { width: 0 },
-          // Tactile hover: the leading section icon springs once on row-hover, then settles. Interaction-only, never ambient. Scoped to ListItemIcon so the +/chevron stay put.
-          '& .MuiListItemIcon-root svg': {
-            transition: 'transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)',
-          },
-          // Per-glyph hover choreography: each section icon reacts in its own way, springy then settles. Interaction-only, never ambient.
-          '& [data-onboarding="sidebar-dashboards"]:hover .MuiListItemIcon-root svg': {
-            transform: 'scale(1.14)',
-          },
-          '& [data-onboarding="sidebar-apps"]:hover .MuiListItemIcon-root svg': {
-            transform: 'rotate(8deg) scale(1.08)',
-          },
-        }}>
-          <Box sx={{ px: 1, mb: 0.25 }}>
-            <ListItemButton
-              onClick={handleDashboardsClick}
-              data-onboarding="sidebar-dashboards"
-              // Onboarding reads expanded so it skips the click step (re-click would collapse).
-              data-expanded={dashboardsExpanded ? 'true' : 'false'}
-              aria-expanded={dashboardsExpanded}
-              sx={{
-                borderRadius: 1.5,
-                py: 0.6,
-                px: 1.25,
-                bgcolor: isDashboardRoute ? `${c.accent.primary}12` : 'transparent',
-                '&:hover': { bgcolor: isDashboardRoute ? `${c.accent.primary}18` : `${c.text.tertiary}0A` },
-                transition: 'background-color 0.15s',
-              }}
-            >
-              <ListItemIcon sx={{ color: isDashboardRoute ? c.accent.primary : c.text.tertiary, minWidth: 28 }}>
-                <LayoutDashboard size={18} />
-              </ListItemIcon>
-              <ListItemText
-                primary="Dashboards"
-                sx={{
-                  '& .MuiListItemText-primary': {
-                    color: isDashboardRoute ? c.text.primary : c.text.muted,
-                    fontSize: '0.9rem',
-                    fontWeight: isDashboardRoute ? 600 : 400,
-                  },
-                }}
-              />
-              <Tooltip title="New dashboard" placement="right">
-                <IconButton
-                  size="small"
-                  onClick={handleCreateDashboard}
-                  sx={{
-                    color: c.text.ghost,
-                    p: 0.25,
-                    mr: 0.25,
-                    borderRadius: 1,
-                    '&:hover': { color: c.accent.primary, bgcolor: `${c.accent.primary}14` },
-                  }}
-                >
-                  <Plus size={15} />
-                </IconButton>
-              </Tooltip>
-              {dashboardList.length > 0 && (
-                <ExpandMoreIcon
-                  sx={{
-                    color: c.text.ghost,
-                    fontSize: 16,
-                    transition: 'transform 0.2s',
-                    transform: dashboardsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                  }}
-                />
-              )}
-            </ListItemButton>
-
-            <Collapse in={dashboardsExpanded && dashboardList.length > 0} timeout={200}>
-              <Box
-                sx={{
-                  ml: 2,
-                  mt: 0.25,
-                  mb: 0.5,
-                  maxHeight: 240,
-                  overflow: 'auto',
-                  '&::-webkit-scrollbar': { width: 3 },
-                  '&::-webkit-scrollbar-track': { background: 'transparent' },
-                  '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 4 },
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: `${c.border.medium} transparent`,
-                }}
-              >
-                {dashboardList.map((entry, idx) => {
-                  const isActive = activeDashboardId === entry.id;
-                  const isRenaming = renamingDashboardId === entry.id;
-                  return (
-                    <Box
-                      key={entry.id}
-                      // First row gets generic "first" alias so onboarding can teach "click into a dashboard" without a specific id.
-                      data-onboarding={
-                        idx === 0 ? 'dashboard-row-first' : `dashboard-row-${entry.id}`
-                      }
-                      onClick={() => handleDashboardItemClick(entry.id)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.75,
-                        pl: 1.25,
-                        pr: 1,
-                        py: isRenaming ? 0.25 : 0.5,
-                        mx: 0.5,
-                        cursor: isRenaming ? 'default' : 'pointer',
-                        // Finder-style selection: the rounded fill is the one active cue, no rail marker.
-                        borderRadius: `${c.radius.md}px`,
-                        bgcolor: isActive ? `${c.accent.primary}40` : 'transparent',
-                        '&:hover': { bgcolor: isActive ? `${c.accent.primary}55` : `${c.text.tertiary}0A` },
-                        transition: 'background-color 0.12s',
-                      }}
-                    >
-                      {isRenaming ? (
-                        <InputBase
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onBlur={() => handleDashboardRenameSubmit(entry.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleDashboardRenameSubmit(entry.id);
-                            if (e.key === 'Escape') setRenamingDashboardId(null);
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          onFocus={(e) => e.target.select()}
-                          sx={{
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: '0.86rem',
-                            fontWeight: isActive ? 500 : 400,
-                            color: isActive ? c.text.secondary : c.text.ghost,
-                            py: 0,
-                            px: 0.5,
-                            borderRadius: 0.75,
-                            border: `1px solid ${c.accent.primary}80`,
-                            bgcolor: `${c.bg.page}`,
-                            '& input': {
-                              padding: '1px 0',
-                            },
-                          }}
-                        />
-                      ) : (
-                        <Typography
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            handleStartDashboardRename(entry.id, entry.name);
-                          }}
-                          sx={{
-                            color: isActive ? c.text.secondary : c.text.ghost,
-                            fontSize: '0.86rem',
-                            fontWeight: isActive ? 500 : 400,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
-                          {entry.name}
-                        </Typography>
-                      )}
-                    </Box>
-                  );
-                })}
-              </Box>
-            </Collapse>
-          </Box>
-
-          {/* Sections separate with air, not lines. */}
-          <Box sx={{ my: 0.75 }} />
-
-          <Box sx={{ px: 1, mb: 0.25 }}>
-            <ListItemButton
-              onClick={handleAppsClick}
-              onMouseEnter={() => {
-                const fn = (window as any).__openswarmPrefetchRoute;
-                if (typeof fn === 'function') fn('/apps');
-              }}
-              data-onboarding="sidebar-apps"
-              sx={{
-                borderRadius: 1.5,
-                py: 0.6,
-                px: 1.25,
-                bgcolor: isAppsRoute ? `${c.accent.primary}12` : 'transparent',
-                '&:hover': { bgcolor: isAppsRoute ? `${c.accent.primary}18` : `${c.text.tertiary}0A` },
-                transition: 'background-color 0.15s',
-              }}
-            >
-              <ListItemIcon sx={{ color: isAppsRoute ? c.accent.primary : c.text.tertiary, minWidth: 28 }}>
-                <LayoutGrid size={18} />
-              </ListItemIcon>
-              <ListItemText
-                primary="Apps"
-                sx={{
-                  '& .MuiListItemText-primary': {
-                    color: isAppsRoute ? c.text.primary : c.text.muted,
-                    fontSize: '0.9rem',
-                    fontWeight: isAppsRoute ? 600 : 400,
-                  },
-                }}
-              />
-              {appsList.length > 0 && (
-                <ExpandMoreIcon
-                  sx={{
-                    color: c.text.ghost,
-                    fontSize: 16,
-                    transition: 'transform 0.2s',
-                    transform: appsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                  }}
-                />
-              )}
-            </ListItemButton>
-
-            <Collapse in={appsExpanded && appsList.length > 0} timeout={200}>
-              <Box
-                sx={{
-                  ml: 2,
-                  mt: 0.25,
-                  mb: 0.5,
-                  maxHeight: 240,
-                  overflow: 'auto',
-                  '&::-webkit-scrollbar': { width: 3 },
-                  '&::-webkit-scrollbar-track': { background: 'transparent' },
-                  '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 4 },
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: `${c.border.medium} transparent`,
-                }}
-              >
-                {appsList.map((app) => {
-                  const isActive = openViewCardOutputIds.has(app.id);
-                  return (
-                    <Box
-                      key={app.id}
-                      onClick={() => navigateToApp(app.id)}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.75,
-                        pl: 1.25,
-                        pr: 1,
-                        py: 0.5,
-                        mx: 0.5,
-                        cursor: 'pointer',
-                        borderRadius: `${c.radius.md}px`,
-                        bgcolor: isActive ? `${c.accent.primary}40` : 'transparent',
-                        '&:hover': { bgcolor: isActive ? `${c.accent.primary}55` : `${c.text.tertiary}0A` },
-                        transition: 'background-color 0.12s',
-                      }}
-                    >
-                      <Typewriter value={app.name || 'Untitled App'} enabled={!!app.name && app.name !== 'Untitled App'}>
-                        {(t) => (
-                          <Typography
-                            sx={{
-                              color: isActive ? c.text.secondary : c.text.ghost,
-                              fontSize: '0.86rem',
-                              fontWeight: isActive ? 500 : 400,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              flex: 1,
-                              minWidth: 0,
-                            }}
-                          >
-                            {t}
-                          </Typography>
-                        )}
-                      </Typewriter>
-                    </Box>
-                  );
-                })}
-              </Box>
-            </Collapse>
-          </Box>
-
-        </Box>
-
-        <Box
-          sx={{
-            px: 1,
-            py: 1.25,
-          }}
-        >
-          <ListItemButton
-            onClick={() => dispatch(openSettingsModal())}
-            data-onboarding="sidebar-settings-button"
-            sx={{
-              borderRadius: 1.5,
-              py: 0.6,
-              px: 1.25,
-              '& .MuiListItemIcon-root svg': { transition: 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' },
-              '&:hover': { bgcolor: `${c.text.tertiary}0A` },
-              '&:hover .MuiListItemIcon-root svg': { transform: 'rotate(90deg)' },
-              transition: 'background-color 0.15s',
-            }}
-          >
-            <ListItemIcon sx={{ color: c.text.tertiary, minWidth: 28, position: 'relative' }}>
-              <LucideSettings size={18} />
-              {showUpdateDot && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 2,
-                    right: 10,
-                    width: 7,
-                    height: 7,
-                    borderRadius: '50%',
-                    bgcolor: c.accent.primary,
-                    border: `1.5px solid ${c.bg.secondary}`,
-                  }}
-                />
-              )}
-            </ListItemIcon>
-            <ListItemText
-              primary="Settings"
-              sx={{
-                '& .MuiListItemText-primary': {
-                  color: c.text.muted,
-                  fontSize: '0.9rem',
-                  fontWeight: 400,
-                },
-              }}
-            />
-          </ListItemButton>
-        </Box>
-      </Box>
-      <Box
-        onMouseDown={handleResizeStart}
-        onDoubleClick={handleResizeDoubleClick}
-        sx={{
-          // 6px hit-target at -3px margin overlaps the seam so the drag region doesn't read as a visible empty strip.
-          width: 6,
-          marginLeft: '-3px',
-          marginRight: '-3px',
-          flexShrink: 0,
-          cursor: 'col-resize',
-          position: 'relative',
-          zIndex: 10,
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            bottom: 0,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 2,
-            bgcolor: 'transparent',
-            transition: 'background-color 0.2s',
-          },
-          '&:hover::after': {
-            bgcolor: c.border.strong,
-          },
-          '&:active::after': {
-            bgcolor: `${c.accent.primary}40`,
-          },
-        }}
-      />
-      </>
-      )}
+      {/* Sidebar excised: dashboards live in the Spaces strip (hover the top edge; right-click a tile for rename/duplicate/delete). */}
 
       <Box sx={{
         flex: 1,
         overflow: 'hidden',
         bgcolor: c.bg.page,
         position: 'relative',
-        // Float the content as a rounded inset panel ("column pill"): the chrome (bg.secondary) frames it, so there are no divider lines, just air + radius.
-        mt: '6px',
-        mr: '6px',
-        mb: '6px',
-        ml: '6px',
-        borderRadius: '14px',
+        // Float the content as a rounded inset panel ("column pill"): the chrome (bg.secondary) frames it, so there are no divider lines, just air + radius. Fullscreen drops the frame entirely.
+        mt: fsHideChrome ? 0 : '6px',
+        mr: fsHideChrome ? 0 : '6px',
+        mb: fsHideChrome ? 0 : '6px',
+        ml: fsHideChrome ? 0 : '6px',
+        borderRadius: fsHideChrome ? 0 : '14px',
       }}>
-        {/* Hidden (not unmounted) when the dashboard view is active so the persistent Dashboard layered above can take over. */}
-        <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            visibility: isDashboardViewActive ? 'hidden' : 'visible',
-            pointerEvents: isDashboardViewActive ? 'none' : 'auto',
-          }}
-        >
-          <Outlet />
-        </Box>
+        {/* One voice controller wraps BOTH the routed content and the persistent Dashboard host, so
+            the spawn-pill mic (which lives in the persistent host, not the Outlet) shares the recorder. */}
+        <VoiceDictationProvider>
+          {/* Hidden (not unmounted) when the dashboard view is active so the persistent Dashboard layered above can take over. */}
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              visibility: isDashboardViewActive ? 'hidden' : 'visible',
+              pointerEvents: isDashboardViewActive ? 'none' : 'auto',
+            }}
+          >
+            <Outlet />
+          </Box>
 
-        {/* CSS-hidden on other routes so webviews + state survive nav. */}
-        {lastDashboardId && (
-          <DashboardHost visible={isDashboardViewActive}>
-            <Dashboard dashboardId={lastDashboardId} isActive={isDashboardViewActive} />
-          </DashboardHost>
-        )}
+          {/* CSS-hidden on other routes so webviews + state survive nav. */}
+          {lastDashboardId && (
+            <DashboardHost visible={isDashboardViewActive}>
+              <Dashboard dashboardId={lastDashboardId} isActive={isDashboardViewActive} />
+            </DashboardHost>
+          )}
+        </VoiceDictationProvider>
       </Box>
       </Box>
 
@@ -1210,7 +709,7 @@ const AppShell: React.FC = () => {
               <Button
                 size="small"
                 onClick={() => setSnackbarDismissed(true)}
-                sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.8rem', minWidth: 'auto' }}
+                sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.8125rem', minWidth: 'auto' }}
               >
                 Dismiss
               </Button>
@@ -1223,7 +722,7 @@ const AppShell: React.FC = () => {
                     bgcolor: c.accent.primary,
                     '&:hover': { bgcolor: c.accent.pressed },
                     textTransform: 'none',
-                    fontSize: '0.8rem',
+                    fontSize: '0.8125rem',
                     borderRadius: 1.5,
                     minWidth: 'auto',
                   }}
@@ -1243,7 +742,7 @@ const AppShell: React.FC = () => {
                     '&:hover': { bgcolor: c.accent.pressed },
                     '&.Mui-disabled': { bgcolor: c.accent.primary, color: '#fff', opacity: 0.7 },
                     textTransform: 'none',
-                    fontSize: '0.8rem',
+                    fontSize: '0.8125rem',
                     borderRadius: 1.5,
                     minWidth: 'auto',
                   }}
@@ -1265,6 +764,8 @@ const AppShell: React.FC = () => {
           {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} downloaded; restart to update`}
         </Alert>
       </Snackbar>
+
+
     </Box>
   );
 };

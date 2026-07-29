@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, type Dispatch, type SetStateActi
 import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
 import { store } from '@/shared/state/store';
-import { collapseSession, expandSession } from '@/shared/state/agentsSlice';
+import { expandSession } from '@/shared/state/agentsSlice';
 import { bringToFront } from '@/shared/state/dashboardLayoutSlice';
 import { setScrollFocusedCard } from '@/shared/cardScrollFocus';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
@@ -30,6 +30,9 @@ function pressLandedOnControl(target: EventTarget | null | undefined): boolean {
   while (el) {
     if (el.hasAttribute(SELECT_ATTR)) return false;
     if (CONTROL_TAGS.has(el.tagName) || el.isContentEditable || el.getAttribute('role') === 'button') return true;
+    // Card-chrome zones (browser tab strip + / x / tab-drag, resize handles) select+raise the card but
+    // must NOT re-center the camera on it, managing a card's frame or tabs is not a "focus this" gesture.
+    if (el.hasAttribute('data-card-control') || (el.classList && el.classList.contains('resize-handle'))) return true;
     el = el.parentElement;
   }
   return false;
@@ -42,6 +45,16 @@ interface UseDashboardInteractionsArgs {
   isElementSelectMode: boolean;
   getCardRect: (id: string, type: CardType) => { x: number; y: number; width: number; height: number } | undefined;
   setFocusedCardId: Dispatch<SetStateAction<string | null>>;
+}
+
+// Run fn AFTER the next paint (rAF fires just before paint, the timeout lands after it), with a
+// plain-timer fallback because rAF freezes in occluded windows. Expanding a chat mounts the whole
+// transcript; doing that inside the click handler blocked the pressed frame ~400ms (the INP tail).
+function afterPaint(fn: () => void): void {
+  let fired = false;
+  const run = (): void => { if (!fired) { fired = true; fn(); } };
+  window.requestAnimationFrame(() => window.setTimeout(run, 0));
+  window.setTimeout(run, 80);
 }
 
 export function useDashboardInteractions({
@@ -70,28 +83,32 @@ export function useDashboardInteractions({
     // Clicking a control INSIDE a card (text field, button, browser URL bar/tabs, note textarea) selects + raises it but must NOT re-center the camera onto it: yanking focus to a card just to click into its input is hostile (same reasoning as the guest-page and Workflows carve-outs). Card frame/body clicks still auto-focus.
     if (pressLandedOnControl(originTarget)) return;
 
-    // The Workflows window is an app you click around inside, not a card you re-center every tap. Single-click only raises + selects it; double-click still zoom-to-fits (handleCardDoubleClick). Without this, clicking any button inside it yanked the canvas into a re-zoom.
-    if (type === 'workflows-hub' || type === 'workflows-monitor') return;
+    // The Workflows window fits like any card on frame/header presses; pressLandedOnControl above
+    // already keeps taps on its buttons, rows, and inputs from yanking the camera.
 
-    const alreadyExpanded = type === 'agent' && expandedSessionIds.includes(id);
+    // A tiled (fullscreen/snapped) card is pinned Arc-style: clicking inside it must not collapse
+    // it or glide the camera; it leaves the mode via its own controls (yellow, Esc, dock swap).
+    if (store.getState().dashboardLayout.tiledCards[id]) return;
 
-    if (alreadyExpanded) {
-      // Delay single-click collapse so double-click can override. Double-click handler (handleCardDoubleClick) clears clickTimerRef.
-      clickTimerRef.current = setTimeout(() => {
-        clickTimerRef.current = null;
-        dispatch(collapseSession(id));
-      }, 250);
-      return;
-    }
+    // Single-click on an already-expanded chat is focus, never collapse: the old delayed-collapse
+    // toggle made a click land, collapse the chat, and force a second click to reopen ("takes
+    // multiple clicks"). Collapse lives on the yellow light / Esc / canvas click instead.
+    if (type === 'agent' && expandedSessionIds.includes(id)) return;
 
     // Expand (if not already) + center + zoom + bring to front
     if (type === 'agent') {
-      dispatch(expandSession(id));
+      afterPaint(() => dispatch(expandSession(id)));
     }
     setFocusedCardId(id);
-    setTimeout(() => {
-      // The capture-phase select fires this on pointer DOWN; if the press became a drag (or marquee), re-framing the camera mid-gesture is the "canvas yanks as I start dragging" nudge. The webview shield class is up for exactly that window.
-      if (document.body.classList.contains('dashboard-marquee-active')) return;
+    // The capture-phase select fires on pointer DOWN; if the press became a drag (or marquee),
+    // re-framing mid-gesture is the "canvas yanks" nudge, so the shield class defers the fit. A slow
+    // CLICK with a few px of jitter also arms the shield briefly, which used to abort the fit
+    // entirely ("takes multiple clicks to zoom in"), so retry once the gesture settles.
+    const tryFit = (attempt: number): void => {
+      if (document.body.classList.contains('dashboard-marquee-active')) {
+        if (attempt < 3) setTimeout(() => tryFit(attempt + 1), 160);
+        return;
+      }
       const rect = getCardRect(id, type);
       if (rect) canvas.actions.fitToCards([rect], 1.15, true, type === 'browser' ? 0.8 : undefined);
       setTimeout(() => {
@@ -102,7 +119,8 @@ export function useDashboardInteractions({
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return;
         active.blur?.();
       }, 150);
-    }, 100);
+    };
+    setTimeout(() => tryFit(0), 100);
   }, [selection, getCardRect, canvas.actions, dispatch, expandedSessionIds]);
 
   const handleBringToFront = useCallback((id: string, type: CardType) => {
@@ -136,15 +154,20 @@ export function useDashboardInteractions({
   }, [selection, dispatch]);
 
   // ---- Viewport event handlers (compose pan + marquee) ----
+  // Google Maps model: LEFT drag pans the canvas, RIGHT drag marquee-selects (inverse of a design
+  // tool, matching how the user asked for it). Middle keeps panning. The viewport move/up handlers
+  // run BOTH pan + marquee every frame, so which one is "armed" is decided here on mousedown.
   const handleViewportMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 1) {
       canvas.handlers.onMouseDown(e);
       return;
     }
 
+    // RIGHT button = marquee select. preventDefault kills the OS context menu on the canvas.
     if (e.button === 2) {
       e.preventDefault();
-      canvas.handlers.onMouseDown(e);
+      if (isCardTarget(e.target, e.currentTarget)) return;
+      selection.handleCanvasMouseDown(e.nativeEvent);
       return;
     }
 
@@ -168,11 +191,13 @@ export function useDashboardInteractions({
       return;
     }
 
-    if (e.metaKey || e.ctrlKey || canvas.spaceHeld) {
+    // meta/ctrl + LEFT keeps a way to marquee-select with the primary button (additive selection);
+    // plain LEFT (and space-held) pans. A plain empty-canvas press clears the selection.
+    if (e.metaKey || e.ctrlKey) {
+      selection.handleCanvasMouseDown(e.nativeEvent);
+    } else {
       selection.deselectAll();
       canvas.handlers.onMouseDown(e);
-    } else {
-      selection.handleCanvasMouseDown(e.nativeEvent);
     }
   }, [canvas.handlers, canvas.spaceHeld, selection, isElementSelectMode]);
 
@@ -186,12 +211,22 @@ export function useDashboardInteractions({
     selection.handleCanvasMouseUp(e.nativeEvent);
   }, [canvas.handlers, selection]);
 
-  // Double-click empty canvas → fit all cards
+  // Double-click empty canvas → zoom OUT anchored at the cursor (Google Maps style). It must never
+  // travel: the old fit-all panned the camera to wherever the cards were, which reads as teleporting.
   const handleViewportDoubleClick = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     if (isCardTarget(e.target, e.currentTarget)) return;
     report('dashboard', 'canvas_double_clicked');
-    canvas.actions.fitToView();
+    const vp = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const cx = e.clientX - vp.left;
+    const cy = e.clientY - vp.top;
+    const cur = canvas.actions.getLiveState();
+    const nextZoom = Math.max(0.15, cur.zoom * 0.55);
+    canvas.actions.animateTo({
+      zoom: nextZoom,
+      panX: cx - ((cx - cur.panX) / cur.zoom) * nextZoom,
+      panY: cy - ((cy - cur.panY) / cur.zoom) * nextZoom,
+    });
   }, [canvas.actions]);
 
   // Double-click a card → always expand + center + zoom (cancels pending collapse from single-click)
@@ -202,10 +237,11 @@ export function useDashboardInteractions({
       clickTimerRef.current = null;
     }
     if (type === 'agent') {
-      dispatch(expandSession(id));
+      afterPaint(() => dispatch(expandSession(id)));
     }
     dispatch(bringToFront({ id, type }));
     setFocusedCardId(id);
+    if (store.getState().dashboardLayout.tiledCards[id]) return;
     setTimeout(() => {
       const rect = getCardRect(id, type);
       if (rect) canvas.actions.fitToCards([rect], 1.15, true);

@@ -1,7 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// eslint-disable-next-line no-console
-console.log('[diag][preload] start, ua=', navigator.userAgent);
 
 // E2E gate: set the renderer flag BEFORE any page script parses so the
 // production-build store-on-window expose fires deterministically when
@@ -41,6 +39,8 @@ contextBridge.exposeInMainWorld('openswarm', {
   getAuthToken: () => ipcRenderer.invoke('get-auth-token'),
 
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  // Arc-style chrome: the mac traffic lights hide at rest; the dashboard's top-edge hover reveals them.
+  setWindowButtonsVisible: (visible) => ipcRenderer.invoke('set-window-buttons-visible', visible),
 
   // Phase 2 provenance: { sha, shortSha, builtAt, channel } for the About panel.
   getBuildInfo: () => ipcRenderer.invoke('get-build-info'),
@@ -60,8 +60,37 @@ contextBridge.exposeInMainWorld('openswarm', {
   // Clears cookies/cache/localStorage for the browser-card partition only (never the app's defaultSession). Logs you out of sites opened in browser cards.
   clearBrowserData: () => ipcRenderer.invoke('browser:clear-data'),
   connectSlack: () => ipcRenderer.invoke('connect-slack'),
+  // Voice dictation (local whisper.cpp). transcribe takes a 16kHz-mono WAV ArrayBuffer; inject pastes
+  // text into the frontmost app; warmup pre-loads the model; onVoiceToggle fires on the global hotkey.
+  voiceWarmup: () => ipcRenderer.invoke('voice:warmup'),
+  voiceStatus: () => ipcRenderer.invoke('voice:status'),
+  voiceTranscribe: (wavArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wavArrayBuffer),
+  voiceInject: (text) => ipcRenderer.invoke('voice:inject', text),
+  onVoiceToggle: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('voice:toggle', listener);
+    return () => ipcRenderer.removeListener('voice:toggle', listener);
+  },
+  // Reveal a diagnostics folder in Finder/Explorer (path validated in main; diagnostics dir only).
+  revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
+  // True keyboard hold-to-talk needs the native key tap; renderers ask so Settings copy stays honest,
+  // and request triggers the macOS Accessibility prompt when the tap is blocked on permission.
+  setVoiceHotkey: (combo) => ipcRenderer.send('voice:set-hotkey', combo),
+  voiceHoldCapable: () => ipcRenderer.invoke('voice:hold-capable'),
+  voiceRequestHoldPermission: () => ipcRenderer.invoke('voice:request-hold-permission'),
+  haptic: (pattern) => ipcRenderer.invoke('haptic:perform', pattern),
+  // Native-tap hold relay: real global key-down/key-up for the voice combo, focus-independent.
+  onVoiceHold: (onDown, onUp) => {
+    const down = () => onDown();
+    const up = () => onUp();
+    ipcRenderer.on('voice:hold-down', down);
+    ipcRenderer.on('voice:hold-up', up);
+    return () => { ipcRenderer.removeListener('voice:hold-down', down); ipcRenderer.removeListener('voice:hold-up', up); };
+  },
   // Hands a vetted social platform's partition cookies to its session-backed MCP shim (allowlisted domains only, gated again in the main process).
   getPartitionCookies: (domain) => ipcRenderer.invoke('get-partition-cookies', domain),
+  // Silently reads the user's own chatgpt.com/claude.ai history offscreen (no card) for onboarding personalization; main owns the injected script + gates the provider.
+  harvestUsage: (provider) => ipcRenderer.invoke('harvest-usage', provider),
   // Suspend/resume state capsule: stages a resumed webview's sessionStorage snapshot in main (keyed by webContents id, short TTL) so the guest preload can sync-take it at document-start. Fire-and-forget; main validates the sender.
   setSessionCapsule: (wcId, capsule) => ipcRenderer.send('browser-capsule-set', wcId, capsule),
   sendCdpCommand: (wcId, method, params, sessionId) => ipcRenderer.invoke('send-cdp-command', wcId, method, params, sessionId),
@@ -73,6 +102,8 @@ contextBridge.exposeInMainWorld('openswarm', {
   cdpRoutesGet: (wcId, originFilter) => ipcRenderer.invoke('cdp-routes-get', wcId, originFilter),
   getWebviewConsole: (wcId) => ipcRenderer.invoke('get-webview-console', wcId),
   capturePage: (rect) => ipcRenderer.invoke('capture-page', rect),
+  getAppIcon: (name) => ipcRenderer.invoke('get-app-icon', name),
+  openApplication: (name) => ipcRenderer.invoke('open-application', name),
   getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
   getCrashRecoveryInfo: () => ipcRenderer.invoke('get-crash-recovery-info'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),

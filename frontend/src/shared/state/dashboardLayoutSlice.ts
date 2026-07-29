@@ -52,6 +52,11 @@ export interface ViewCardPosition {
   height: number;
   zOrder: number;
   parent_session_id?: string | null;
+  /** Chat session this app preview lives inside (renders over the chat's dock slot); null/absent = free card. */
+  docked_to?: string | null;
+  // Reveal-born apps start as a light "built for you, click to open" card so the onboarding curtain
+  // lifts INSTANTLY instead of booting a live Vite preview in-frame. Cleared on first click -> boots.
+  preview_deferred?: boolean;
 }
 
 // Record key + card identity for a view card. The primary keeps the bare output_id so persisted layouts and every existing by-output lookup stay valid; secondaries append #N.
@@ -81,6 +86,8 @@ export interface BrowserCardPosition {
   keep_open?: boolean;
   /** Dashboard this card belongs to; cards render and persist only on their owning dashboard. */
   dashboard_id?: string;
+  /** Chat session this browser lives inside (renders over the chat's dock slot); null/absent = free card. */
+  docked_to?: string | null;
 }
 
 export interface WorkflowCardPosition {
@@ -100,6 +107,8 @@ export interface WorkflowsHubPosition {
   width: number;
   height: number;
   zOrder: number;
+  // Full size view: the card fills the whole dashboard (reuses the fullscreen tile geometry).
+  fullscreen?: boolean;
 }
 
 
@@ -144,10 +153,16 @@ export interface DashboardLayoutState {
   recentlyClosed: ClosedCard[];
   glowingBrowserCards: Record<string, { sourceId: string; fading: boolean; label?: string }>;
   glowingAgentCards: Record<string, { sourceId: string; fading: boolean; sourceYRatio?: number; label?: string }>;
+  /** Window controls: cards collapsed to a title pill (many at once). Keyed by any card id (session/note/browser/view/workflow). */
+  minimizedCards: Record<string, boolean>;
+  /** macOS-style tiling: card id -> zone ('fullscreen' | 'fill' | 'left'|'right'|'top'|'bottom' | 'tl'|'tr'|'bl'|'br' | 't3l'|'t3c'|'t3r'). A tiled card renders at that viewport region (webview stays mounted); 'fullscreen' also hides the app chrome. */
+  tiledCards: Record<string, string>;
   persistedExpandedSessionIds: string[];
   nextZOrder: number;
   loading: boolean;
   initialized: boolean;
+  /** True only after a SUCCESSFUL layout fetch for the current dashboard; saveLayout is a no-op until then (a failed boot fetch must never wipe the server layout). */
+  saveArmed: boolean;
   /** Transient: new browser card id; Dashboard pans/zooms to it then clears via clearPendingFocusBrowserId. */
   pendingFocusBrowserId: string | null;
   // Set when a view card is opened from outside the canvas (sidebar app click / toolbar picker) so the dashboard fits+highlights it on arrival; holds the card key.
@@ -193,10 +208,13 @@ const initialState: DashboardLayoutState = {
   recentlyClosed: [],
   glowingBrowserCards: {},
   glowingAgentCards: {},
+  minimizedCards: {},
+  tiledCards: {},
   persistedExpandedSessionIds: [],
   nextZOrder: 1,
   loading: false,
   initialized: false,
+  saveArmed: false,
   pendingFocusBrowserId: null,
   pendingFocusViewCardId: null,
   pendingFocusNoteId: null,
@@ -231,6 +249,8 @@ export const fetchLayout = createAsyncThunk(
   // isReconnect distinguishes a socket-reconnect recovery refetch (merge, keep live positions) from a fresh mount/switch load (replace, snapshot is the user's saved layout). Passed explicitly, not inferred from state, so a stale in-flight fetch from a previous dashboard can't be misread as a merge.
   async ({ dashboardId }: { dashboardId: string; isReconnect?: boolean }) => {
     const res = await fetch(`${DASHBOARDS_API}/${dashboardId}`);
+    // A non-2xx body silently parsing to "no layout" is how a healthy dashboard gets wiped: the empty result gets marked initialized and the next debounced save persists it.
+    if (!res.ok) throw new Error(`layout fetch failed: ${res.status}`);
     const data = await res.json();
     const layout = data.layout ?? {};
     const browserCards = (layout.browser_cards ?? {}) as Record<string, any>;
@@ -265,7 +285,10 @@ interface SaveLayoutPayload extends LayoutPayload {
 
 export const saveLayout = createAsyncThunk(
   'dashboardLayout/save',
-  async (payload: SaveLayoutPayload) => {
+  async (payload: SaveLayoutPayload, { getState }) => {
+    // Never persist a layout this client never successfully loaded; a failed boot fetch otherwise saves the pristine empty store over the server's real layout (the wipe class).
+    const armed = (getState() as { dashboardLayout: { saveArmed: boolean } }).dashboardLayout.saveArmed;
+    if (!armed) return payload;
     await fetch(`${DASHBOARDS_API}/${payload.dashboardId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -548,10 +571,49 @@ function addMissingCards<T extends { x: number; y: number; width: number; height
   }
 }
 
+// One docked surface per chat: the slot is a single rect, so docking a new browser/app releases
+// whatever was previously docked there (it falls back to its stored free position).
+function clearOtherDocks(state: { browserCards: Record<string, BrowserCardPosition>; viewCards: Record<string, ViewCardPosition> }, sessionId: string): void {
+  for (const bc of Object.values(state.browserCards)) {
+    if (bc.docked_to === sessionId) bc.docked_to = null;
+  }
+  for (const vc of Object.values(state.viewCards)) {
+    if (vc.docked_to === sessionId) vc.docked_to = null;
+  }
+}
+
 const dashboardLayoutSlice = createSlice({
   name: 'dashboardLayout',
   initialState,
   reducers: {
+    // Window controls (traffic lights). Minimize toggles a per-card pill; tiling snaps a card to a
+    // macOS-style viewport zone (green = 'fill'). Minimizing an un-tiles and vice-versa, so a card
+    // is never both pill'd and tiled at once.
+    toggleMinimizeCard(state, action: PayloadAction<{ cardId: string }>) {
+      const id = action.payload.cardId;
+      if (state.minimizedCards[id]) {
+        delete state.minimizedCards[id];
+      } else {
+        state.minimizedCards[id] = true;
+        if (state.tiledCards[id]) delete state.tiledCards[id];
+      }
+    },
+    setTiledCard(state, action: PayloadAction<{ cardId: string; zone: string }>) {
+      const { cardId, zone } = action.payload;
+      state.tiledCards[cardId] = zone;
+      if (state.minimizedCards[cardId]) delete state.minimizedCards[cardId];
+    },
+    clearTiledCard(state, action: PayloadAction<string>) {
+      if (state.tiledCards[action.payload]) delete state.tiledCards[action.payload];
+    },
+    clearAllTiles(state) {
+      state.tiledCards = {};
+    },
+    clearCardWindowState(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      if (state.minimizedCards[id]) delete state.minimizedCards[id];
+      if (state.tiledCards[id]) delete state.tiledCards[id];
+    },
     setCardPosition(
       state,
       action: PayloadAction<{ sessionId: string; x: number; y: number }>
@@ -652,6 +714,8 @@ const dashboardLayoutSlice = createSlice({
 
     removeCard(state, action: PayloadAction<string>) {
       delete state.cards[action.payload];
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
     },
 
     reconcileSessions(
@@ -665,6 +729,9 @@ const dashboardLayoutSlice = createSlice({
         if (!liveIds.has(id)) {
           state.closedCardPositions[id] = { ...state.cards[id] };
           delete state.cards[id];
+          // A dead card must never keep owning a tile: an orphaned 'fullscreen' entry hides ALL chrome until reload.
+          delete state.tiledCards[id];
+          delete state.minimizedCards[id];
         }
       }
 
@@ -756,8 +823,10 @@ const dashboardLayoutSlice = createSlice({
       x?: number; y?: number; width?: number; height?: number;
       // Open ANOTHER independent instance of an already-open app instead of no-op'ing.
       newInstance?: boolean;
+      // Reveal-only: start as a light "click to open" card instead of booting the preview eagerly.
+      previewDeferred?: boolean;
     }>) {
-      const { outputId, expandedSessionIds, parentSessionId, x, y, width, height, newInstance } = action.payload;
+      const { outputId, expandedSessionIds, parentSessionId, x, y, width, height, newInstance, previewDeferred } = action.payload;
       let instance = 1;
       if (state.viewCards[outputId]) {
         if (!newInstance) return;
@@ -793,8 +862,17 @@ const dashboardLayoutSlice = createSlice({
         height: h,
         zOrder: state.nextZOrder++,
         parent_session_id: parentSessionId || null,
+        // An agent-built app defaults to living INSIDE its chat, same as spawned browsers.
+        docked_to: (parentSessionId && (clearOtherDocks(state, parentSessionId), parentSessionId)) || null,
+        preview_deferred: previewDeferred || undefined,
       };
       state.pendingFocusViewCardId = cardKey;
+    },
+
+    // First click on a reveal-parked app card: drop the defer so its live preview boots.
+    activateViewCardPreview(state, action: PayloadAction<string>) {
+      const card = state.viewCards[action.payload];
+      if (card && card.preview_deferred) card.preview_deferred = undefined;
     },
 
     clearPendingFocusViewCardId(state) {
@@ -824,6 +902,8 @@ const dashboardLayoutSlice = createSlice({
 
     removeViewCard(state, action: PayloadAction<string>) {
       delete state.viewCards[action.payload];
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
       if (state.activeViewCardId === action.payload) state.activeViewCardId = null;
     },
 
@@ -858,6 +938,27 @@ const dashboardLayoutSlice = createSlice({
       state.pendingFocusBrowserId = null;
     },
 
+    // Camera-focus an EXISTING card (the inline chat embeds' "show on canvas"); the lifecycle
+    // pendingFocus effects own the fit + highlight + clear, same as a fresh add.
+    focusBrowserCard(state, action: PayloadAction<string>) {
+      if (state.browserCards[action.payload]) state.pendingFocusBrowserId = action.payload;
+    },
+    focusViewCard(state, action: PayloadAction<string>) {
+      if (state.viewCards[action.payload]) state.pendingFocusViewCardId = action.payload;
+    },
+
+    setViewDocked(state, action: PayloadAction<{ cardKey: string; dockedTo: string | null }>) {
+      const vc = state.viewCards[action.payload.cardKey];
+      if (!vc) return;
+      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo);
+      vc.docked_to = action.payload.dockedTo;
+    },
+    setBrowserDocked(state, action: PayloadAction<{ browserId: string; dockedTo: string | null }>) {
+      const bc = state.browserCards[action.payload.browserId];
+      if (!bc) return;
+      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo);
+      bc.docked_to = action.payload.dockedTo;
+    },
     addBrowserCardFromBackend(state, action: PayloadAction<BrowserCardPosition>) {
       const card = action.payload;
       if (state.browserCards[card.browser_id]) return;
@@ -903,6 +1004,8 @@ const dashboardLayoutSlice = createSlice({
       delete state.browserCards[action.payload];
       delete state.suspendedBrowserCards[action.payload];
       delete state.endingBrowserCards[action.payload];
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
     },
 
     markBrowserCardEnding(
@@ -1075,6 +1178,13 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsMonitorId = null;
       state.workflowsMonitorRunId = null;
       state.workflowsMonitorCard = null;
+    },
+
+    toggleWorkflowsHubFullscreen(state) {
+      if (state.workflowsHub) {
+        state.workflowsHub.fullscreen = !state.workflowsHub.fullscreen;
+        state.workflowsHub.zOrder = state.nextZOrder++;
+      }
     },
 
     clearWorkflowsAppTarget(state) {
@@ -1442,6 +1552,8 @@ const dashboardLayoutSlice = createSlice({
 
     removeNote(state, action: PayloadAction<string>) {
       delete state.notes[action.payload];
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
     },
 
     clearPendingFocusNoteId(state) {
@@ -1572,6 +1684,8 @@ const dashboardLayoutSlice = createSlice({
     },
 
     resetLayout(state, action: PayloadAction<{ keepBrowserIds?: string[] } | undefined>) {
+      state.tiledCards = {};
+      state.minimizedCards = {};
       // Keep the recently-used (keep-alive) browser cards mounted across a dashboard switch so their webContents + sessionStorage survive (logged-in sites stay logged in); everything else is wiped for the fresh load. Their suspend entry rides along so a parked one isn't silently dropped.
       const keep = new Set(action.payload?.keepBrowserIds || []);
       const keptBrowsers: typeof state.browserCards = {};
@@ -1592,6 +1706,7 @@ const dashboardLayoutSlice = createSlice({
       state.persistedExpandedSessionIds = [];
       state.nextZOrder = 1;
       state.initialized = false;
+      state.saveArmed = false;
       state.pendingFocusNoteId = null;
       state.suspendedBrowserCards = keptSuspended;
       state.endingBrowserCards = {};
@@ -1609,6 +1724,7 @@ const dashboardLayoutSlice = createSlice({
         // A fresh mount/switch load replaces (the snapshot is the user's saved layout, authoritative). A reconnect refetch (useDashboardLifecycle line ~90) recovers cards lost in a socket gap and must MERGE, blind- replacing there clobbered the live, collision-placed positions of cards already on canvas (the overlap / vanish under load while many browsers spawn). The caller says which; never inferred from state.
         const isReconnectRefetch = action.meta.arg.isReconnect === true;
         state.initialized = true;
+        state.saveArmed = true;
         const ownerDashboardId = action.meta.arg.dashboardId;
         if (!isReconnectRefetch) {
           state.cards = action.payload.cards;
@@ -1667,6 +1783,7 @@ const dashboardLayoutSlice = createSlice({
       })
       .addCase(fetchLayout.rejected, (state) => {
         state.loading = false;
+        // Fail-open for RENDERING only; saveArmed stays false so this client can never persist the empty layout it booted with over the server's real one (the wipe that hit 2026-07-20).
         state.initialized = true;
       })
       .addCase(fetchSessionRejectedAction, (state, action) => {
@@ -1699,6 +1816,9 @@ const dashboardLayoutSlice = createSlice({
           for (const bc of Object.values(state.browserCards)) {
             if (bc.spawned_by !== session.id) continue;
             const pos = placeBrowserBesideChat(state, parentCard, session.id, bc.width, bc.height, bc.browser_id);
+            // Default home is inside the chat, same as the non-racing spawn path.
+            clearOtherDocks(state, session.id);
+            bc.docked_to = session.id;
             bc.x = pos.x;
             bc.y = pos.y;
             state.glowingBrowserCards[bc.browser_id] = { sourceId: session.id, fading: false, label: 'Use Browser' };
@@ -1724,6 +1844,8 @@ export const {
   setActiveViewCardId,
   addBrowserCard,
   addBrowserCardFromBackend,
+  setBrowserDocked,
+  setViewDocked,
   setBrowserCardPosition,
   setBrowserCardSize,
   removeBrowserCard,
@@ -1751,7 +1873,15 @@ export const {
   setGlowingAgentCard,
   fadeGlowingAgentCard,
   clearGlowingAgentCard,
+  toggleMinimizeCard,
+  setTiledCard,
+  clearTiledCard,
+  clearAllTiles,
+  clearCardWindowState,
   clearPendingFocusBrowserId,
+  focusBrowserCard,
+  focusViewCard,
+  activateViewCardPreview,
   clearPendingFocusViewCardId,
   addWorkflowCard,
   setWorkflowCardPosition,
@@ -1763,6 +1893,7 @@ export const {
   closeWorkflowsHub,
   openWorkflowsApp,
   closeWorkflowsApp,
+  toggleWorkflowsHubFullscreen,
   clearWorkflowsAppTarget,
   openWorkflowMonitor,
   closeWorkflowMonitor,
@@ -1804,5 +1935,15 @@ export const reopenLastClosed = createAsyncThunk(
     dispatch(popClosedCard(entry.uid));
   }
 );
+
+export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayoutState }): string | null => {
+  const s = state.dashboardLayout;
+  const entry = Object.entries(s.tiledCards).find(([, zone]) => zone === 'fullscreen');
+  if (!entry) return null;
+  const id = entry[0];
+  // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
+  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.notes || id in s.workflowCards;
+  return exists ? id : null;
+};
 
 export default dashboardLayoutSlice.reducer;

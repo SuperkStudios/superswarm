@@ -50,6 +50,9 @@ interface Props {
   isRunning?: boolean;
   onStop?: () => void;
   handleSend: () => void;
+  webSearchOn?: boolean;
+  onToggleWebSearch?: () => void;
+  onAttachSkill?: (skillId: string) => void;
 }
 
 export const ChatInputToolbar: React.FC<Props> = (p) => {
@@ -58,7 +61,7 @@ export const ChatInputToolbar: React.FC<Props> = (p) => {
     allModelFlat, model, onModelChange, onProviderChange, picker, pendingKinds, pendingPayloadEstimate,
     thinkingLevel, onThinkingLevelChange, contextEstimate, elementSelection, autoRunMode,
     ownerId, sessionId, generalFileInputRef, addImageFiles, uploadAndAttachFiles,
-    hasContent, disabled, isRunning, onStop, handleSend,
+    hasContent, disabled, isRunning, onStop, handleSend, webSearchOn, onToggleWebSearch,
   } = p;
 
   const menuPaperProps = {
@@ -71,7 +74,7 @@ export const ChatInputToolbar: React.FC<Props> = (p) => {
       maxHeight: 400,
       boxShadow: c.shadow.lg,
       '& .MuiMenuItem-root': {
-        fontSize: '0.8rem',
+        fontSize: '0.8125rem',
         color: c.text.secondary,
         py: 0.75,
         px: 1.5,
@@ -172,6 +175,9 @@ export const ChatInputToolbar: React.FC<Props> = (p) => {
         isRunning={isRunning}
         onStop={onStop}
         handleSend={handleSend}
+        webSearchOn={webSearchOn}
+        onToggleWebSearch={onToggleWebSearch}
+        onAttachSkill={p.onAttachSkill}
       />
     </Box>
   );

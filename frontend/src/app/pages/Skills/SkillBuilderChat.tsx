@@ -4,7 +4,6 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
-import Fab from '@mui/material/Fab';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import CloseIcon from '@mui/icons-material/Close';
 import MinimizeIcon from '@mui/icons-material/Remove';
@@ -255,30 +254,7 @@ const SkillBuilderChat: React.FC<SkillBuilderChatProps> = ({ onSkillPreview, onS
     draftCreated.current = true;
   };
 
-  if (!expanded) {
-    return (
-      <Tooltip title="Build skill with AI" placement="left">
-        <Fab
-          onClick={() => setExpanded(true)}
-          data-onboarding="skill-builder-fab"
-          sx={{
-            position: 'absolute',
-            bottom: 24,
-            right: 24,
-            bgcolor: c.accent.primary,
-            color: '#fff',
-            '&:hover': { bgcolor: c.accent.pressed },
-            zIndex: 10,
-            width: 52,
-            height: 52,
-            boxShadow: c.shadow.lg,
-          }}
-        >
-          <AutoFixHighIcon />
-        </Fab>
-      </Tooltip>
-    );
-  }
+  if (!expanded) return null;
 
   return (
     <Box
@@ -357,7 +333,7 @@ const SkillBuilderChat: React.FC<SkillBuilderChatProps> = ({ onSkillPreview, onS
         }}
       >
         <AutoFixHighIcon sx={{ fontSize: 18, color: c.accent.primary }} />
-        <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: c.text.primary, flex: 1 }}>
+        <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: c.text.primary, flex: 1 }}>
           Skill Builder
         </Typography>
 
@@ -372,7 +348,7 @@ const SkillBuilderChat: React.FC<SkillBuilderChatProps> = ({ onSkillPreview, onS
               bgcolor: c.accent.primary,
               '&:hover': { bgcolor: c.accent.pressed },
               textTransform: 'none',
-              fontSize: '0.72rem',
+              fontSize: '0.75rem',
               fontWeight: 600,
               px: 1.5,
               py: 0.25,
@@ -421,7 +397,7 @@ const SkillBuilderChat: React.FC<SkillBuilderChatProps> = ({ onSkillPreview, onS
           />
         ) : (
           <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Typography sx={{ color: c.text.ghost, fontSize: '0.85rem' }}>
+            <Typography sx={{ color: c.text.ghost, fontSize: '0.875rem' }}>
               Initializing skill builder...
             </Typography>
           </Box>

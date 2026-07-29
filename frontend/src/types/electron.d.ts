@@ -35,6 +35,7 @@ declare global {
     getBackendPort: () => number;
     getWebviewPreloadPath: () => string;
     getAppVersion: () => Promise<string>;
+    setWindowButtonsVisible?: (visible: boolean) => Promise<void>;
     getBuildInfo: () => Promise<{ sha: string; shortSha: string; builtAt: string | null; channel: string }>;
     getUpdateStatus: () => Promise<{ status: string; info: any; error: string | null }>;
     getCrashRecoveryInfo?: () => Promise<{ ts: number; parent_pid: number; uptime_ms: number } | null>;
@@ -50,8 +51,16 @@ declare global {
     onReloadShortcut?: (cb: () => void) => () => void;
     onBrowserShortcut?: (cb: (payload: { action: string; webContentsId: number }) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
+    harvestUsage?: (provider: string) => Promise<{ ok: boolean; total: number; titles: string[]; memories: string[] } | null>;
     hardReset?: () => Promise<void>;
     clearBrowserData?: () => Promise<{ ok: boolean }>;
+    voiceWarmup?: () => Promise<{ ok: boolean; error?: string }>;
+    voiceStatus?: () => Promise<{ downloading: boolean; pct: number; error: string | null }>;
+    voiceTranscribe?: (wav: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
+    voiceInject?: (text: string) => Promise<{ ok: boolean; pasted?: boolean; error?: string }>;
+    onVoiceToggle?: (cb: () => void) => () => void;
+    voiceHoldCapable?: () => Promise<boolean>;
+    voiceRequestHoldPermission?: () => Promise<boolean>;
     onAuthUrl?: (cb: (url: string) => void) => () => void;
     onOauthClaim?: (cb: (url: string) => void) => () => void;
   }

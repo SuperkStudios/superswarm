@@ -45,6 +45,7 @@ export interface AppSettings {
   zoom_sensitivity: number;
   theme: 'light' | 'dark';
   new_agent_shortcut: string;
+  dictation_shortcut?: string | null;
   anthropic_api_key: string | null;
   openai_api_key?: string | null;
   google_api_key?: string | null;
@@ -71,6 +72,7 @@ export interface AppSettings {
   openswarm_usage_cached?: SubscriptionUsage | null;
   /** Identity populated by /api/auth/signin-activate; Stripe checkout also fills these. */
   user_id?: string | null;
+  user_name?: string | null;
   user_email?: string | null;
   signin_method?: 'google' | 'email' | 'stripe' | null;
   /** Anonymous device id (first-run generated); stitches anon to authed PostHog Persons. */
@@ -79,13 +81,39 @@ export interface AppSettings {
   onboarding_v3?: string | null;
   /** User-picked accent hex from the onboarding theme pad; null = stock accent. */
   accent_color?: string | null;
+  /** Multi-stop gradient from the theme pad (2-3 hexes); washes the canvas. */
+  accent_gradient?: string[] | null;
+  /** Global text-size ratio. Scales the root font-size so every rem-based size grows/shrinks together, no layout breakage. 1 = default. */
+  ui_font_scale?: number;
+  /** Dictation activation: true = hold the hotkey/mic to record and release to stop (WhisperFlow style); false = tap toggles. */
+  voice_hold_to_talk?: boolean;
   personalized_greeting?: string | null;
+  /** The short one-glance identity hook shown in the reveal's focal beat (greeting is the longer read). */
+  personalized_headline?: string | null;
   personalized_starters?: PersonalizedStarter[];
+  personalized_automations?: PersonalizedAutomation[];
+  /** The hero's two-level menu: 4 general categories, each with 4 starters tailored to this user. */
+  personalized_menu?: PersonalizedMenu | null;
+  personalized_usage_summary?: string | null;
 }
 
 export interface PersonalizedStarter {
   title: string;
   prompt: string;
+  reason?: string;
+}
+
+export interface PersonalizedAutomation {
+  title: string;
+  prompt: string;
+  cadence: 'daily' | 'weekday' | 'weekly';
+}
+
+export interface PersonalizedMenu {
+  computer: PersonalizedStarter[];
+  research: PersonalizedStarter[];
+  web: PersonalizedStarter[];
+  build: PersonalizedStarter[];
 }
 
 export interface ActivateSubscriptionPayload {
@@ -129,13 +157,16 @@ interface SettingsState {
 export const DEFAULT_SETTINGS: AppSettings = {
   default_system_prompt: DEFAULT_SYSTEM_PROMPT,
   default_folder: null,
-  default_model: 'sonnet',
+  default_model: 'opus-5',
   default_mode: 'agent',
   default_max_turns: null,
   default_thinking_level: 'auto',
   zoom_sensitivity: 50,
+  ui_font_scale: 1,
+  voice_hold_to_talk: true,
   theme: 'light',
   new_agent_shortcut: 'Meta+l',
+  dictation_shortcut: null,
   anthropic_api_key: null,
   browser_homepage: 'https://duckduckgo.com',
   auto_select_mode_on_new_agent: false,

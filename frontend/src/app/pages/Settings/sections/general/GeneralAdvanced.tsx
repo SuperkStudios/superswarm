@@ -22,7 +22,7 @@ const GeneralAdvanced: React.FC<{
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const appVersion = useAppSelector((s) => s.update.appVersion);
-  const { sectionSx, rowSx, inlineRowSx, inlineRowLastSx, labelSx, descSx } = styles;
+  const { sectionSx, rowSx, inlineRowSx, inlineRowLastSx, labelSx, descSx, switchSx } = styles;
 
   // Provenance: the exact commit this build was cut from. Surfaced so a support screenshot of Settings is enough to identify the shipped code. Empty in dev / web (no Electron bridge or unknown sha), in which case we hide the row.
   const [buildLabel, setBuildLabel] = React.useState<string | null>(null);
@@ -35,7 +35,6 @@ const GeneralAdvanced: React.FC<{
 
   return (
     <>
-      <Typography sx={{ ...sectionSx, mt: 3 }}>Advanced</Typography>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('dev_mode', 'Developer mode', 'Advanced', 'Show transport details, env vars, and technical metadata throughout the app.')}>
         <Box sx={{ mr: 3 }}>
@@ -45,10 +44,7 @@ const GeneralAdvanced: React.FC<{
         <Switch
           checked={form.dev_mode}
           onChange={(e) => setForm({ ...form, dev_mode: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
@@ -60,10 +56,7 @@ const GeneralAdvanced: React.FC<{
         <Switch
           checked={form.allow_experimental_updates}
           onChange={(e) => setForm({ ...form, allow_experimental_updates: e.target.checked })}
-          sx={{
-            '& .MuiSwitch-switchBase.Mui-checked': { color: c.accent.primary },
-            '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: c.accent.primary },
-          }}
+          sx={switchSx}
         />
       </Box>
 
@@ -71,34 +64,23 @@ const GeneralAdvanced: React.FC<{
 
       <Box sx={rowSx}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Box>
-            <Typography sx={labelSx}>Version</Typography>
-            <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>
-              {appVersion ?? '-'}
-            </Typography>
-          </Box>
+          <Typography sx={labelSx}>Version</Typography>
+          <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>{appVersion ?? '-'}</Typography>
         </Box>
+        {buildLabel && (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+            <Typography sx={labelSx}>Build</Typography>
+            <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>{buildLabel}</Typography>
+          </Box>
+        )}
       </Box>
-
-      {buildLabel && (
-        <Box sx={rowSx}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography sx={labelSx}>Build</Typography>
-              <Typography sx={{ ...descSx, fontFamily: c.font.mono }}>
-                {buildLabel}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-      )}
 
       <SoftwareUpdateRow styles={styles} />
 
       <TrustedFilePatterns />
 
-      <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box>
+      <Box sx={inlineRowLastSx}>
+        <Box sx={{ mr: 3 }}>
           <Typography sx={{ ...labelSx, mb: 0.25 }}>Onboarding tour</Typography>
           <Typography sx={{ ...descSx, mb: 0 }}>
             Re-run the Show me walkthrough at any time.
@@ -123,7 +105,7 @@ const GeneralAdvanced: React.FC<{
             color: c.text.secondary,
             borderColor: c.border.medium,
             textTransform: 'none',
-            fontSize: '0.8rem',
+            fontSize: '0.8125rem',
             whiteSpace: 'nowrap',
             '&:hover': { color: c.accent.primary, borderColor: c.accent.primary },
           }}

@@ -1,11 +1,9 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
-import { closeSession, toggleExpandSession } from '@/shared/state/agentsSlice';
-import { removeNote, removeWorkflowCard, closeWorkflowsHub, recordClosedCard, reopenLastClosed } from '@/shared/state/dashboardLayoutSlice';
-import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
-import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
-import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { toggleExpandSession } from '@/shared/state/agentsSlice';
+import { reopenLastClosed } from '@/shared/state/dashboardLayoutSlice';
+import { deleteSelectedCards } from './deleteSelectedCards';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import type { useDashboardSelection } from '../state/useDashboardSelection';
@@ -32,16 +30,17 @@ export function useDashboardShortcuts({
   useEffect(() => {
     const parts = (newAgentShortcut || '').toLowerCase().split('+');
     const key = parts[parts.length - 1];
-    const needsMeta = parts.includes('meta');
-    const needsCtrl = parts.includes('ctrl');
+    // Cmd on Mac == Ctrl on Windows: collapse both into one "primary" modifier so a shortcut stored
+    // as meta+n still fires when a Windows user presses Ctrl+N (matches the metaKey||ctrlKey idiom used
+    // by every other handler in this file).
+    const needsPrimary = parts.includes('meta') || parts.includes('ctrl');
     const needsShift = parts.includes('shift');
     const needsAlt = parts.includes('alt');
 
     const handleShortcut = (e: KeyboardEvent) => {
       if (!isActive) return;  // Don't fire shortcuts when dashboard is hidden
       if (e.key.toLowerCase() !== key) return;
-      if (needsMeta !== e.metaKey) return;
-      if (needsCtrl !== e.ctrlKey) return;
+      if (needsPrimary !== (e.metaKey || e.ctrlKey)) return;
       if (needsShift !== e.shiftKey) return;
       if (needsAlt !== e.altKey) return;
       e.preventDefault();
@@ -75,30 +74,7 @@ export function useDashboardShortcuts({
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
       if (selection.selectedIds.size === 0) return;
       e.preventDefault();
-      const viewIds: string[] = [];
-      for (const [id, type] of selection.selectedIds) {
-        if (type === 'agent') {
-          dispatch(recordClosedCard({ kind: 'agent', id }));
-          dispatch(closeSession({ sessionId: id }));
-        } else if (type === 'view') {
-          dispatch(recordClosedCard({ kind: 'view', id }));
-          viewIds.push(id);
-        } else if (type === 'browser') {
-          dispatch(recordClosedCard({ kind: 'browser', id }));
-          removeBrowserCardCleanly(id, dispatch);
-        } else if (type === 'note') {
-          dispatch(recordClosedCard({ kind: 'note', id }));
-          dispatch(removeNote(id));
-        } else if (type === 'workflow') {
-          dispatch(recordClosedCard({ kind: 'workflow', id }));
-          dispatch(removeWorkflowCard(id));
-          dispatch(closeWorkflowCard(id));
-        } else if (type === 'workflows-hub') {
-          dispatch(closeWorkflowsHub());
-        }
-      }
-      // Tear view cards down ONE AT A TIME (each quiesces its GPU surface first); ripping several large app webviews out in one frame is what piles up "non-existent mailbox" errors and kills the GPU process.
-      void (async () => { for (const id of viewIds) await removeViewCardCleanly(id, dispatch); })();
+      deleteSelectedCards(selection.selectedIds, dispatch);
       selection.deselectAll();
     };
     window.addEventListener('keydown', handleDelete);

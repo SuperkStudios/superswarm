@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from backend.apps.settings.models import PersonalizedStarter
+from backend.apps.settings.models import PersonalizedAutomation, PersonalizedMenu, PersonalizedStarter
 
 
 class ProviderIdentity(BaseModel):
@@ -35,6 +35,8 @@ class ScanResult(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     apps: List[str] = Field(default_factory=list)
+    # The high-signal subset of apps (IDEs, design/creative tools); the profile leans on these.
+    signal_apps: List[str] = Field(default_factory=list)
     folders: List[FolderSummary] = Field(default_factory=list)
     git_repo_count: int = 0
     has_gitconfig: bool = False
@@ -45,10 +47,35 @@ class PrepRequest(BaseModel):
 
     scan: Optional[ScanResult] = None
     picked_apps: List[str] = Field(default_factory=list)
+    identity: List[ProviderIdentity] = Field(default_factory=list)
+    usage_summary: str = ""
 
 
 class PrepResponse(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
+    # A punchy <=10-word identity hook, read at a glance in the reveal's focal beat (the greeting is the
+    # longer warm read for the chat; the headline is the scannable one-liner most people actually read).
+    headline: str = ""
+    # 2-4 word identity titles tailored to this user; the Swarm Card leads with these over the static list.
+    epithets: List[str] = Field(default_factory=list)
     greeting: str = ""
     starters: List[PersonalizedStarter] = Field(default_factory=list)
+    app_title: str = ""
+    app_prompt: str = ""
+    app_reason: str = ""
+    # The "looked into this for you" card: a live web-research task aimed at the ONE thing this user
+    # keeps asking their AI about, so the reveal shows OpenSwarm going and finding it, not just planning.
+    research_title: str = ""
+    research_prompt: str = ""
+    research_reason: str = ""
+    # The "watch it drive a real browser" card: an agent opens a public site and does a multi-step task
+    # live, so the reveal shows off browser control alongside app-building, research, and scheduling.
+    browser_title: str = ""
+    browser_prompt: str = ""
+    browser_reason: str = ""
+    automations: List[PersonalizedAutomation] = Field(default_factory=list)
+    # The hero's two-level menu (4 categories x 4 tailored starters); None only if prep never ran.
+    menu: Optional[PersonalizedMenu] = None
+    # False = scan-grounded fallback (no aux lane at call time); lets the pipeline re-run prep once a real connect lands.
+    used_llm: bool = False

@@ -20,6 +20,7 @@ import { useTermColors, colorizeInput, colorizeOutput } from '../parsing/toolCol
 import { ParsedResult } from '../parsing/toolResultParsing';
 import { McpToolInfo } from '@/shared/mcpToolMeta';
 import { McpResultCard } from '../mcp-cards/McpResultCard';
+import { domainFromUrl, faviconUrlForDomain } from './SourceFavicons';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -59,6 +60,10 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
   const reveal = useMountReveal();
   const enterStyle = (!mcpCompact && !suppressReveal) ? reveal : {};
   const canToggleDetails = !!inputSummary && !isStreaming;
+  // A web read shows its SOURCE (favicon + domain), not a url dump; the Perplexity treatment.
+  const webDomain = /webfetch$/i.test(toolName) && typeof input?.url === 'string'
+    ? domainFromUrl(input.url)
+    : '';
 
   return (
     <Box
@@ -75,14 +80,17 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
           bgcolor: mcpCompact ? 'transparent' : c.bg.elevated,
           border: mcpCompact ? 'none' : `1px solid ${
             isPending || isStreaming
-              ? c.accent.primary
+              // Half-strength accent: still clearly "working", but a saturated user accent (greens
+              // especially) at full strength read as a loud alarm ring around a routine tool call.
+              ? c.accent.primary + '66'
               : isDenied
                 ? c.status.error + '60'
                 : c.border.subtle
           }`,
           borderRadius: mcpCompact ? 0 : 2,
           overflow: 'hidden',
-          animation: (isPending || isStreaming) && !mcpCompact ? 'border-glow 2s ease-in-out infinite' : 'none',
+          // Live state stays calm: the accent border + the ElapsedTimer's small pulsing dot carry
+          // "working"; the old whole-bubble box-shadow glow loop read as noise (animation-purge rule).
           transition: 'border-color 0.3s, box-shadow 0.3s',
         } as any}
       >
@@ -125,7 +133,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             <Typography
               sx={{
                 color: c.text.tertiary,
-                fontSize: '0.65rem',
+                fontSize: '0.625rem',
                 opacity: 0.7,
                 flexShrink: 0,
               }}
@@ -134,25 +142,36 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             </Typography>
           )}
           {inputSummary && !isStreaming && (
-            <Typography
-              noWrap
-              sx={{
-                color: c.text.tertiary,
-                fontSize: '0.75rem',
-                fontFamily: c.font.mono,
-                flex: 1,
-                minWidth: 0,
-              }}
-            >
-              {inputSummary}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
+              {webDomain && (
+                <Box
+                  component="img"
+                  src={faviconUrlForDomain(webDomain)}
+                  alt=""
+                  loading="lazy"
+                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                  sx={{ width: 13, height: 13, borderRadius: '3px', flexShrink: 0 }}
+                />
+              )}
+              <Typography
+                noWrap
+                sx={{
+                  color: c.text.tertiary,
+                  fontSize: '0.75rem',
+                  fontFamily: webDomain ? undefined : c.font.mono,
+                  minWidth: 0,
+                }}
+              >
+                {inputSummary}
+              </Typography>
+            </Box>
           )}
           {!inputSummary && <Box sx={{ flex: 1 }} />}
           {isStreaming && <Box sx={{ flex: 1 }} />}
           {isDenied && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
               <BlockIcon sx={{ fontSize: 13, color: c.status.error }} />
-              <Typography sx={{ color: c.status.error, fontSize: '0.7rem', fontWeight: 500 }}>
+              <Typography sx={{ color: c.status.error, fontSize: '0.6875rem', fontWeight: 500 }}>
                 denied
               </Typography>
             </Box>
@@ -163,7 +182,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                 <>
                   <ErrorOutlineIcon sx={{ fontSize: 13, color: c.status.error }} />
                   {resultSummary && (
-                    <Typography sx={{ color: c.status.error, fontSize: '0.7rem', fontWeight: 500 }}>
+                    <Typography sx={{ color: c.status.error, fontSize: '0.6875rem', fontWeight: 500 }}>
                       {resultSummary}
                     </Typography>
                   )}
@@ -172,7 +191,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
               {resultElapsedMs != null && (
                 <Typography
                   sx={{
-                    fontSize: '0.65rem',
+                    fontSize: '0.625rem',
                     fontFamily: c.font.mono,
                     color: c.text.tertiary,
                   }}
@@ -217,7 +236,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
                 fontFamily: c.font.mono,
-                fontSize: '0.73rem',
+                fontSize: '0.75rem',
                 lineHeight: 1.5,
               }}
             >
@@ -261,7 +280,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                   fontFamily: c.font.mono,
-                  fontSize: '0.73rem',
+                  fontSize: '0.75rem',
                   lineHeight: 1.5,
                 }}
               >
@@ -307,7 +326,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                 <Typography
                   sx={{
                     color: c.text.secondary,
-                    fontSize: '0.72rem',
+                    fontSize: '0.75rem',
                     fontFamily: c.font.mono,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',

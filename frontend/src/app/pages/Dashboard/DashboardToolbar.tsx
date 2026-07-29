@@ -3,27 +3,10 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import InputBase from '@mui/material/InputBase';
 import CircularProgress from '@mui/material/CircularProgress';
-import Tooltip, { tooltipClasses } from '@mui/material/Tooltip';
 import Snackbar from '@mui/material/Snackbar';
 import Icon from '@mui/material/Icon';
-import { styled } from '@mui/material/styles';
-import AddRounded from '@mui/icons-material/AddRounded';
 
-import ChatBubbleTeardrop from './ChatBubbleTeardrop';
-
-// Collapsed-row buttons hop up one after another when the toolbar appears.
-const popIn = (i: number) => ({
-  animation: `toolbar-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) ${i * 55}ms both`,
-  '@keyframes toolbar-pop': {
-    from: { opacity: 0, transform: 'translateY(14px)' },
-    to: { opacity: 1, transform: 'translateY(0)' },
-  },
-});
-import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
-import EventRepeatIcon from '@mui/icons-material/EventRepeat';
-import LanguageIcon from '@mui/icons-material/Language';
+import DesktopSpawnPill from './desktop/DesktopSpawnPill';
 import SearchIcon from '@mui/icons-material/Search';
 import { motion } from 'framer-motion';
 import ChatInput from '@/app/pages/AgentChat/ChatInput';
@@ -32,12 +15,12 @@ import SchedulePopover from '@/app/pages/Workflows/SchedulePopover';
 import { openWorkflowCard, fetchAllRuns, upsertRun } from '@/shared/state/workflowsSlice';
 import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { searchHistory, clearHistorySearch } from '@/shared/state/agentsSlice';
 import { updateSettingsPatch, AppSettings } from '@/shared/state/settingsSlice';
 import { store } from '@/shared/state/store';
-import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
+import { API_BASE, getAuthToken } from '@/shared/config';
 import type { Output } from '@/shared/state/outputsSlice';
 
 interface Props {
@@ -61,6 +44,7 @@ interface Props {
   onAddNote: () => void;
   dashboardId?: string;
   newAgentBounce?: boolean;
+  canvasEmpty?: boolean;
   onNewAgentBounceEnd?: () => void;
   // Text to seed the composer with when it opens (starter-prompt click).
   prefillPrompt?: string;
@@ -69,28 +53,6 @@ interface Props {
 }
 
 const TOOLBAR_OWNER_ID = '__toolbar__';
-const BTN = 44;
-
-const WarmTooltip = styled(
-  ({ className, ...props }: React.ComponentProps<typeof Tooltip> & { className?: string }) => (
-    <Tooltip {...props} classes={{ popper: className }} />
-  )
-)<{ tokens: ClaudeTokens }>(({ tokens: c }) => ({
-  [`& .${tooltipClasses.tooltip}`]: {
-    backgroundColor: c.bg.inverse,
-    color: c.text.inverse,
-    fontFamily: c.font.sans,
-    fontSize: '0.78rem',
-    fontWeight: 500,
-    padding: '6px 12px',
-    borderRadius: c.radius.md,
-    boxShadow: c.shadow.md,
-    letterSpacing: '0.01em',
-  },
-  [`& .${tooltipClasses.arrow}`]: {
-    color: c.bg.inverse,
-  },
-}));
 
 const MotionBox = motion.div;
 
@@ -109,7 +71,7 @@ function formatRelativeTime(dateStr: string | null): string {
 }
 
 const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
-  ({ inputOpen, onNewAgent, onCancel, onSend, onAddView, onHistoryResume, onAddBrowser, onAddNote, dashboardId, newAgentBounce, onNewAgentBounceEnd, prefillPrompt, prefillMode }, ref) => {
+  ({ inputOpen, onNewAgent, onCancel, onSend, onAddView, onHistoryResume, onAddBrowser, onAddNote, dashboardId, newAgentBounce, canvasEmpty, onNewAgentBounceEnd, prefillPrompt, prefillMode }, ref) => {
     const c = useClaudeTokens();
     const dispatch = useAppDispatch();
     const elementSelection = useElementSelection();
@@ -122,24 +84,49 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const defaultThinkingLevel = useAppSelector((s) => s.settings.data.default_thinking_level);
     const settingsLoaded = useAppSelector((s) => s.settings.loaded);
     const [mode, setMode] = useState(defaultMode || 'agent');
-    const [model, setModel] = useState(defaultModel || 'sonnet');
+    const [model, setModel] = useState(defaultModel || 'opus-5');
     const [thinkingLevel, setThinkingLevel] = useState<'off' | 'low' | 'medium' | 'high' | 'auto'>(defaultThinkingLevel || 'auto');
     // Snap to the persisted Settings defaults as soon as they arrive from the backend. Without the settingsLoaded guard, the effect fires against the Redux initialState ('sonnet') before the real default has loaded, and the settingsApplied flag then locks out the real default for the rest of the session, so new chats spawn under the stale value.
     const settingsApplied = useRef(false);
     useEffect(() => {
       if (settingsLoaded && !settingsApplied.current) {
         setMode(defaultMode || 'agent');
-        setModel(defaultModel || 'sonnet');
+        setModel(defaultModel || 'opus-5');
         setThinkingLevel(defaultThinkingLevel || 'auto');
         settingsApplied.current = true;
       }
     }, [settingsLoaded, defaultMode, defaultModel, defaultThinkingLevel]);
+    // Ghost-text predictions: what the user might type next, in their own voice. Fetched once per app
+    // load (cached), then one is shown at a time and cycled while the composer sits idle+empty. Empty
+    // list (no signal / no provider / error) just leaves the static "Ask me to do anything..." placeholder.
+    const [ghostList, setGhostList] = useState<string[]>([]);
+    const ghostFetchedRef = useRef(false);
+    useEffect(() => {
+      if (!inputOpen || ghostFetchedRef.current) return;
+      ghostFetchedRef.current = true;
+      (async () => {
+        try {
+          const tok = (() => { try { return getAuthToken(); } catch { return ''; } })();
+          const headers: Record<string, string> = {};
+          if (tok) headers['Authorization'] = `Bearer ${tok}`;
+          const resp = await fetch(`${API_BASE}/agents/predict-prompts?count=5`, { headers });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (Array.isArray(data.suggestions)) setGhostList(data.suggestions.filter((s: unknown) => typeof s === 'string' && s));
+        } catch { /* fail open: keep the static placeholder */ }
+      })();
+    }, [inputOpen]);
+    // ONE stable suggestion, never a rotating carousel: cycling guesses every few seconds reads as
+    // "the app is throwing darts." The backend only returns anything when it has real usage history to
+    // predict from (see predict_prompts.py), so an empty list just leaves the neutral placeholder.
+    const ghostSuggestion = ghostList.length ? ghostList[0] : undefined;
+
     // Reset defaults on each new compose session so in-session picks don't leak into the next new-chat draft.
     const prevInputOpen = useRef(false);
     useEffect(() => {
       if (settingsLoaded && inputOpen && !prevInputOpen.current) {
         setMode(defaultMode || 'agent');
-        setModel(defaultModel || 'sonnet');
+        setModel(defaultModel || 'opus-5');
         setThinkingLevel(defaultThinkingLevel || 'auto');
       }
       prevInputOpen.current = inputOpen;
@@ -178,7 +165,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const [historyQuery, setHistoryQuery] = useState('');
     const [popoverMode, setPopoverMode] = useState<'search' | 'runs' | 'schedule'>('search');
     const [expandToast, setExpandToast] = useState<string | null>(null);
-    const shortcut = useAppSelector((s) => s.settings.data.new_agent_shortcut);
     const outputs = useAppSelector((s) => s.outputs.items);
     const historySearch = useAppSelector((s) => s.agents.historySearch);
     const allRuns = useAppSelector((s) => s.workflows.allRuns);
@@ -195,16 +181,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       );
     }, [outputList, viewSearch]);
 
-    const shortcutLabel = (shortcut || '')
-      .split('+')
-      .map((p) => {
-        if (p === 'Meta') return '⌘';
-        if (p === 'Ctrl') return 'Ctrl';
-        if (p === 'Alt') return '⌥';
-        if (p === 'Shift') return '⇧';
-        return p.toUpperCase();
-      })
-      .join('');
 
     React.useImperativeHandle(ref, () => containerRef.current!, []);
 
@@ -390,8 +366,14 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
           onAddBrowser();
         }
       };
+      // The desktop dock's History tile opens the same popover as Cmd+O.
+      const handleOpenHistoryEvent = () => handleOpenHistory();
       window.addEventListener('keydown', handleKey);
-      return () => window.removeEventListener('keydown', handleKey);
+      window.addEventListener('openswarm:open-history', handleOpenHistoryEvent);
+      return () => {
+        window.removeEventListener('keydown', handleKey);
+        window.removeEventListener('openswarm:open-history', handleOpenHistoryEvent);
+      };
     }, [handleOpenViewPicker, handleOpenHistory, onAddBrowser]);
 
     useEffect(() => {
@@ -416,7 +398,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       }
     }, [handleHistoryLoadMore]);
 
-    const placeholderItems: Array<{ icon: typeof StickyNote2OutlinedIcon; label: string; sub: string }> = [];
 
     return (
       <>
@@ -427,12 +408,16 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
         style={{
           display: 'flex',
           flexDirection: 'column',
-          // Drop toolbar card chrome when popover is open so we don't double-card; popover supplies its own surface.
-          background: historyOpen ? 'transparent' : c.bg.surface,
-          border: historyOpen ? '1px solid transparent' : `1px solid ${c.border.subtle}`,
+          // Drop toolbar card chrome when popover is open (popover supplies its own surface) and when
+          // collapsed (the spawn pill carries its own dark glass). The open composer wears the same
+          // desktop dark glass as the rest of the shell.
+          background: historyOpen ? 'transparent' : viewPickerOpen ? c.bg.surface : inputOpen ? 'rgba(22,12,34,0.82)' : 'transparent',
+          backdropFilter: inputOpen && !historyOpen && !viewPickerOpen ? 'blur(20px) saturate(160%)' : undefined,
+          WebkitBackdropFilter: inputOpen && !historyOpen && !viewPickerOpen ? 'blur(20px) saturate(160%)' : undefined,
+          border: viewPickerOpen ? `1px solid ${c.border.subtle}` : '1px solid transparent',
           borderRadius: `${c.radius.xl}px`,
-          boxShadow: historyOpen ? 'none' : c.shadow.lg,
-          padding: isExpanded ? '6px' : '5px',
+          boxShadow: historyOpen || !isExpanded ? 'none' : '0 12px 32px rgba(0,0,0,0.4)',
+          padding: isExpanded ? '6px' : '0px',
           userSelect: 'none' as const,
           overflow: inputOpen || newAgentBounce || historyOpen ? 'visible' : 'hidden',
           // historyOpen: width owned by SchedulePopover; leave undefined so framer-motion measures intrinsic size.
@@ -445,19 +430,23 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
             data-onboarding-scope="dock"
             style={{ width: '100%', minHeight: 56, paddingBottom: 0, marginBottom: -4 }}
           >
-            <ChatInput
-              onSend={handleSend}
-              mode={mode}
-              onModeChange={handleModeChange}
-              model={model}
-              onModelChange={handleModelChange}
-              embedded
-              autoFocus
-              sessionId={TOOLBAR_OWNER_ID}
-              thinkingLevel={thinkingLevel}
-              onThinkingLevelChange={handleThinkingLevelChange}
-              prefillPrompt={prefillPrompt}
-            />
+            <DarkTokensScope>
+              <ChatInput
+                onSend={handleSend}
+                mode={mode}
+                onModeChange={handleModeChange}
+                model={model}
+                onModelChange={handleModelChange}
+                embedded
+                autoFocus
+                sessionId={TOOLBAR_OWNER_ID}
+                thinkingLevel={thinkingLevel}
+                onThinkingLevelChange={handleThinkingLevelChange}
+                prefillPrompt={prefillPrompt}
+                placeholderOverride="Ask me to do anything..."
+                ghostSuggestion={ghostSuggestion}
+              />
+            </DarkTokensScope>
           </div>
         ) : historyOpen ? (
           <div style={{ width: '100%' }}>
@@ -502,7 +491,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
                 placeholder="Search apps..."
                 sx={{
                   flex: 1,
-                  fontSize: '0.85rem',
+                  fontSize: '0.875rem',
                   color: c.text.primary,
                   fontFamily: c.font.sans,
                   '& input::placeholder': { color: c.text.ghost, opacity: 1 },
@@ -526,7 +515,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
             >
               {filteredOutputs.length === 0 ? (
                 <Box sx={{ px: 2, py: 3, textAlign: 'center' }}>
-                  <Typography sx={{ fontSize: '0.82rem', color: c.text.muted }}>
+                  <Typography sx={{ fontSize: '0.8125rem', color: c.text.muted }}>
                     {outputList.length === 0 ? 'No apps created yet' : 'No matching apps'}
                   </Typography>
                 </Box>
@@ -583,7 +572,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography
                         sx={{
-                          fontSize: '0.82rem',
+                          fontSize: '0.8125rem',
                           fontWeight: 500,
                           color: c.text.primary,
                           overflow: 'hidden',
@@ -596,7 +585,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
                       {output.description && (
                         <Typography
                           sx={{
-                            fontSize: '0.72rem',
+                            fontSize: '0.75rem',
                             color: c.text.muted,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
@@ -612,260 +601,18 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               )}
             </Box>
           </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
-            <WarmTooltip tokens={c} title={`New Agent  ${shortcutLabel}`} placement="top" arrow enterDelay={400}>
-              <Box
-                role="button"
-                aria-label="New Agent"
-                data-onboarding="new-agent-button"
-                tabIndex={0}
-                onClick={() => {
-                  if (newAgentBounce) onNewAgentBounceEnd?.();
-                  onNewAgent();
-                }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.lg}px`,
-                  bgcolor: c.accent.primary,
-                  color: '#fff',
-                  cursor: 'pointer',
-                  transition: 'background-color 0.15s',
-                  '&:hover': { bgcolor: c.accent.hover },
-                  '&:active': { bgcolor: c.accent.pressed },
-                  // Pop in first; the empty-canvas bounce takes over once the row has settled.
-                  animation: `toolbar-pop 0.4s cubic-bezier(0.2, 1.4, 0.4, 1) both${newAgentBounce ? ', new-agent-bounce 1.6s ease-out 0.6s infinite' : ''}`,
-                  '@keyframes toolbar-pop': {
-                    from: { opacity: 0, transform: 'translateY(14px)' },
-                    to: { opacity: 1, transform: 'translateY(0)' },
-                  },
-                  '@keyframes new-agent-bounce': {
-                    '0%':   { transform: 'translateY(0)' },
-                    '15%':  { transform: 'translateY(-10px)' },
-                    '30%':  { transform: 'translateY(0)' },
-                    '42%':  { transform: 'translateY(-4px)' },
-                    '55%':  { transform: 'translateY(0)' },
-                    '100%': { transform: 'translateY(0)' },
-                  },
-                }}
-              >
-                <ChatBubbleTeardrop sx={{ fontSize: 18 }} />
-              </Box>
-            </WarmTooltip>
-
-            <WarmTooltip
-              tokens={c}
-              placement="top"
-              arrow
-              enterDelay={200}
-              title={
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ fontWeight: 600 }}>Add App  ⌘M</Box>
-                </Box>
-              }
-            >
-              <Box
-                role="button"
-                aria-label="Add App"
-                tabIndex={0}
-                onClick={handleOpenViewPicker}
-                data-onboarding="dashboard-toolbar-apps"
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.md}px`,
-                  color: c.text.tertiary,
-                  cursor: 'pointer',
-                  transition: 'opacity 0.15s, background-color 0.15s',
-                  '&:hover': { opacity: 1, bgcolor: c.bg.secondary, color: c.accent.primary },
-                  ...popIn(1),
-                }}
-              >
-                <GridViewRoundedIcon sx={{ fontSize: 22 }} />
-              </Box>
-            </WarmTooltip>
-
-            <WarmTooltip
-              tokens={c}
-              placement="top"
-              arrow
-              enterDelay={200}
-              title={
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ fontWeight: 600 }}>Browser  ⌘N</Box>
-                </Box>
-              }
-            >
-              <Box
-                role="button"
-                aria-label="Browser"
-                data-onboarding="browser-button"
-                tabIndex={0}
-                onClick={onAddBrowser}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.md}px`,
-                  color: c.text.tertiary,
-                  cursor: 'pointer',
-                  transition: 'opacity 0.15s, background-color 0.15s',
-                  '&:hover': { opacity: 1, bgcolor: c.bg.secondary, color: c.accent.primary },
-                  ...popIn(2),
-                }}
-              >
-                <LanguageIcon sx={{ fontSize: 22 }} />
-              </Box>
-            </WarmTooltip>
-
-            <WarmTooltip
-              tokens={c}
-              placement="top"
-              arrow
-              enterDelay={200}
-              title={
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ fontWeight: 600 }}>Workflows</Box>
-                  <Box sx={{ opacity: 0.6, fontSize: '0.7rem', mt: '1px' }}>Schedule and calendar</Box>
-                </Box>
-              }
-            >
-              <Box
-                role="button"
-                aria-label="Workflows"
-                tabIndex={0}
-                onClick={() => dispatch(workflowsHubOpen ? closeWorkflowsApp() : openWorkflowsApp())}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.md}px`,
-                  color: workflowsHubOpen ? c.accent.primary : c.text.tertiary,
-                  bgcolor: workflowsHubOpen ? c.bg.secondary : 'transparent',
-                  cursor: 'pointer',
-                  transition: 'opacity 0.15s, background-color 0.15s',
-                  '&:hover': { opacity: 1, bgcolor: c.bg.secondary, color: c.accent.primary },
-                  ...popIn(3),
-                }}
-              >
-                <EventRepeatIcon sx={{ fontSize: 22 }} />
-              </Box>
-            </WarmTooltip>
-
-            <WarmTooltip
-              tokens={c}
-              placement="top"
-              arrow
-              enterDelay={200}
-              title={
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ fontWeight: 600 }}>Add note</Box>
-                  <Box sx={{ opacity: 0.6, fontSize: '0.7rem', mt: '1px' }}>Sticky note on the canvas</Box>
-                </Box>
-              }
-            >
-              <Box
-                role="button"
-                aria-label="Add note"
-                tabIndex={0}
-                onClick={onAddNote}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.md}px`,
-                  color: c.text.tertiary,
-                  cursor: 'pointer',
-                  transition: 'opacity 0.15s, background-color 0.15s',
-                  '&:hover': { opacity: 1, bgcolor: c.bg.secondary, color: c.accent.primary },
-                  ...popIn(4),
-                }}
-              >
-                <StickyNote2OutlinedIcon sx={{ fontSize: 22 }} />
-              </Box>
-            </WarmTooltip>
-
-            <WarmTooltip
-              tokens={c}
-              placement="top"
-              arrow
-              enterDelay={200}
-              title={
-                <Box sx={{ textAlign: 'center' }}>
-                  <Box sx={{ fontWeight: 600 }}>History  ⌘O</Box>
-                </Box>
-              }
-            >
-              <Box
-                role="button"
-                aria-label="History"
-                tabIndex={0}
-                onClick={handleOpenHistory}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: BTN,
-                  height: BTN,
-                  borderRadius: `${c.radius.md}px`,
-                  color: c.text.tertiary,
-                  cursor: 'pointer',
-                  transition: 'opacity 0.15s, background-color 0.15s',
-                  '&:hover': { opacity: 1, bgcolor: c.bg.secondary, color: c.accent.primary },
-                  ...popIn(5),
-                }}
-              >
-                <HistoryRoundedIcon sx={{ fontSize: 22 }} />
-              </Box>
-            </WarmTooltip>
-
-            {placeholderItems.map(({ icon: PlaceholderIcon, label, sub }) => (
-              <WarmTooltip
-                key={label}
-                tokens={c}
-                placement="top"
-                arrow
-                enterDelay={200}
-                title={
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Box sx={{ fontWeight: 600 }}>{label}</Box>
-                    <Box sx={{ opacity: 0.6, fontSize: '0.7rem', mt: '1px' }}>{sub}</Box>
-                  </Box>
-                }
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: BTN,
-                    height: BTN,
-                    borderRadius: `${c.radius.md}px`,
-                    color: c.text.tertiary,
-                    opacity: 0.45,
-                    cursor: 'default',
-                    transition: 'opacity 0.15s, background-color 0.15s',
-                    '&:hover': { opacity: 0.65, bgcolor: c.bg.secondary },
-                  }}
-                >
-                  <PlaceholderIcon sx={{ fontSize: 22 }} />
-                </Box>
-              </WarmTooltip>
-            ))}
-          </div>
+        ) : canvasEmpty ? null : (
+          <DesktopSpawnPill
+            onOpenComposer={() => {
+              if (newAgentBounce) onNewAgentBounceEnd?.();
+              onNewAgent();
+            }}
+            onAddNote={onAddNote}
+            onAddBrowser={onAddBrowser}
+            onAddApp={handleOpenViewPicker}
+            onWorkflows={() => dispatch(workflowsHubOpen ? closeWorkflowsApp() : openWorkflowsApp())}
+            onHistory={handleOpenHistory}
+          />
         )}
       </MotionBox>
       <Snackbar

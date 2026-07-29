@@ -14,6 +14,7 @@ from typing import Optional
 from backend.apps.agents.core.models import AgentConfig
 from backend.apps.workflows.models import Workflow, WorkflowRun
 from backend.apps.workflows import storage
+from backend.apps.settings.models import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ async def execute(
         resolved_allowed_tools = _resolve_allowed_tools(wf)
         config = AgentConfig(
             name=wf.title or "Workflow",
-            model=wf.model or "sonnet",
+            model=wf.model or DEFAULT_MODEL,
             mode=wf.mode or "agent",
             provider=wf.provider or "anthropic",
             system_prompt=_resolve_system_prompt(wf),

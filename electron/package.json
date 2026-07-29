@@ -1,6 +1,7 @@
 {
   "name": "openswarm",
-  "version": "1.5.9",
+  "version": "1.6.0",
+  "license": "AGPL-3.0-only",
   "description": "OpenSwarm — AI Agent Orchestrator",
   "author": "openswarm-ai",
   "main": "main.js",
@@ -19,7 +20,8 @@
   },
   "dependencies": {
     "electron-updater": "6.8.3",
-    "get-port": "5.1.1"
+    "get-port": "5.1.1",
+    "uiohook-napi": "^1.5.5"
   },
   "devDependencies": {
     "@electron/notarize": "3.1.1",
@@ -69,6 +71,20 @@
         {
           "from": "build-staging/mouseclamp/${arch}",
           "to": "mouseclamp",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "build-staging/haptics/${arch}",
+          "to": "haptics",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "build-staging/whisper/${arch}",
+          "to": "whisper",
           "filter": [
             "**/*"
           ]

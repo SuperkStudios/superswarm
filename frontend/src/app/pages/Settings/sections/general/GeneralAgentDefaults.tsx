@@ -33,7 +33,6 @@ const GeneralAgentDefaults: React.FC<{
 
   return (
     <>
-      <Typography sx={sectionSx}>Agent Defaults</Typography>
 
       <Box sx={rowSx} {...settingSelectAttrs('default_system_prompt', 'System prompt', 'Agent Defaults', 'Prepended to every agent session before mode-specific instructions.')}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
@@ -59,7 +58,7 @@ const GeneralAgentDefaults: React.FC<{
           )}
         </Box>
         <Typography sx={{ ...descSx, mb: 1.5 }}>
-          Prepended to every agent session before mode-specific instructions. Modes can override with their own.
+          Prepended to every agent session.
         </Typography>
         <TextField
           value={form.default_system_prompt ?? DEFAULT_SYSTEM_PROMPT}
@@ -72,7 +71,7 @@ const GeneralAgentDefaults: React.FC<{
           sx={{
             '& .MuiOutlinedInput-root': {
               fontFamily: c.font.mono,
-              fontSize: '0.8rem',
+              fontSize: '0.8125rem',
               lineHeight: 1.6,
               color: c.text.secondary,
             },
@@ -83,7 +82,7 @@ const GeneralAgentDefaults: React.FC<{
       <Box sx={rowSx} {...settingSelectAttrs('default_folder', 'Working directory', 'Agent Defaults', 'Default folder agents start in.')}>
         <Typography sx={labelSx}>Working directory</Typography>
         <Typography sx={{ ...descSx, mb: 1.5 }}>
-          Default folder agents start in. Modes can override per-mode.
+          Default folder agents start in.
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <TextField
@@ -110,7 +109,7 @@ const GeneralAgentDefaults: React.FC<{
               textTransform: 'none',
               whiteSpace: 'nowrap',
               minWidth: 'auto',
-              fontSize: '0.8rem',
+              fontSize: '0.8125rem',
               '&:hover': { color: c.accent.primary, borderColor: c.accent.primary },
             }}
           >
@@ -128,7 +127,7 @@ const GeneralAgentDefaults: React.FC<{
           <Select
             value={form.default_model}
             onChange={(e) => setForm({ ...form, default_model: e.target.value })}
-            sx={{ fontSize: '0.85rem' }}
+            sx={{ fontSize: '0.875rem' }}
             MenuProps={{ PaperProps: { sx: { bgcolor: c.bg.surface, color: c.text.primary } } }}
             renderValue={(val) => {
               const m = modelOptions.flat.find((x) => x.value === val);
@@ -136,7 +135,7 @@ const GeneralAgentDefaults: React.FC<{
               return (
                 <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
                   <span>{m.label}</span>
-                  <Typography component="span" sx={{ fontSize: '0.65rem', color: c.text.ghost }}>
+                  <Typography component="span" sx={{ fontSize: '0.625rem', color: c.text.ghost }}>
                     · {m.provider}
                   </Typography>
                 </Box>
@@ -171,7 +170,7 @@ const GeneralAgentDefaults: React.FC<{
                     />
                     <Typography
                       sx={{
-                        fontSize: '0.68rem',
+                        fontSize: '0.6875rem',
                         fontWeight: 700,
                         letterSpacing: '0.08em',
                         textTransform: 'uppercase',
@@ -190,31 +189,12 @@ const GeneralAgentDefaults: React.FC<{
                   </Box>
                 </ListSubheader>,
                 ...models.map((m) => (
-                  <MenuItem key={m.value} value={m.value} sx={{ fontSize: '0.85rem', pl: 3 }}>
+                  <MenuItem key={m.value} value={m.value} sx={{ fontSize: '0.875rem', pl: 3 }}>
                     {m.label}
                   </MenuItem>
                 )),
               ];
             })}
-          </Select>
-        </FormControl>
-      </Box>
-
-      <Box sx={inlineRowSx} {...settingSelectAttrs('default_mode', 'Mode', 'Agent Defaults', 'Default interaction mode for new sessions.')}>
-        <Box sx={{ mr: 3 }}>
-          <Typography sx={labelSx}>Mode</Typography>
-          <Typography sx={descSx}>Default interaction mode for new sessions.</Typography>
-        </Box>
-        <FormControl size="small" sx={{ minWidth: 170 }}>
-          <Select
-            value={form.default_mode}
-            onChange={(e) => setForm({ ...form, default_mode: e.target.value })}
-            sx={{ fontSize: '0.85rem' }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: c.bg.surface, color: c.text.primary } } }}
-          >
-            {modesList.map((m) => (
-              <MenuItem key={m.id} value={m.id}>{m.name}</MenuItem>
-            ))}
           </Select>
         </FormControl>
       </Box>
@@ -228,7 +208,7 @@ const GeneralAgentDefaults: React.FC<{
           <Select
             value={form.default_thinking_level}
             onChange={(e) => setForm({ ...form, default_thinking_level: e.target.value as AppSettings['default_thinking_level'] })}
-            sx={{ fontSize: '0.85rem' }}
+            sx={{ fontSize: '0.875rem' }}
             MenuProps={{ PaperProps: { sx: { bgcolor: c.bg.surface, color: c.text.primary } } }}
           >
             <MenuItem value="auto">Auto</MenuItem>

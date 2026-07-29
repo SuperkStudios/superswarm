@@ -136,7 +136,8 @@ async def clear_free_trial(settings_obj) -> None:
         if getattr(settings_obj, "default_model", None) == "haiku" and (
             has_own_model(settings_obj) or await p_has_connected_subscription()
         ):
-            settings_obj.default_model = "sonnet"
+            from backend.apps.settings.models import DEFAULT_MODEL
+            settings_obj.default_model = DEFAULT_MODEL
     settings_obj.free_trial_token = None
     await save_settings_async(settings_obj)
     await p_sync_routing(settings_obj)

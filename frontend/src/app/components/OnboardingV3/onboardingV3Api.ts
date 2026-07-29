@@ -1,5 +1,5 @@
 import { API_BASE } from '@/shared/config';
-import type { PersonalizedStarter } from '@/shared/state/settingsSlice';
+import type { PersonalizedStarter, PersonalizedAutomation, PersonalizedMenu } from '@/shared/state/settingsSlice';
 
 export interface ProviderIdentity {
   provider: string;
@@ -17,14 +17,29 @@ export interface FolderSummary {
 
 export interface ScanResult {
   apps: string[];
+  signal_apps: string[];
   folders: FolderSummary[];
   git_repo_count: number;
   has_gitconfig: boolean;
 }
 
 export interface PrepResponse {
+  headline: string;
+  epithets?: string[];
   greeting: string;
   starters: PersonalizedStarter[];
+  app_title: string;
+  app_prompt: string;
+  app_reason: string;
+  research_title: string;
+  research_prompt: string;
+  research_reason: string;
+  browser_title: string;
+  browser_prompt: string;
+  browser_reason: string;
+  automations: PersonalizedAutomation[];
+  menu?: PersonalizedMenu | null;
+  used_llm?: boolean;
 }
 
 export async function fetchIdentity(): Promise<ProviderIdentity[]> {
@@ -48,12 +63,12 @@ export async function runScan(): Promise<ScanResult | null> {
   }
 }
 
-export async function runPrep(scan: ScanResult | null, pickedApps: string[]): Promise<PrepResponse | null> {
+export async function runPrep(scan: ScanResult | null, pickedApps: string[], identity: ProviderIdentity[], usageSummary: string): Promise<PrepResponse | null> {
   try {
     const res = await fetch(`${API_BASE}/onboarding/prep`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scan, picked_apps: pickedApps }),
+      body: JSON.stringify({ scan, picked_apps: pickedApps, identity, usage_summary: usageSummary }),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as PrepResponse;
@@ -63,14 +78,15 @@ export async function runPrep(scan: ScanResult | null, pickedApps: string[]): Pr
   }
 }
 
-// One human-readable line about what the scan found, reused by the reveal note so the user can see exactly what informed their starters.
+// One human-readable line about what the scan found, reused by the reveal note so the user can see exactly what informed their starters. Leads with the telling apps (the sharp part), then repos + folder volume.
 export function summarizeScan(scan: ScanResult | null): string | null {
   if (!scan) return null;
   const parts: string[] = [];
+  if (scan.signal_apps?.length) parts.push(scan.signal_apps.slice(0, 3).join(', '));
+  if (scan.git_repo_count > 0) parts.push(`${scan.git_repo_count} git repo${scan.git_repo_count === 1 ? '' : 's'}`);
   for (const f of scan.folders) {
     if (f.screenshot_count > 20) parts.push(`${f.screenshot_count} screenshots on your ${f.name}`);
-    else if (f.entry_count > 300) parts.push(`${f.entry_count} items in ${f.name}`);
+    else if (f.entry_count > 300) parts.push(`${f.entry_count} files in ${f.name}`);
   }
-  if (scan.git_repo_count > 0) parts.push(`${scan.git_repo_count} git repo${scan.git_repo_count === 1 ? '' : 's'}`);
-  return parts.length > 0 ? parts.slice(0, 3).join(', ') : null;
+  return parts.length > 0 ? parts.slice(0, 4).join(', ') : null;
 }

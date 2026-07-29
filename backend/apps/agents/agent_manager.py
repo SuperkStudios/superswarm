@@ -29,6 +29,8 @@ from backend.apps.agents.manager.MockAgent import MockAgent
 from backend.apps.agents.manager.RunSupport import RunSupport
 from backend.apps.agents.manager.run.handle_run_error import handle_run_error
 from backend.apps.agents.manager.run.TurnRunner import TurnRunner
+from backend.apps.agents.manager.run.client_pool import ClientHandle
+from backend.apps.agents.manager.streaming.HookContext import HookContext
 from backend.apps.agents.manager.run.RunOptions import RunOptions
 
 logger = logging.getLogger(__name__)
@@ -49,9 +51,9 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
         # Per-session cancel signal: the loop stashes its asyncio.Event here so a stop/close can set it. Lives on the manager, not the AgentSession model, so it stays out of serialization (an Event can't be model_dump'd).
         self.cancel_events: Dict[str, asyncio.Event] = {}
         # Persistent-client pool (lever A, flag-gated): one live CLI per session, reused across turns.
-        self.client_pool: Dict[str, object] = {}
+        self.client_pool: Dict[str, ClientHandle] = {}
         # Per-SESSION hook context + stderr buffer, updated in place each turn: a persistent client's hooks/stderr callback were bound at connect, so they must read stable objects, not per-turn rebuilds.
-        self.hook_ctxs: Dict[str, object] = {}
+        self.hook_ctxs: Dict[str, HookContext] = {}
         self.stderr_buffers: Dict[str, List[str]] = {}
         # Admission gate: one shared semaphore caps concurrent ROOT turns (children bypass). (Re)created per running loop by get_turn_admission so it never binds to a dead loop across a uvicorn reload or a test's asyncio.run.
         self.p_turn_admission_sema: Optional[asyncio.Semaphore] = None

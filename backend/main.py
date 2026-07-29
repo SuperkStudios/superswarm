@@ -43,6 +43,8 @@ from backend.apps.subscription.router import subscription
 from backend.apps.auth.router import auth
 from backend.apps.web.web import web
 from backend.apps.onboarding.onboarding import onboarding
+from backend.apps.voice.polish import voice
+from backend.apps.help.bundle import help_app
 from backend.apps.agents.proxy.anthropic_proxy import anthropic_proxy
 from backend.apps.agents.core.openai_passthrough import openai_passthrough
 from backend.apps.workflows.workflows import workflows
@@ -50,7 +52,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import WebSocket, WebSocketDisconnect
 import json
 
-main_app = MainApp([health, agents, skills, tools_lib, modes, settings, mcp_registry, skill_registry, outputs, output_versions, dashboards, swarm, service, subscription, auth, web, onboarding, anthropic_proxy, workflows, openai_passthrough])
+main_app = MainApp([health, agents, skills, tools_lib, modes, settings, mcp_registry, skill_registry, outputs, output_versions, dashboards, swarm, service, subscription, auth, web, onboarding, voice, help_app, anthropic_proxy, workflows, openai_passthrough])
 app = main_app.app
 
 # Generate per-install auth token BEFORE we bind the HTTP port. By the time any request lands, the token file exists. See backend/auth.py.
@@ -501,7 +503,8 @@ async def browser_agent_run(request: Request):
 
     body = await request.json()
     tasks = body.get("tasks", [])
-    model = body.get("model", "sonnet")
+    from backend.apps.settings.models import DEFAULT_MODEL
+    model = body.get("model", DEFAULT_MODEL)
     dashboard_id = body.get("dashboard_id", "")
     pre_selected_browser_ids = body.get("pre_selected_browser_ids", [])
     parent_session_id = body.get("parent_session_id", "")
@@ -900,6 +903,43 @@ async def spawn_agent_run(request: Request):
     except Exception as e:
         logger.exception("spawn_agent_run failed")
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/ui-requests/wait")
+async def ui_request_wait(request: Request):
+    """AskUI's blocking half: parks until the user answers the interactive component in the
+    transcript. Called by the show_ui_mcp_server stdio subprocess."""
+    body = await request.json()
+    session_id = str(body.get("session_id", ""))
+    component_id = str(body.get("component_id", ""))
+    timeout_s = float(body.get("timeout_s", 600) or 600)
+    if not session_id or not component_id:
+        return JSONResponse({"error": "session_id and component_id are required"}, status_code=400)
+    try:
+        from backend.apps.agents.ui_request_bridge import wait_for_ui_response
+        response = await wait_for_ui_response(session_id, component_id, timeout_s)
+        return JSONResponse({"ok": response is not None, "response": response})
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=429)
+    except Exception as e:
+        logger.exception("ui_request_wait failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/api/ui-requests/respond")
+async def ui_request_respond(request: Request):
+    """The user's answer from the rendered component; releases the matching parked wait."""
+    body = await request.json()
+    session_id = str(body.get("session_id", ""))
+    component_id = str(body.get("component_id", ""))
+    response = body.get("response")
+    if not session_id or not component_id or not isinstance(response, dict):
+        return JSONResponse({"error": "session_id, component_id and response object are required"}, status_code=400)
+    from backend.apps.agents.ui_request_bridge import respond_to_ui_request
+    delivered = respond_to_ui_request(session_id, component_id, response)
+    if not delivered:
+        return JSONResponse({"error": "no pending request for that component"}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/api/invoke-agent/run")

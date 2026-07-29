@@ -144,6 +144,8 @@ export interface AgentConfig {
   target_directory?: string;
   dashboard_id?: string;
   selected_app_output_ids?: string[];
+  // Onboarding's unattended audit runs read-only over the user's real files (Edit/Bash hard-blocked).
+  read_only?: boolean;
 }
 
 export interface HistorySession {
@@ -502,7 +504,10 @@ export const handleApproval = createAsyncThunk(
 export const closeSession = createAsyncThunk(
   'agents/closeSession',
   async ({ sessionId }: { sessionId: string }) => {
-    await fetch(`${AGENTS_API}/sessions/${sessionId}/close`, { method: 'POST' });
+    // Drafts are client-only; the server has no such session and would 404.
+    if (!sessionId.startsWith('draft-')) {
+      await fetch(`${AGENTS_API}/sessions/${sessionId}/close`, { method: 'POST' });
+    }
     return sessionId;
   }
 );

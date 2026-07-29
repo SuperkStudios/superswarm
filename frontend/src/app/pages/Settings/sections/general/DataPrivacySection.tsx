@@ -13,7 +13,7 @@ const ERASE_WORD = 'ERASE';
 // The iOS Reset menu, two actions only: "Reset All Settings" (preferences back to defaults, your stuff + sign-in stay) and "Erase All Content and Settings" (factory wipe + relaunch). Flat rows, not a boxed "danger zone": red lives only on the destructive label, and the real friction is the typed-confirm in the dialog.
 const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) => {
   const c = useClaudeTokens();
-  const { sectionSx, labelSx, descSx } = styles;
+  const { labelSx, descSx, inlineRowSx, inlineRowLastSx } = styles;
 
   const [resetOpen, setResetOpen] = useState(false);
   const [eraseOpen, setEraseOpen] = useState(false);
@@ -87,8 +87,8 @@ const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) =>
     borderRadius: 2.5,
     maxWidth: 360,
   };
-  const titleSx = { color: c.text.primary, fontSize: '0.95rem', fontWeight: 600, mb: 1 };
-  const bodySx = { color: c.text.secondary, fontSize: '0.8rem', lineHeight: 1.5, mb: 2 };
+  const titleSx = { color: c.text.primary, fontSize: '1rem', fontWeight: 600, mb: 1 };
+  const bodySx = { color: c.text.secondary, fontSize: '0.8125rem', lineHeight: 1.5, mb: 2 };
   const errSx = { color: c.status.error, fontSize: '0.75rem', mb: 1.5 };
   const cancelSx = { color: c.text.secondary, textTransform: 'none', fontWeight: 500 };
   const actionRowSx = { display: 'flex', justifyContent: 'flex-end', gap: 1 };
@@ -98,7 +98,7 @@ const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) =>
     color: c.text.secondary,
     borderColor: c.border.medium,
     textTransform: 'none' as const,
-    fontSize: '0.8rem',
+    fontSize: '0.8125rem',
     whiteSpace: 'nowrap' as const,
     '&:hover': { color: c.accent.primary, borderColor: c.accent.primary },
   };
@@ -108,30 +108,29 @@ const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) =>
     borderColor: c.status.error,
     '&:hover': { color: c.status.error, borderColor: c.status.error, bgcolor: c.status.errorBg },
   };
-  const rowSx = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 3, py: 2 };
+
 
   return (
     <Box>
-      <Typography sx={{ ...sectionSx, mt: 3 }}>Data &amp; Privacy</Typography>
 
-      <Box sx={{ ...rowSx, borderBottom: `1px solid ${c.border.subtle}` }}>
-        <Box>
+      <Box sx={inlineRowSx}>
+        <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Reset all settings</Typography>
           <Typography sx={descSx}>Puts your preferences back to defaults. Your apps, chats, skills, and sign-in stay.</Typography>
         </Box>
         <Button variant="outlined" size="small" onClick={() => { setErr(null); setResetOpen(true); }} sx={rowBtnSx}>Reset</Button>
       </Box>
 
-      <Box sx={{ ...rowSx, borderBottom: `1px solid ${c.border.subtle}` }}>
-        <Box>
+      <Box sx={inlineRowSx}>
+        <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Clear browsing data</Typography>
           <Typography sx={descSx}>Signs you out of sites opened in browser cards and clears their cookies, cache, and local storage. Your chats, apps, and settings stay.</Typography>
         </Box>
         <Button variant="outlined" size="small" onClick={() => { setErr(null); setClearedOk(false); setClearOpen(true); }} sx={rowBtnSx}>Clear</Button>
       </Box>
 
-      <Box sx={rowSx}>
-        <Box>
+      <Box sx={inlineRowLastSx}>
+        <Box sx={{ mr: 3 }}>
           <Typography sx={{ ...labelSx, color: c.status.error }}>Erase all content and settings</Typography>
           <Typography sx={descSx}>Removes every chat, app, skill, and setting and restarts OpenSwarm fresh. This can't be undone.</Typography>
         </Box>
@@ -180,7 +179,7 @@ const DataPrivacySection: React.FC<{ styles: SettingsStyles }> = ({ styles }) =>
             size="small"
             autoFocus
             disabled={busy}
-            sx={{ mb: 2, '& .MuiOutlinedInput-root': { fontSize: '0.8rem' } }}
+            sx={{ mb: 2, '& .MuiOutlinedInput-root': { fontSize: '0.8125rem' } }}
           />
           {err && <Typography sx={errSx}>{err}</Typography>}
           <Box sx={actionRowSx}>

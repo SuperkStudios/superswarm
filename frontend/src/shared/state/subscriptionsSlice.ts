@@ -119,13 +119,21 @@ export const { setSubscriptionStatus, markSubscriptionConnected, hideProviderHea
 const EMPTY_CONNECTIONS: SubscriptionConnection[] = [];
 
 /** Unwraps the polymorphic `providers` shape (modern object vs legacy array). */
+let p_lastRows: SubscriptionConnection[] | null = null;
+let p_lastFiltered: SubscriptionConnection[] | null = null;
+
 export function selectSubscriptionConnections(
   state: WithSubscriptions,
 ): SubscriptionConnection[] {
   const providers = state.subscriptions.status?.providers;
   if (!providers) return EMPTY_CONNECTIONS;
-  if (Array.isArray(providers)) return providers;
-  return providers.connections ?? EMPTY_CONNECTIONS;
+  const rows = Array.isArray(providers) ? providers : (providers.connections ?? EMPTY_CONNECTIONS);
+  // The free-trial/Pro lane is an OpenSwarm-managed router row, not a connection the USER made; counting it made a fresh trial look "connected" (dead Connect-beat rows, premature onConnected, phantom green rings). Memoized per rows identity so useSelector consumers don't churn.
+  if (rows === p_lastRows && p_lastFiltered) return p_lastFiltered;
+  const filtered = rows.filter((p) => !/\(OpenSwarm-managed\)/.test(p.name ?? ''));
+  p_lastRows = rows;
+  p_lastFiltered = filtered.length === rows.length ? rows : filtered;
+  return p_lastFiltered;
 }
 
 export function hasAnyActiveSubscription(state: WithSubscriptions): boolean {

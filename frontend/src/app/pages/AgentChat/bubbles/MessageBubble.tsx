@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import TextField from '@mui/material/TextField';
+import MessageEditSurface from './MessageEditSurface';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Tooltip from '@mui/material/Tooltip';
@@ -16,6 +17,7 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import PsychologyOutlinedIcon from '@mui/icons-material/PsychologyOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
+import LanguageIcon from '@mui/icons-material/Language';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import WindowedMarkdown from './WindowedMarkdown';
@@ -354,16 +356,30 @@ function buildContextGroups(
 
   const forcedTools = message.forced_tools;
   if (forcedTools && forcedTools.length > 0) {
-    groups.push({
-      key: 'tools',
-      icon: <BuildOutlinedIcon sx={{ fontSize: 13 }} />,
-      color: '#f59e0b',
-      label: `${forcedTools.length} action${forcedTools.length > 1 ? 's' : ''} requested`,
-      chips: forcedTools.map((t) => ({
-        label: t,
-        icon: <BuildOutlinedIcon sx={{ fontSize: 12 }} />,
-      })),
-    });
+    // The web-search toggle forces WebSearch/WebFetch on every send; that's a MODE, not an
+    // attachment, so it reads as one quiet globe instead of an amber "2 actions requested" banner.
+    const visibleForced = forcedTools.filter((t) => t !== 'WebSearch' && t !== 'WebFetch');
+    if (visibleForced.length !== forcedTools.length) {
+      groups.push({
+        key: 'web',
+        icon: <LanguageIcon sx={{ fontSize: 13 }} />,
+        color: '#8a8a94',
+        label: 'Web search',
+        chips: [],
+      });
+    }
+    if (visibleForced.length > 0) {
+      groups.push({
+        key: 'tools',
+        icon: <BuildOutlinedIcon sx={{ fontSize: 13 }} />,
+        color: '#f59e0b',
+        label: `${visibleForced.length} action${visibleForced.length > 1 ? 's' : ''} requested`,
+        chips: visibleForced.map((t) => ({
+          label: t,
+          icon: <BuildOutlinedIcon sx={{ fontSize: 12 }} />,
+        })),
+      });
+    }
   }
 
   return groups;
@@ -380,7 +396,8 @@ const AttachedContextSection: React.FC<{
   if (groups.length === 0) return null;
 
   return (
-    <Box sx={{ mt: 1, pt: 0.75, borderTop: `1px solid ${c.border.subtle}` }}>
+    // Quiet metadata, not a banner: no divider, ghost text, tiny glyphs; detail stays one click away.
+    <Box sx={{ mt: 0.75 }}>
       <Box
         onClick={() => setExpanded(!expanded)}
         sx={{
@@ -388,8 +405,9 @@ const AttachedContextSection: React.FC<{
           alignItems: 'center',
           gap: 0.5,
           cursor: 'pointer',
-          mb: 0.5,
-          '&:hover': { opacity: 0.8 },
+          opacity: 0.75,
+          '&:hover': { opacity: 1 },
+          transition: 'opacity 120ms',
         }}
       >
         {groups.map((g) => (
@@ -397,7 +415,7 @@ const AttachedContextSection: React.FC<{
             {g.icon}
           </Box>
         ))}
-        <Typography sx={{ fontSize: '0.7rem', fontWeight: 600, color: c.text.muted }}>
+        <Typography sx={{ fontSize: '0.6875rem', fontWeight: 500, color: c.text.muted }}>
           {groups.map((g) => g.label).join(' · ')}
         </Typography>
         <ExpandMoreIcon
@@ -412,13 +430,13 @@ const AttachedContextSection: React.FC<{
       <Collapse in={expanded}>
         {groups.map((g) => (
           <Box key={g.key} sx={{ mt: 0.5 }}>
-            <Typography sx={{ fontSize: '0.62rem', fontWeight: 600, color: g.color, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.25 }}>
+            <Typography sx={{ fontSize: '0.625rem', fontWeight: 600, color: g.color, textTransform: 'uppercase', letterSpacing: 0.5, mb: 0.25 }}>
               {g.label}
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
               {g.chips.map((chip, i) => (
                 <Tooltip key={i} title={chip.tooltip || chip.label} arrow placement="top"
-                  slotProps={{ tooltip: { sx: { fontFamily: c.font.mono, fontSize: '0.68rem', maxWidth: 400 } } }}
+                  slotProps={{ tooltip: { sx: { fontFamily: c.font.mono, fontSize: '0.6875rem', maxWidth: 400 } } }}
                 >
                   <Chip
                     icon={chip.icon as React.ReactElement}
@@ -427,7 +445,7 @@ const AttachedContextSection: React.FC<{
                     sx={{
                       bgcolor: `${g.color}18`,
                       color: g.color,
-                      fontSize: '0.68rem',
+                      fontSize: '0.6875rem',
                       fontFamily: c.font.mono,
                       height: 22,
                       '& .MuiChip-icon': { color: g.color },
@@ -599,9 +617,9 @@ const ThinkingBubble: React.FC<{
   const finalTokens = persistedTokens
     ?? (text && !isStreaming ? Math.max(1, Math.round(text.length / 3.6)) : null);
 
-  const activeLabel = dynamicLabel
-    ? (liveTokenEstimate > 0 ? `${dynamicLabel}… ~${liveTokenEstimate} tokens` : `${dynamicLabel}…`)
-    : (liveTokenEstimate > 0 ? `${turnLabel.live}… (~${liveTokenEstimate} tokens)` : `${turnLabel.live}…`);
+  // No token counter while streaming: the label carries WHAT it's doing, the shimmer carries "live".
+  void liveTokenEstimate;
+  const activeLabel = dynamicLabel ? `${dynamicLabel}…` : `${turnLabel.live}…`;
 
   const fmtTokens = (n: number) => {
     if (n >= 1000) {
@@ -637,70 +655,61 @@ const ThinkingBubble: React.FC<{
     return { total: combinedTotalTokens, output: finalTokens, input: inputSide };
   })();
 
+  // Resting line reads like ChatGPT's "Thought for 12s": duration only. The dev metrics (token
+  // breakdown, tool count) live in a hover tooltip so the curious still get them without the
+  // transcript reading as telemetry.
   const renderPostStreamLabel = () => {
-    const segments: React.ReactNode[] = [];
-    segments.push(
-      <span key="duration">
-        {finalSeconds != null
-          ? `${turnLabel.past} for ${fmtThoughtDuration(finalSeconds)}`
-          : turnLabel.past}
-      </span>
-    );
-    if (tokenBreakdown) {
-      const { total, input, output } = tokenBreakdown;
-      const tooltipBody = input != null && output != null ? (
-        <Box sx={{ p: 0.5, fontFamily: c.font.sans, fontSize: '0.78rem', lineHeight: 1.5 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-            <span>Input</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{input.toLocaleString()}</span>
+    const durationText = finalSeconds != null
+      ? `${turnLabel.past} for ${fmtThoughtDuration(finalSeconds)}`
+      : turnLabel.past;
+    if (!tokenBreakdown && !(persistedToolCount != null && persistedToolCount > 0)) {
+      return <span key="duration">{durationText}</span>;
+    }
+    const { total, input, output } = tokenBreakdown ?? { total: 0, input: null, output: null };
+    const tooltipBody = (
+      <Box sx={{ p: 0.5, fontFamily: c.font.sans, fontSize: '0.75rem', lineHeight: 1.5 }}>
+        {input != null && output != null ? (
+          <>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+              <span>Input</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{input.toLocaleString()}</span>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
+              <span>Output</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{output.toLocaleString()}</span>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 0.25, pt: 0.25, borderTop: `1px solid ${c.border.subtle}`, fontWeight: 600 }}>
+              <span>Total</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{total.toLocaleString()}</span>
+            </Box>
+          </>
+        ) : tokenBreakdown ? (
+          <Box>{total.toLocaleString()} tokens (input + output + children)</Box>
+        ) : null}
+        {persistedToolCount != null && persistedToolCount > 0 && (
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: tokenBreakdown ? 0.25 : 0 }}>
+            <span>Tools used</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{persistedToolCount}</span>
           </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}>
-            <span>Output</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{output.toLocaleString()}</span>
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mt: 0.25, pt: 0.25, borderTop: `1px solid ${c.border.subtle}`, fontWeight: 600 }}>
-            <span>Total</span><span style={{ fontVariantNumeric: 'tabular-nums' }}>{total.toLocaleString()}</span>
-          </Box>
-          <Box sx={{ mt: 0.5, color: c.text.ghost, fontSize: '0.7rem', fontStyle: 'italic' }}>
+        )}
+        {input != null && output != null && (
+          <Box sx={{ mt: 0.5, color: c.text.ghost, fontSize: '0.6875rem', fontStyle: 'italic' }}>
             Input shown is your message, history, and tool outputs. The fixed
             framework preamble (system prompt, tool defs, MCP descriptions) is
             excluded, since it's constant overhead from the agent runtime,
             not anything you can shrink.
           </Box>
-        </Box>
-      ) : (
-        <Box sx={{ p: 0.5, fontFamily: c.font.sans, fontSize: '0.78rem' }}>
-          {total.toLocaleString()} tokens (input + output + children)
-        </Box>
-      );
-      segments.push(<span key="sep-1">, </span>);
-      segments.push(
-        <Tooltip
-          key="tokens"
-          title={tooltipBody}
-          placement="top"
-          arrow
-          slotProps={{ tooltip: { sx: { bgcolor: c.bg.elevated, color: c.text.primary, border: `1px solid ${c.border.medium}`, maxWidth: 'none' } } }}
-        >
-          <Box
-            component="span"
-            onClick={(e) => { e.stopPropagation(); }}
-            sx={{
-              cursor: 'help',
-              borderBottom: `1px dotted ${c.border.medium}`,
-              '&:hover': { color: c.text.secondary },
-            }}
-          >
-            {fmtTokens(total)} tokens
-          </Box>
-        </Tooltip>
-      );
-    }
-    if (persistedToolCount != null && persistedToolCount > 0) {
-      segments.push(<span key="sep-2">, </span>);
-      segments.push(
-        <span key="tools">{persistedToolCount} tool{persistedToolCount === 1 ? '' : 's'} used</span>
-      );
-    }
-    return segments;
+        )}
+      </Box>
+    );
+    return (
+      <Tooltip
+        key="duration"
+        title={tooltipBody}
+        placement="top"
+        arrow
+        enterDelay={400}
+        slotProps={{ tooltip: { sx: { bgcolor: c.bg.elevated, color: c.text.primary, border: `1px solid ${c.border.medium}`, maxWidth: 'none' } } }}
+      >
+        <span>{durationText}</span>
+      </Tooltip>
+    );
   };
 
   // Shimmer needs a flat string; post-stream label needs nodes for the token tooltip.
@@ -720,7 +729,7 @@ const ThinkingBubble: React.FC<{
           gap: 0.75,
           cursor: 'pointer',
           color: c.text.tertiary,
-          fontSize: '0.78rem',
+          fontSize: '0.75rem',
           py: 0.5,
           px: 1,
           ml: -1,
@@ -733,7 +742,7 @@ const ThinkingBubble: React.FC<{
         <PsychologyOutlinedIcon sx={{ fontSize: 14, opacity: 0.75 }} />
         <Typography
           sx={{
-            fontSize: '0.78rem',
+            fontSize: '0.75rem',
             fontWeight: 500,
             ...(isStreaming ? {
               background: `linear-gradient(90deg, ${shimmerBase} 0%, ${shimmerBase} 40%, ${shimmerHighlight} 50%, ${shimmerBase} 60%, ${shimmerBase} 100%)`,
@@ -765,7 +774,7 @@ const ThinkingBubble: React.FC<{
             pl: 1.5,
             borderLeft: `2px solid ${c.border.subtle}`,
             color: c.text.tertiary,
-            fontSize: '0.85rem',
+            fontSize: '0.875rem',
             lineHeight: 1.55,
             fontStyle: 'normal',
             whiteSpace: 'pre-wrap',
@@ -852,7 +861,6 @@ interface Props {
 const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, onSaveEdit, onCancelEdit, isStreaming, dynamicTurnLabel, viewportHeight = 0, viewportWidth = 0, scrollRoot = null, revealRef }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
-  const [editText, setEditText] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const bubbleRootRef = React.useRef<HTMLDivElement | null>(null);
   const contentRef = React.useRef<HTMLDivElement | null>(null);
@@ -868,7 +876,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
     }
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}>
-        <Typography sx={{ color: c.text.ghost, fontSize: '0.8rem', fontStyle: 'italic' }}>
+        <Typography sx={{ color: c.text.ghost, fontSize: '0.8125rem', fontStyle: 'italic' }}>
           {sysText}
         </Typography>
       </Box>
@@ -1011,21 +1019,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
     }
   }, [message.id, openswarmError?.kind, dispatch]);
 
-  React.useEffect(() => {
-    if (editing) setEditText(rawText);
-  }, [editing, rawText]);
-
   const handleCancelEdit = () => {
-    setEditText('');
-    onCancelEdit?.();
-  };
-
-  const handleSaveEdit = () => {
-    const trimmed = editText.trim();
-    if (trimmed && trimmed !== rawText && onSaveEdit) {
-      onSaveEdit(message.id, trimmed);
-    }
-    setEditText('');
     onCancelEdit?.();
   };
 
@@ -1045,7 +1039,9 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
       data-select-meta={JSON.stringify({ role, content: truncatedContent })}
       sx={{
         display: 'flex',
-        justifyContent: isUser ? 'flex-end' : 'flex-start',
+        // Editing a user message widens it to the full column (Claude's grammar), so the field is
+        // comfortable to type in instead of a cramped right-hugging box.
+        justifyContent: isUser && !editing ? 'flex-end' : 'flex-start',
         my: 0.75,
         // Isolates reflow so an expanding bubble doesn't shake the transcript.
         contain: 'layout style',
@@ -1053,16 +1049,19 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
     >
       <Box
         sx={{
-          maxWidth: '85%',
+          // Only USER messages wear a bubble (the ChatGPT/Claude grammar): the assistant's words sit
+          // directly on the page, so its answers read as the page's voice, not another chat balloon.
+          maxWidth: isUser && !editing ? '85%' : '100%',
+          width: editing ? '100%' : undefined,
           minWidth: 0,
           // Oversized messages are block-virtualized, so the set of rendered blocks (and thus the widest visible content) changes as you scroll. Pin them to a stable width so the bubble doesn't shrink-to-fit and resize horizontally frame to frame. Normal messages keep shrink-to-fit.
-          ...(isOversized ? { width: '85%' } : {}),
-          bgcolor: isUser ? c.user.bubble : c.bg.surface,
-          border: isUser ? (isFailed ? `1px solid ${c.status.error}` : 'none') : `1px solid ${c.border.subtle}`,
-          borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-          px: 2,
-          py: 1.25,
-          boxShadow: isUser ? 'none' : c.shadow.sm,
+          ...(isOversized && !editing ? { width: isUser ? '85%' : '100%' } : {}),
+          bgcolor: isUser ? c.user.bubble : 'transparent',
+          border: isUser && isFailed ? `1px solid ${c.status.error}` : 'none',
+          borderRadius: isUser ? '18px' : 0,
+          px: isUser ? 2 : 0,
+          py: isUser ? 1.25 : 0.5,
+          boxShadow: 'none',
           overflow: 'hidden',
           opacity: isPending ? 0.7 : 1,
           transition: 'opacity 0.2s, border-color 0.2s',
@@ -1078,55 +1077,15 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
       >
         {isUser ? (
           editing ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 240 }}>
-              <TextField
-                multiline
-                fullWidth
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                variant="outlined"
-                size="small"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSaveEdit();
-                  }
-                  if (e.key === 'Escape') handleCancelEdit();
-                }}
-                sx={{
-                  '& .MuiOutlinedInput-root': {
-                    color: c.text.primary,
-                    fontSize: '0.875rem',
-                    '& fieldset': { borderColor: c.border.strong },
-                    '&:hover fieldset': { borderColor: c.text.tertiary },
-                    '&.Mui-focused fieldset': { borderColor: c.accent.primary },
-                  },
-                }}
-              />
-              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                <Button
-                  size="small"
-                  onClick={handleCancelEdit}
-                  sx={{ color: c.text.muted, fontSize: '0.75rem' }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={handleSaveEdit}
-                  disabled={!editText.trim() || editText.trim() === rawText}
-                  sx={{
-                    bgcolor: c.accent.primary,
-                    fontSize: '0.75rem',
-                    '&:hover': { bgcolor: c.accent.hover },
-                  }}
-                >
-                  Save & Submit
-                </Button>
-              </Box>
-            </Box>
+            // Claude's edit grammar, pill-aware: skills render as chips and selected-elements stay
+            // attached (read-only) instead of the message dumping raw {{skill:...}} / element markup.
+            <MessageEditSurface
+              userMessage={displayText}
+              elementSuffix={rawText.slice(displayText.length)}
+              elementLabels={selectedElements.map((el) => el.label)}
+              onSave={(full) => { if (full !== rawText && onSaveEdit) onSaveEdit(message.id, full); onCancelEdit?.(); }}
+              onCancel={handleCancelEdit}
+            />
           ) : (
             <Box>
               {message.images && message.images.length > 0 && (
@@ -1178,7 +1137,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                 borderRadius: 1.5,
                 p: 1.5,
                 overflow: 'auto',
-                fontSize: '0.8rem',
+                fontSize: '0.8125rem',
                 fontFamily: c.font.mono,
                 border: `1px solid ${c.border.subtle}`,
                 '&::-webkit-scrollbar': { height: 5, width: 5 },
@@ -1196,7 +1155,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                 px: 0.5,
                 py: 0.25,
                 borderRadius: 0.5,
-                fontSize: '0.8rem',
+                fontSize: '0.8125rem',
                 fontFamily: c.font.mono,
               },
               '& pre code': { bgcolor: 'transparent', p: 0 },
@@ -1204,7 +1163,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                 width: '100%',
                 borderCollapse: 'collapse',
                 my: 1.5,
-                fontSize: '0.82rem',
+                fontSize: '0.8125rem',
                 border: `1px solid ${c.border.subtle}`,
                 borderRadius: 1,
                 overflow: 'hidden',
@@ -1253,11 +1212,11 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ErrorSlime size={22} />
-                  <Typography sx={{ fontSize: '0.92rem', fontWeight: 600, color: c.text.primary }}>
+                  <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: c.text.primary }}>
                     {openswarmError.title}
                   </Typography>
                 </Box>
-                <Typography sx={{ fontSize: '0.82rem', color: c.text.secondary, lineHeight: 1.5 }}>
+                <Typography sx={{ fontSize: '0.8125rem', color: c.text.secondary, lineHeight: 1.5 }}>
                   {openswarmError.detail}
                 </Typography>
                 {openswarmError.ctaLabel && (
@@ -1281,7 +1240,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                       }}
                       sx={{
                         textTransform: 'none',
-                        fontSize: '0.78rem',
+                        fontSize: '0.75rem',
                         borderColor: c.border.medium,
                         color: c.text.primary,
                         borderRadius: `${c.radius.md}px`,

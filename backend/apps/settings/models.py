@@ -31,18 +31,27 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
+# Fresh-install / unset-fallback model. "opus-5" is the plain row: cc/ sub lane for subscription users, API key otherwise.
+DEFAULT_MODEL = "opus-5"
+
+
 class AppSettings(BaseModel):
     default_system_prompt: Optional[str] = DEFAULT_SYSTEM_PROMPT
     default_folder: Optional[str] = None
-    default_model: str = "sonnet"
+    default_model: str = DEFAULT_MODEL
     default_mode: str = "agent"
     default_max_turns: Optional[int] = None
     default_thinking_level: Literal["off", "low", "medium", "high", "auto"] = "auto"
     zoom_sensitivity: float = 50.0
+    # Root font-size multiplier (0.9/1/1.1/1.2 from Settings > Interface); the whole rem type scale rides it.
+    ui_font_scale: float = 1.0
     theme: str = "light"
     # Shared across App Builder workspaces (each runs its own vite port / localStorage origin); null = follow system.
     app_template_theme_override: Optional[Literal["light", "dark"]] = None
     new_agent_shortcut: str = "Meta+l"
+    # None = platform default (Cmd/Ctrl+Shift+D); parts format matches new_agent_shortcut.
+    dictation_shortcut: Optional[str] = None
+    voice_hold_to_talk: bool = True
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
     openai_api_key: Optional[str] = None
@@ -65,8 +74,17 @@ class AppSettings(BaseModel):
     onboarding_v3: Optional[str] = None
     # User-picked accent hex from the onboarding theme pad; None = stock accent.
     accent_color: Optional[str] = None
+    # Multi-stop gradient from the theme pad (2-3 hexes); washes the canvas.
+    accent_gradient: Optional[list[str]] = None
     personalized_greeting: Optional[str] = None
+    # Short one-glance identity hook for the reveal's focal beat (greeting is the longer warm read).
+    personalized_headline: Optional[str] = None
     personalized_starters: list["PersonalizedStarter"] = Field(default_factory=list)
+    personalized_automations: list["PersonalizedAutomation"] = Field(default_factory=list)
+    # The hero's two-level menu: 4 general categories, each holding 4 starters tailored to this user.
+    personalized_menu: Optional["PersonalizedMenu"] = None
+    # Distilled from the user's provider chat history the first time they open ChatGPT/Claude in-app; re-feeds prep to sharpen suggestions.
+    personalized_usage_summary: Optional[str] = None
     # Suppresses preflight suggestion modal entries the user dismissed; keyed by ToolDefinition.name, value ISO timestamp.
     dismissed_mcp_suggestions: dict[str, str] = Field(default_factory=dict)
     analytics_opt_in: bool = True
@@ -108,3 +126,19 @@ class CustomProvider(BaseModel):
 class PersonalizedStarter(BaseModel):
     title: str
     prompt: str
+    # One short clause tying this task to something real we saw about the user; the reveal shows it off.
+    reason: str = ""
+
+
+class PersonalizedAutomation(BaseModel):
+    title: str
+    prompt: str
+    # 'daily' | 'weekday' | 'weekly'; the frontend maps this to a workflow schedule.
+    cadence: str = "weekly"
+
+
+class PersonalizedMenu(BaseModel):
+    computer: list[PersonalizedStarter] = Field(default_factory=list)
+    research: list[PersonalizedStarter] = Field(default_factory=list)
+    web: list[PersonalizedStarter] = Field(default_factory=list)
+    build: list[PersonalizedStarter] = Field(default_factory=list)

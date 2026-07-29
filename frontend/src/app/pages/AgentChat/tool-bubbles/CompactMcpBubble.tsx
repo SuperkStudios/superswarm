@@ -7,6 +7,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
+import SearchIcon from '@mui/icons-material/Search';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { getToolLabel } from '../parsing/toolLabels';
@@ -18,6 +19,7 @@ import { ParsedResult } from '../parsing/toolResultParsing';
 import { isSettingsWriteTool, settingsWriteSummary } from '../parsing/settingsToolMeta';
 import { McpToolInfo, getMcpShortAction, getMcpInputSummary, getWorkflowToolLabel } from '@/shared/mcpToolMeta';
 import { McpResultCard } from '../mcp-cards/McpResultCard';
+import { domainFromUrl, faviconUrlForDomain } from './SourceFavicons';
 
 interface CompactMcpBubbleProps {
   call: AgentMessage;
@@ -57,6 +59,9 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
   })();
   const serviceLabel = mcpInfo.isMcp ? mcpVerbLabel : shortAction;
   const inputSummary = mcpInfo.isMcp ? getMcpInputSummary(input, mcpInfo.action, mcpInfo.serverSlug) : '';
+  // Web rows read as sources: favicon beside the domain/query, body text instead of mono.
+  const isWebRow = /web(fetch|search)$/i.test(toolName);
+  const webDomain = /webfetch$/i.test(toolName) && typeof input?.url === 'string' ? domainFromUrl(input.url) : '';
   // A grouped settings write shows the masked change list (input-derived, so it reads even while pending) instead of the generic "Applied: theme" result line.
   const visibleSummary = isSettingsWriteTool(toolName)
     ? settingsWriteSummary(input)
@@ -80,13 +85,18 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           '&:hover': canToggleDetails ? { bgcolor: 'rgba(0,0,0,0.02)' } : undefined,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.6 }}>
+        <Box className="osw-mcp-row" sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.6 }}>
           {ServiceIcon}
-          {!hideVerbLabel && (
+          {/* Web rows drop the repeated verb (the group header already says "Searched the web"); a
+              muted glyph + the source carries the row, so the card isn't a wall of accent green. */}
+          {isWebRow && !webDomain && (
+            <SearchIcon sx={{ fontSize: 13, color: c.text.tertiary, flexShrink: 0 }} />
+          )}
+          {!hideVerbLabel && !isWebRow && (
             <Typography
               sx={{
                 color: c.accent.primary,
-                fontSize: '0.78rem',
+                fontSize: '0.75rem',
                 fontWeight: 600,
                 flexShrink: 0,
               }}
@@ -95,21 +105,33 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
             </Typography>
           )}
           {visibleSummary && !isError && !stackBelow && (
-            <Typography
-              sx={{
-                color: hideVerbLabel ? c.text.primary : c.text.secondary,
-                fontSize: '0.74rem',
-                // Args are data (ids, URLs, params), so they read in mono, not the body serif.
-                fontFamily: c.font.mono,
-                flex: 1,
-                minWidth: 0,
-                ...(showBody && canToggleDetails
-                  ? { whiteSpace: 'normal', overflowWrap: 'anywhere' }
-                  : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
-              }}
-            >
-              {visibleSummary}
-            </Typography>
+            <>
+              {webDomain && (
+                <Box
+                  component="img"
+                  src={faviconUrlForDomain(webDomain)}
+                  alt=""
+                  loading="lazy"
+                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                  sx={{ width: 13, height: 13, borderRadius: '3px', flexShrink: 0 }}
+                />
+              )}
+              <Typography
+                sx={{
+                  color: hideVerbLabel ? c.text.primary : c.text.secondary,
+                  fontSize: '0.75rem',
+                  // Args are data (ids, URLs, params) and read in mono; web rows are SOURCES and read in body text.
+                  fontFamily: isWebRow ? undefined : c.font.mono,
+                  flex: 1,
+                  minWidth: 0,
+                  ...(showBody && canToggleDetails
+                    ? { whiteSpace: 'normal', overflowWrap: 'anywhere' }
+                    : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
+                }}
+              >
+                {visibleSummary}
+              </Typography>
+            </>
           )}
           {(stackBelow || !visibleSummary) && !showTimer && <Box sx={{ flex: 1 }} />}
           {showTimer && (
@@ -121,7 +143,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           {isDenied && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
               <BlockIcon sx={{ fontSize: 12, color: c.status.error }} />
-              <Typography sx={{ color: c.status.error, fontSize: '0.68rem', fontWeight: 500 }}>denied</Typography>
+              <Typography sx={{ color: c.status.error, fontSize: '0.6875rem', fontWeight: 500 }}>denied</Typography>
             </Box>
           )}
           {result && !isDenied && (
@@ -129,15 +151,17 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
               {isError && (
                 <ErrorOutlineIcon sx={{ fontSize: 12, color: c.status.error }} />
               )}
+              {/* Timings are debug detail, not content: ghosted at rest, legible on row hover
+                  (LibreChat/ChatGPT show none at all; we keep them one hover away). */}
               {resultElapsedMs != null && (
-                <Typography sx={{ fontSize: '0.63rem', fontFamily: c.font.mono, color: c.text.tertiary }}>
+                <Typography sx={{ fontSize: '0.625rem', fontFamily: c.font.mono, color: c.text.ghost, transition: 'color 120ms', '.osw-mcp-row:hover &': { color: c.text.tertiary } }}>
                   {formatElapsed(resultElapsedMs)}
                 </Typography>
               )}
             </Box>
           )}
           {canToggleDetails && (
-            <IconButton size="small" sx={{ color: c.text.tertiary, p: 0.15, flexShrink: 0 }}>
+            <IconButton size="small" sx={{ color: c.text.tertiary, p: 0.15, flexShrink: 0, opacity: 0, transition: 'opacity 120ms', '.osw-mcp-row:hover &': { opacity: 1 }, ...(showBody ? { opacity: 1 } : {}) }}>
               {showBody ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
             </IconButton>
           )}
@@ -146,7 +170,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           <Typography
             sx={{
               color: c.text.secondary,
-              fontSize: '0.74rem',
+              fontSize: '0.75rem',
               fontFamily: c.font.mono,
               whiteSpace: 'normal',
               overflowWrap: 'anywhere',
@@ -183,7 +207,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           ) : parsedResult ? (
             <pre style={{
               margin: 0, padding: '8px 12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              fontFamily: c.font.mono, fontSize: '0.73rem', lineHeight: 1.5, color: tc.OUTPUT_COLOR,
+              fontFamily: c.font.mono, fontSize: '0.75rem', lineHeight: 1.5, color: tc.OUTPUT_COLOR,
             }}>
               {parsedResult.type === 'text' ? parsedResult.content : ''}
             </pre>

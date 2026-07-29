@@ -102,6 +102,17 @@ mkdir -p "$UV_BIN_DIR"
 NEED_UV=false
 [[ ! -f "$UV_BIN_DIR/uv"  ]] && NEED_UV=true
 [[ ! -f "$UV_BIN_DIR/uvx" ]] && NEED_UV=true
+# A dev flow can leave a THIN host-arch uv here and the per-arch slice then dies 20 minutes in;
+# present is not enough, it must be universal.
+if ! $NEED_UV && [[ "$(uname)" == "Darwin" ]]; then
+    for B in uv uvx; do
+        ARCHS=$(lipo -archs "$UV_BIN_DIR/$B" 2>/dev/null || echo "")
+        if [[ "$ARCHS" != *arm64* || "$ARCHS" != *x86_64* ]]; then
+            echo "[0] $B is not universal (archs: ${ARCHS:-unreadable}), re-downloading."
+            NEED_UV=true
+        fi
+    done
+fi
 if $NEED_UV; then
     # Pinned uv version. "latest" used to mean a fresh uv could appear in any
     # build with zero warning, breaking reproducibility (pillar 3). Override
@@ -486,6 +497,11 @@ if [[ "$(uname)" == "Darwin" ]]; then
     echo "Building mouse-clamp native addon (arm64 + x64)..."
     bash scripts/build-mouseclamp.sh arm64
     bash scripts/build-mouseclamp.sh x64
+    bash scripts/build-haptics.sh arm64
+    bash scripts/build-haptics.sh x64
+    echo "Building whisper-server for dictation (arm64 + x64)..."
+    bash scripts/build-whisper.sh arm64
+    bash scripts/build-whisper.sh x64
 fi
 
 # Node's default ~4 GB heap OOMs while codesign'ing the .app on dual-arch

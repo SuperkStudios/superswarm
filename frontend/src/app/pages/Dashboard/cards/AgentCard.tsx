@@ -11,14 +11,16 @@ import CheckIcon from '@mui/icons-material/Check';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CloseIcon from '@mui/icons-material/Close';
-import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import { motion } from 'framer-motion';
 import {
   AgentSession,
   handleApproval,
   collapseSession,
+  expandSession,
   closeSession,
+  deleteSession,
+  fetchSession,
   renameSession,
 } from '@/shared/state/agentsSlice';
 import { displayChatTitle, isLegacyAutoName } from '@/shared/state/sessionDisplay';
@@ -31,19 +33,28 @@ import {
   clearGlowingAgentCard,
   removeCard,
   recordClosedCard,
+  setTiledCard,
+  clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
+import WindowControls, { ARC_CHIP_SX } from './WindowControls';
+import { useTiledStyle, computeTiledStyle } from './tileZones';
+import AgentNarratorPill from '../desktop/AgentNarratorPill';
+import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { extractLatestTodos } from '../desktop/agentTodos';
+import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
+import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
+import { getWebview } from '@/shared/browserRegistry';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
 import { parseMcpToolName, getMcpShortAction } from '@/shared/mcpToolMeta';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
 import { useDashboardActive } from '@/shared/hooks/useDashboardActive';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
 import { useStreamingMessage } from '@/shared/state/streamingSlice';
 import { isCanvasInteractionActive, onCanvasInteractionEnd } from '@/shared/canvasInteractionState';
 import { setCardSidecar } from '@/shared/state/workflowsSlice';
 import { openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
-import { getAgentWorkTime, fmtSeconds } from '@/shared/agentWorkTime';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 
 /** Extract up to 3 substantive user-prompt steps to seed a workflow. */
@@ -168,20 +179,6 @@ const GoogleServiceIcon: React.FC<{ service: string; size?: number }> = ({ servi
   }
   return null;
 };
-
-/** Self-ticking elapsed-time leaf; owns its 1Hz interval so AgentCard doesn't re-render every second. */
-const ElapsedTimer: React.FC<{
-  messages: Array<{ role: string; timestamp: string; elapsed_ms?: number; hidden?: boolean }>;
-  status: string;
-}> = React.memo(({ messages, status }) => {
-  const [, setTick] = React.useState(0);
-  React.useEffect(() => {
-    if (status !== 'running' && status !== 'waiting_approval') return;
-    const id = setInterval(() => setTick((t) => (t + 1) & 0xffff), 1000);
-    return () => clearInterval(id);
-  }, [status]);
-  return <>{fmtSeconds(getAgentWorkTime(messages, status).last)}</>;
-});
 
 function summarizeToolInput(toolName: string, toolInput: Record<string, any>): string {
   const mcp = parseMcpToolName(toolName);
@@ -312,7 +309,6 @@ const AgentCard: React.FC<Props> = ({
   const dispatch = useAppDispatch();
   const isDashboardActive = useDashboardActive();
   const hasApiKey = !!useAppSelector((s) => s.settings.data.anthropic_api_key);
-  const modelsByProvider = useAppSelector((s) => s.models.byProvider);
   const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
   const workflowSuggestion = useMemo(() => findWorkflowSuggestion(session), [session]);
   // Suppress the convert-suggestion glow when this chat is already entangled with a workflow. Two cases: (a) The session is one of a workflow's runner sessions, OR (b) The session is the source the workflow was originally derived from. Either way a fresh convert would just clone the workflow, which is confusing identity collapse.
@@ -354,20 +350,6 @@ const AgentCard: React.FC<Props> = ({
     hasUserPrompt &&
     (messageCount >= 2 || isConvertBlockedByTurn || !!workflowSuggestion);
   const canConvertToWorkflow = showConvertToWorkflow && !isConvertBlockedByTurn;
-  // Curated picker label with a tidy fallback for unknowns.
-  const friendlyModelLabel = useMemo(() => {
-    const value = session.model;
-    if (!value) return '';
-    for (const models of Object.values(modelsByProvider)) {
-      for (const m of models as any[]) {
-        if (m.value === value) return m.label;
-      }
-    }
-    let s = String(value);
-    if (s.startsWith('or:')) s = s.slice(3);
-    if (s.includes('/')) s = s.split('/').pop() || s;
-    return s;
-  }, [session.model, modelsByProvider]);
   const scrollOverlayRef = useOverlayScrollPassthrough(isSelected && !expanded);
 
   const suggestionPulseRef = useRef('');
@@ -463,8 +445,10 @@ const AgentCard: React.FC<Props> = ({
   const justDraggedRef = useRef(false);
   const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
 
+  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[session.id]);
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
@@ -472,9 +456,9 @@ const AgentCard: React.FC<Props> = ({
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(session.id, 'agent');
-  }, [cardX, cardY, onDragStart, session.id, getCanvasState]);
+  }, [cardX, cardY, onDragStart, session.id, getCanvasState, tileZone]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -512,14 +496,14 @@ const AgentCard: React.FC<Props> = ({
     recomputeDragPos();
   }, [recomputeDragPos]);
 
-  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+  const finalizeDrag = useCallback((clientX: number, clientY: number, shiftKey: boolean) => {
     if (!dragState.current) return;
     const cs = getCanvasState();
     const z = cs.zoom;
     const panDx = (cs.panX - dragState.current.startPanX) / z;
     const panDy = (cs.panY - dragState.current.startPanY) / z;
-    const dx = (e.clientX - dragState.current.startX) / z - panDx;
-    const dy = (e.clientY - dragState.current.startY) / z - panDy;
+    const dx = (clientX - dragState.current.startX) / z - panDx;
+    const dy = (clientY - dragState.current.startY) / z - panDy;
     if (didDrag.current) {
       let finalX = dragState.current.origX + dx;
       let finalY = dragState.current.origY + dy;
@@ -530,7 +514,7 @@ const AgentCard: React.FC<Props> = ({
       }
 
       // Snap to 24px grid (Shift bypasses).
-      if (!e.shiftKey) {
+      if (!shiftKey) {
         finalX = Math.round(finalX / 24) * 24;
         finalY = Math.round(finalY / 24) * 24;
       }
@@ -544,8 +528,19 @@ const AgentCard: React.FC<Props> = ({
     didDrag.current = false;
     setLocalDragPos(null);
     setIsDragging(false);
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }, [dispatch, session.id, onDragEnd, snapColumn, cardHeight, getCanvasState]);
+
+  const handleDragPointerUp = useCallback((e: React.PointerEvent) => {
+    if (!dragState.current) return;
+    finalizeDrag(e.clientX, e.clientY, e.shiftKey);
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* capture already gone */ }
+  }, [finalizeDrag]);
+
+  const abortDrag = useCallback(() => {
+    if (!dragState.current) return;
+    finalizeDrag(lastPointerRef.current.clientX, lastPointerRef.current.clientY, true);
+  }, [finalizeDrag]);
+  useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
   const resizeRef = useRef<{
     dir: ResizeDir;
@@ -564,21 +559,35 @@ const AgentCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      const effectiveW = Math.max(cardWidth, MIN_W);
-      const effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
+      let effectiveX = cardX;
+      let effectiveY = cardY;
+      let effectiveW = Math.max(cardWidth, MIN_W);
+      let effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
+      // Grabbing an edge of a TILED chat exits the tile and resizes from exactly where it sat,
+      // macOS-style; without this the handles resized the stale free-position geometry.
+      if (tileZone) {
+        const cam = getCanvasState();
+        const ts = computeTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+        if (ts) {
+          effectiveX = ts.left; effectiveY = ts.top;
+          effectiveW = ts.width / cam.zoom; effectiveH = ts.height / cam.zoom;
+          setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
+          dispatch(clearTiledCard(session.id));
+        }
+      }
       resizeRef.current = {
         dir,
         startX: e.clientX,
         startY: e.clientY,
-        origX: cardX,
-        origY: cardY,
+        origX: effectiveX,
+        origY: effectiveY,
         origW: effectiveW,
         origH: effectiveH,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, expanded],
+    [cardX, cardY, cardWidth, cardHeight, expanded, tileZone, dispatch, session.id],
   );
 
   const computeResize = useCallback(
@@ -596,12 +605,15 @@ const AgentCard: React.FC<Props> = ({
       if (dir.includes('s')) newH = origH + dy;
       if (dir.includes('n')) { newH = origH - dy; newY = origY + dy; }
 
+      // An enlarged card can't be shrunk below its content-showing height, else the user resizes the
+      // chat down until the transcript vanishes (which felt broken). Collapsed cards keep the tiny floor.
+      const minH = expanded ? EXPANDED_OVERLAY_H : MIN_H;
       if (newW < MIN_W) { if (dir.includes('w')) newX = origX + origW - MIN_W; newW = MIN_W; }
-      if (newH < MIN_H) { if (dir.includes('n')) newY = origY + origH - MIN_H; newH = MIN_H; }
+      if (newH < minH) { if (dir.includes('n')) newY = origY + origH - minH; newH = minH; }
 
       return { x: newX, y: newY, w: newW, h: newH };
     },
-    [getCanvasState],
+    [getCanvasState, expanded],
   );
 
   const handleResizeMove = useCallback(
@@ -625,9 +637,9 @@ const AgentCard: React.FC<Props> = ({
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   }, [computeResize, dispatch, session.id]);
 
-  const handleRemove = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleRemove = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
     if (linkedWorkflowSidecarId) {
       dispatch(setCardSidecar({ workflowId: linkedWorkflowSidecarId, sessionId: null, kind: null }));
     }
@@ -644,8 +656,34 @@ const AgentCard: React.FC<Props> = ({
     }
   };
 
+  const isFullscreen = tileZone === 'fullscreen';
+  // Fullscreen pins the card to the viewport, so while tiled the geometry must track canvas pan/zoom.
+  // Chat cards read the camera via a getter (not props) to avoid re-rendering on every pan tick, so
+  // we subscribe to the pan event ONLY while tiled (one card at most), and read fresh camera then.
+  const [tileTick, setTileTick] = useState(0);
+  useEffect(() => {
+    if (!tileZone) return undefined;
+    const onPan = (): void => setTileTick((t) => t + 1);
+    window.addEventListener('openswarm:canvas-pan-changed', onPan);
+    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
+  }, [tileZone]);
+  void tileTick;
+  const cam = getCanvasState();
+  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, session.id);
+  // A collapsed chat can never stay tiled: collapsing while fullscreen left a white full-window shell
+  // (the header collapse control still fires in full size view). Seal the state instead of the path.
+  useEffect(() => {
+    if (tileZone && !expanded) dispatch(clearTiledCard(session.id));
+  }, [tileZone, expanded, dispatch, session.id]);
+  const onMinimize = (): void => { dispatch(collapseSession(session.id)); };
+  const onTile = (zone: string): void => {
+    if (zone === 'restore') dispatch(clearTiledCard(session.id));
+    else {
+      if (!expanded) dispatch(expandSession(session.id));
+      dispatch(setTiledCard({ cardId: session.id, zone }));
+    }
+  };
 
-  // ElapsedTimer owns its own 1Hz tick so AgentCard doesn't re-render every second.
 
   const lastMessage = session.messages[session.messages.length - 1];
   // Subscribe to this card's own streaming entry so per-character mutations don't churn other cards.
@@ -661,6 +699,59 @@ const AgentCard: React.FC<Props> = ({
       : session.last_message_preview ?? '';
   const hasPending = session.pending_approvals.length > 0;
   const pendingReq = session.pending_approvals[0];
+
+  // Desktop-shell narrator pill: a collapsed card with nothing to ask renders as the minimal pill
+  // (live turn label + plan checklist); approvals and drafts keep the full card so their UI has a home.
+  const todos = useMemo(() => extractLatestTodos(session.messages || []), [session.messages]);
+  const pillArtifact = useMemo(() => {
+    const artifact = extractLatestShowUi(session.messages || []);
+    return artifact ? freezeIfDone(artifact, session.status === 'running') : null;
+  }, [session.messages, session.status]);
+  const pillAskPair = useMemo(
+    () => (session.status === 'running' ? extractPendingAskUi(session.messages || []) : null),
+    [session.messages, session.status],
+  );
+  const pillMode = !expanded && !hasPending && !isDraft && !tileZone;
+  const pillLabel = session.turn_label?.label || displayChatTitle(session);
+  const pillRunning = session.status === 'running';
+
+  // Cold-loaded collapsed cards carry no transcript (status frames are slim), so the pill can't pin
+  // its widget/checklist artifact; hydrate ONCE per card actually on this dashboard, never in a loop.
+  const pillHydratedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!pillMode || pillHydratedRef.current) return;
+    pillHydratedRef.current = true;
+    if ((session.messages || []).length === 0) dispatch(fetchSession(session.id));
+  }, [pillMode, session.messages, session.id, dispatch]);
+
+  // f7's collapsed state: a session's browser (spawned by it or docked into it) shows under the pill.
+  const spawnedBrowserId = useAppSelector((s) => {
+    for (const bc of Object.values(s.dashboardLayout.browserCards)) {
+      if (bc.spawned_by === session.id || bc.docked_to === session.id) return bc.browser_id;
+    }
+    return null;
+  });
+  const [browserShot, setBrowserShot] = useState<string | null>(null);
+  useEffect(() => {
+    if (!pillMode || pillArtifact || !spawnedBrowserId) {
+      setBrowserShot(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const capture = (): void => {
+      const wv = getWebview(spawnedBrowserId);
+      const p = wv?.capturePage?.();
+      if (p && typeof (p as Promise<unknown>).then === 'function') {
+        (p as Promise<{ toDataURL(): string }>)
+          .then((img) => { if (!cancelled) setBrowserShot(img.toDataURL()); })
+          .catch(() => undefined);
+      }
+    };
+    capture();
+    // Refresh while the agent is driving so the shot tracks the page; parked cards keep the last frame.
+    const timer = pillRunning ? window.setInterval(capture, 5000) : null;
+    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
+  }, [pillMode, pillArtifact, spawnedBrowserId, pillRunning]);
 
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
 
@@ -697,17 +788,19 @@ const AgentCard: React.FC<Props> = ({
     <motion.div
       layout={false}
       initial={spawnInitial}
-      animate={{ opacity: 1, scale: 1, left: activeX, top: activeY }}
+      animate={{ opacity: 1, scale: 1, left: tiledStyle ? tiledStyle.left : activeX, top: tiledStyle ? tiledStyle.top : activeY }}
       exit={exitAnimation}
-      transition={spawnTransition}
+      // While tiled the card is pinned to the viewport: position must track pan instantly, never spring.
+      transition={tiledStyle ? { ...spawnTransition, left: { duration: 0 }, top: { duration: 0 } } : spawnTransition}
       onPointerDownCapture={() => onBringToFront?.(session.id, 'agent')}
       style={{
         position: 'absolute',
-        zIndex: isDragging || isResizing ? 999999 : cardZOrder,
+        zIndex: tiledStyle ? 999990 : isDragging || isResizing ? 999999 : cardZOrder,
       }}
     >
     <Box
       ref={cardBoxRef}
+      className="osw-card"
       data-select-type="agent-card"
       data-select-id={session.id}
       data-select-meta={JSON.stringify({ name: session.name || session.id, status: session.status, model: session.model, mode: session.mode })}
@@ -725,14 +818,38 @@ const AgentCard: React.FC<Props> = ({
         e.stopPropagation();
         onDoubleClick?.(session.id, 'agent');
       }}
+      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+        rename: { value: displayChatTitle(session), onCommit: (name) => dispatch(renameSession({ sessionId: session.id, name })) },
+        items: [
+          { label: expanded ? 'Collapse' : 'Open', onClick: () => dispatch(expanded ? collapseSession(session.id) : expandSession(session.id)) },
+          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
+          { label: 'Close', onClick: () => handleRemove() },
+          { label: 'Delete chat', danger: true, onClick: () => { void dispatch(deleteSession({ sessionId: session.id })); } },
+        ],
+      })}
       sx={{
         position: 'relative',
+        // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
+        // is hovered, but it floats ABOVE the card's box, so without this strip the pointer leaving
+        // the card to reach it dropped :hover and the header died mid-approach (chats ungrabbable).
+        ...(expanded && !tiledStyle && !pillMode && {
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: -48,
+            height: 48,
+          },
+        }),
         // contain: streaming chat updates inside don't reflow the dashboard. Skipping `paint` here because the highlighted/selected/glow boxShadows legitimately extend past the card border, `paint` containment would clip those visuals.
         contain: 'layout style',
         // Each card gets its own compositor layer; hover-cross used to cost 100-200ms PRESENTATION by re-painting the whole canvas.
         willChange: 'transform',
-        width: localResize ? activeW : Math.max(cardWidth, MIN_W),
-        height: localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto'),
+        width: pillMode ? 'fit-content' : tiledStyle ? tiledStyle.width : (localResize ? activeW : Math.max(cardWidth, MIN_W)),
+        height: tiledStyle ? tiledStyle.height : (localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto')),
+        transform: tiledStyle ? tiledStyle.transform : undefined,
+        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
         bgcolor: c.bg.surface,
         border: isHighlighted
           ? `2px solid ${c.accent.primary}`
@@ -745,7 +862,7 @@ const AgentCard: React.FC<Props> = ({
                 : expanded
                   ? `1px solid ${c.border.strong}`
                   : `1px solid ${c.border.subtle}`,
-        borderRadius: 3,
+        borderRadius: isFullscreen ? '12px' : 3,
         p: 2,
         cursor: expanded ? 'default' : 'pointer',
         transition: noTransition
@@ -818,9 +935,37 @@ const AgentCard: React.FC<Props> = ({
             borderColor: hasPending ? c.status.warning : c.border.strong,
           },
         }),
+        // Narrator pill sheds every bit of card chrome; the pill body draws its own glass + ring.
+        ...(pillMode && {
+          bgcolor: 'transparent',
+          border: 'none',
+          boxShadow: 'none',
+          p: 0,
+          overflow: 'visible',
+          cursor: isDragging ? 'grabbing' : 'grab',
+          '&:hover': {},
+        }),
+        // Expanded chat wears the desktop dark glass; the header only surfaces on hover. Tiled keeps
+        // the SAME dark surface (excluding it rendered the light-theme white card, the "fullscreen
+        // turns white" bug) but solid + blur-free: nothing shows behind a tiled card, and a
+        // window-sized backdrop blur is pure GPU tax.
+        ...(expanded && {
+          // Warm near-neutral dark (the Claude/ChatGPT family) instead of the saturated plum: long
+          // reading sessions want a quiet ground; the accent system carries the brand color.
+          bgcolor: tiledStyle ? 'rgb(33,31,36)' : 'rgba(33,31,36,0.88)',
+          ...(tiledStyle ? {} : {
+            backdropFilter: 'blur(24px) saturate(150%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(150%)',
+          }),
+          border: isFullscreen ? 'none' : isSelected ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.08)',
+          borderRadius: tiledStyle ? '12px' : '20px',
+          boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
+          // The hover header floats ABOVE the card; the root must not clip it (the chat body clips itself).
+          ...(tiledStyle ? {} : { overflow: 'visible' }),
+        }),
       }}
     >
-      {HANDLE_DEFS.map(({ dir, sx }) => (
+      {!pillMode && HANDLE_DEFS.map(({ dir, sx }) => (
         <Box
           key={dir}
           onPointerDown={handleResizeDown(dir)}
@@ -859,19 +1004,113 @@ const AgentCard: React.FC<Props> = ({
         />
       )}
 
-      {/* Drag zone: header + metadata , entire region above separator is draggable */}
+      {/* Grab band: the top sliver of an expanded card drags it, matching the "grab the window by
+          its top edge" instinct; the pop-above header remains the labeled handle. */}
+      {expanded && !tiledStyle && !pillMode && (
+        <Box
+          onPointerDown={handleDragPointerDown}
+          onPointerMove={handleDragPointerMove}
+          onPointerUp={handleDragPointerUp}
+          onPointerCancel={abortDrag}
+          onLostPointerCapture={abortDrag}
+          sx={{ position: 'absolute', top: 0, left: 8, right: 8, height: 26, zIndex: 18, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+        />
+      )}
+      {pillMode && (
+        <Box
+          onPointerDown={handleDragPointerDown}
+          onPointerMove={handleDragPointerMove}
+          onPointerUp={handleDragPointerUp}
+          className="osw-pill-host"
+          sx={{ position: 'relative', touchAction: 'none', userSelect: 'none', pt: '26px', mt: '-26px', '&:hover .osw-pill-lights': { opacity: 1, pointerEvents: 'auto' } }}
+        >
+          <Box
+            className="osw-pill-lights osw-card"
+            onPointerDown={(e: React.PointerEvent) => e.stopPropagation()}
+            sx={{
+              ...ARC_CHIP_SX,
+              position: 'absolute', top: -8, left: 4, zIndex: 2, background: 'rgba(24,14,32,0.85)',
+              backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+              opacity: 0, pointerEvents: 'none', transition: 'opacity 140ms ease',
+            }}
+          >
+            <WindowControls
+              onClose={() => handleRemove()}
+              onMinimize={() => dispatch(expandSession(session.id))}
+              onTile={(zone: string) => { dispatch(expandSession(session.id)); onTile(zone); }}
+              tiled={false}
+            />
+          </Box>
+          <AgentNarratorPill
+            label={pillLabel}
+            running={pillRunning}
+            todos={todos}
+            artifact={pillArtifact}
+            askPair={pillAskPair}
+            sessionId={session.id}
+            browserShot={browserShot}
+            selected={isSelected}
+            highlighted={isHighlighted}
+          />
+        </Box>
+      )}
+
+      {/* Drag zone: header + metadata , entire region above separator is draggable.
+          Expanded desktop cards float it as a hover-reveal overlay so the chat reads chromeless. */}
+      {!pillMode && (
       <Box
         onPointerDown={handleDragPointerDown}
         onPointerMove={handleDragPointerMove}
         onPointerUp={handleDragPointerUp}
+        onPointerCancel={abortDrag}
+        onLostPointerCapture={abortDrag}
         sx={{
-          position: 'relative',
-          zIndex: 16,
-          mx: -2,
-          mt: -2,
-          px: 2,
-          pt: 2,
-          pb: 1.5,
+          ...(expanded
+            ? tiledStyle
+              ? {
+                  // Fullscreen/tiled: no room above the card, keep the inside hover scrim.
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  zIndex: 17,
+                  px: 2,
+                  pt: 1.5,
+                  pb: 2,
+                  opacity: 0,
+                  transition: 'opacity 0.15s ease',
+                  '&:hover': { opacity: 1 },
+                  background: 'linear-gradient(to bottom, rgba(20,12,28,0.92) 0%, rgba(20,12,28,0.65) 60%, rgba(20,12,28,0) 100%)',
+                  borderRadius: '12px 12px 0 0',
+                  // Header text must read over the dark scrim regardless of app theme.
+                  '& .MuiTypography-root': { color: 'rgba(255,255,255,0.92)' },
+                  '& input': { color: 'rgba(255,255,255,0.92)' },
+                }
+              : {
+                  // On the canvas the title + lights pop up ABOVE the card, same as the minimized pill.
+                  position: 'absolute',
+                  bottom: '100%',
+                  top: 'auto',
+                  left: 0,
+                  right: 0,
+                  zIndex: 17,
+                  px: 0.25,
+                  pb: 0.75,
+                  opacity: 0,
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.15s ease, transform 0.15s ease',
+                  transform: 'translateY(4px)',
+                  '.osw-card:hover &': { opacity: 1, pointerEvents: 'auto', transform: 'none' },
+                }
+            : {
+                position: 'relative',
+                zIndex: 16,
+                mx: -2,
+                mt: -2,
+                px: 2,
+                pt: 2,
+                pb: 1.5,
+              }),
           cursor: isDragging ? 'grabbing' : 'grab',
           touchAction: 'none',
           userSelect: 'none',
@@ -889,14 +1128,10 @@ const AgentCard: React.FC<Props> = ({
         >
           <Box
             className="drag-handle"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              mr: 0.5,
-              color: c.text.ghost,
-            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            sx={{ display: 'flex', alignItems: 'center', mr: 0.75, flexShrink: 0 }}
           >
-            <DragIndicatorIcon sx={{ fontSize: 16 }} />
+            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} noTileMenu={tileZone === 'fullscreen'} />
           </Box>
           <Box
             sx={{
@@ -911,14 +1146,14 @@ const AgentCard: React.FC<Props> = ({
             <InlineEditableTitle
               value={displayChatTitle(session)}
               onCommit={(name) => dispatch(renameSession({ sessionId: session.id, name }))}
-              sx={{ flex: '0 1 auto', minWidth: 0, maxWidth: '100%', color: c.text.primary, fontWeight: 600, fontSize: '0.95rem' }}
+              sx={{ flex: '0 1 auto', minWidth: 0, maxWidth: '100%', color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}
             >
               <Typewriter
                 value={displayChatTitle(session)}
                 enabled={!!session.name && !isLegacyAutoName(session.name)}
               >
                 {(t) => (
-                  <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.95rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t}
                   </Typography>
                 )}
@@ -932,12 +1167,6 @@ const AgentCard: React.FC<Props> = ({
                   {session.queued && session.status === 'running' ? 'queued' : friendlyStatusLabel(session.status)}
                 </Typography>
               </Box>
-            )}
-            {/* Welcome chat has no status to show, so name the model instead, otherwise the header reads bare. */}
-            {session.is_welcome_draft && friendlyModelLabel && (
-              <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.tertiary, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                {friendlyModelLabel}
-              </Typography>
             )}
             {/* Calm, zero-click signal: the agent recalled or built up memory of
                 this site, so the user feels it getting smarter on its own. */}
@@ -954,7 +1183,7 @@ const AgentCard: React.FC<Props> = ({
                     color: accentColor,
                     border: `1px solid ${accentColor}33`,
                     fontWeight: 600,
-                    fontSize: '0.68rem',
+                    fontSize: '0.6875rem',
                     height: 22,
                     flexShrink: 0,
                     '& .MuiChip-icon': { ml: '4px' },
@@ -962,25 +1191,6 @@ const AgentCard: React.FC<Props> = ({
                 />
               </Tooltip>
             </Fade>
-          </Box>
-          <Box
-            onPointerDown={(e) => e.stopPropagation()}
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0, ml: 0.5 }}
-          >
-            <Tooltip title={isDraft ? 'Remove' : 'Close chat'}>
-              <IconButton
-                size="small"
-                onClick={handleRemove}
-                onMouseDown={(e) => e.stopPropagation()}
-                sx={{
-                  color: c.text.ghost,
-                  p: 0.5,
-                  '&:hover': { color: c.status.error, bgcolor: `${c.status.errorBg}` },
-                }}
-              >
-                <CloseIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </Tooltip>
           </Box>
         </Box>
 
@@ -996,12 +1206,6 @@ const AgentCard: React.FC<Props> = ({
           }}
         >
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, overflow: 'hidden' }}>
-            <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
-              {friendlyModelLabel}
-            </Typography>
-            <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
-              <ElapsedTimer messages={session.messages} status={session.status} />
-            </Typography>
             {session.cost_usd > 0 && hasApiKey && (
               <Typography variant="caption" sx={{ color: c.accent.primary, whiteSpace: 'nowrap' }}>
                 ${session.cost_usd.toFixed(4)}
@@ -1010,6 +1214,7 @@ const AgentCard: React.FC<Props> = ({
           </Box>
         </Box>
       </Box>
+      )}
 
       {expanded && (
         <Box
@@ -1017,28 +1222,32 @@ const AgentCard: React.FC<Props> = ({
           sx={{
             mx: -2,
             mb: -2,
+            mt: -2,
             flex: 1,
             minHeight: 0,
-            borderTop: `1px solid ${c.border.subtle}`,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            borderRadius: tiledStyle ? undefined : '20px',
           }}
         >
-          <AgentChat
-            key={session.id}
-            sessionId={session.id}
-            onClose={() => dispatch(collapseSession(session.id))}
-            embedded
-            autoFocus={autoFocusInput}
-            isGlowing={isGlowingRedux && !glowFading}
-            onDismissGlow={dismissGlow}
-            onBranch={onBranch ? (newId: string) => onBranch(session.id, newId) : undefined}
-          />
+          <DarkTokensScope>
+            <AgentChat
+              key={session.id}
+              sessionId={session.id}
+              onClose={() => dispatch(collapseSession(session.id))}
+              embedded
+              fullscreenChat={isFullscreen}
+              autoFocus={autoFocusInput}
+              isGlowing={isGlowingRedux && !glowFading}
+              onDismissGlow={dismissGlow}
+              onBranch={onBranch ? (newId: string) => onBranch(session.id, newId) : undefined}
+            />
+          </DarkTokensScope>
         </Box>
       )}
 
-      {!expanded && (
+      {!expanded && !pillMode && (
         <>
           {previewContent && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: hasPending ? 1.5 : 0 }}>
@@ -1062,7 +1271,7 @@ const AgentCard: React.FC<Props> = ({
                 variant="body2"
                 sx={{
                   color: isStreaming ? c.text.secondary : c.text.muted,
-                  fontSize: '0.8rem',
+                  fontSize: '0.8125rem',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -1114,7 +1323,7 @@ const AgentCard: React.FC<Props> = ({
                       <Typography
                         sx={{
                           color: c.text.muted,
-                          fontSize: '0.7rem',
+                          fontSize: '0.6875rem',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -1178,7 +1387,7 @@ const AgentCard: React.FC<Props> = ({
                       bgcolor: c.status.success,
                       '&:hover': { bgcolor: '#1e4d15' },
                       fontWeight: 600,
-                      fontSize: '0.72rem',
+                      fontSize: '0.75rem',
                       textTransform: 'none',
                       borderRadius: 1.5,
                       px: 1.25,
@@ -1203,7 +1412,7 @@ const AgentCard: React.FC<Props> = ({
                       color: c.status.error,
                       '&:hover': { borderColor: '#8f2828', bgcolor: 'rgba(181,51,51,0.04)' },
                       fontWeight: 600,
-                      fontSize: '0.72rem',
+                      fontSize: '0.75rem',
                       textTransform: 'none',
                       borderRadius: 1.5,
                       px: 1.25,

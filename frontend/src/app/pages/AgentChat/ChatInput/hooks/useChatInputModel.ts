@@ -3,6 +3,7 @@ import { useAppSelector } from '@/shared/hooks';
 import { sortModelsForPicker } from '../model-picker/modelPicker';
 
 const FALLBACK_MODELS = [
+  { value: 'opus-5', label: 'Claude Opus 5', context_window: 1_000_000, reasoning: true },
   { value: 'sonnet', label: 'Claude Sonnet 4.6', context_window: 1_000_000, reasoning: true },
   { value: 'opus', label: 'Claude Opus 4.6', context_window: 1_000_000, reasoning: true },
   { value: 'haiku', label: 'Claude Haiku 4.5', context_window: 200_000, reasoning: true },

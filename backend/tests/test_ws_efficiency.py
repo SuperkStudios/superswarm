@@ -6,7 +6,6 @@ clients backwards, and an open session in the history map had its terminal frame
 
 import asyncio
 
-import pytest
 from fastapi.testclient import TestClient
 
 from backend.apps.agents.core.ws_manager import ws_manager, slim_status_data

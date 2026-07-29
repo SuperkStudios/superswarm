@@ -50,14 +50,19 @@ import { fetchModes } from '@/shared/state/modesSlice';
 import { createSessionWs, acquireSessionWs, releaseSessionWs, seedSessionSeq } from '@/shared/ws/WebSocketManager';
 import StreamingBubble from './bubbles/StreamingBubble';
 import WelcomeQuickReplies from './WelcomeQuickReplies';
+import InlineSurfaceEmbeds from './shell/InlineSurfaceEmbeds';
 import { useWelcomeGreeting } from './useWelcomeGreeting';
 import { THINKING_LABELS } from './thinkingLabels';
 import MessageBubble from './bubbles/MessageBubble';
+import BurstRevealBubble from './bubbles/BurstRevealBubble';
 import { estimateRenderedTextHeight, RECHECK_VISIBILITY_EVENT } from './bubbles/markdownMeasure';
 import CompactionMarker from './bubbles/CompactionMarker';
 import MessageActionBar from './shell/MessageActionBar';
 import ToolCallBubble, { ToolPair } from './tool-bubbles/ToolCallBubble';
-import ToolGroupBubble, { RenderItem, ToolGroup, isToolGroup, isToolPair } from './tool-bubbles/ToolGroupBubble';
+import ToolGroupBubble, { RenderItem, ToolGroup, ToolGroupEntry, isToolGroup, isToolPair } from './tool-bubbles/ToolGroupBubble';
+import ToolUiBubble from './tool-ui/ToolUiBubble';
+import AskUiBubble from './tool-ui/AskUiBubble';
+import { isShowUiPair, isAskUiPair } from './tool-ui/showUiPayload';
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ForceStopAgentBar from './ForceStopAgentBar';
 import { RateLimitPill } from './shell/RateLimitPill';
@@ -70,7 +75,7 @@ import { setGlowingBrowserCards, fadeGlowingBrowserCards, clearGlowingBrowserCar
 import type { WorkflowsRunContext } from '@/shared/state/dashboardLayoutSlice';
 import { setCardSidecar, commitDraft, updateWorkflowCard, controlWorkflowRun } from '@/shared/state/workflowsSlice';
 import { shallowEqual } from 'react-redux';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, useThemeAccent, useThemeMode } from '@/shared/styles/ThemeContext';
 import { parseMcpToolName, getMcpInputSummary } from '@/shared/mcpToolMeta';
 
 const CONTEXT_WINDOWS: Record<string, number> = {
@@ -80,6 +85,10 @@ const CONTEXT_WINDOWS: Record<string, number> = {
   sonnet: 1_000_000,
   haiku: 200_000,
 };
+
+// Full size view reads like a chat page, not a card: the transcript + composer center in one
+// column at a comfortable measure (assistant-ui parks at 44rem, LibreChat 48rem; 760 splits them).
+const FULLSCREEN_READING_MAX_W = 760;
 
 // Only a fallback for never-rendered items; real heights are measured once on screen.
 const RENDER_ITEM_ESTIMATED_HEIGHT = 140;
@@ -155,42 +164,23 @@ const thinkingShimmerKeyframes = `
 }
 `;
 
-// Pick a label deterministically per session-turn so the pill has variety without flickering between renders. Shared list with MessageBubble.
-function streamingLabelFor(seedKey: string | undefined): string {
-  if (!seedKey) return THINKING_LABELS[0].live;
-  let h = 0;
-  for (let i = 0; i < seedKey.length; i++) {
-    h = ((h << 5) - h + seedKey.charCodeAt(i)) | 0;
-  }
-  return THINKING_LABELS[Math.abs(h) % THINKING_LABELS.length].live;
-}
-
-const ThinkingBubble: React.FC<{ label?: string | null; seedKey?: string }> = ({ label, seedKey }) => {
+const ThinkingBubble: React.FC<{ label?: string | null }> = ({ label }) => {
   const c = useClaudeTokens();
   const shimmerBase = c.text.tertiary;
   const shimmerHighlight = c.text.primary;
-  // Aux-LLM label wins; otherwise pick a quirky verb keyed off seedKey so different sessions / turns show different verbs without flicker.
-  const display = label ? `${label}…` : `${streamingLabelFor(seedKey)}…`;
+  // Aux-LLM label wins; otherwise the pill stays plain "Thinking". The whimsical verbs read as personality
+  // in the per-message thinking bubble (MessageBubble), but as a vague, confusing status on a working card.
+  const display = label ? `${label}…` : `${THINKING_LABELS[0].live}…`;
+  // A quiet shimmer LINE, not a bordered card: status shares one visual language with the
+  // per-message thinking row, so only real content gets bubbles (the ChatGPT/Claude pattern).
   return (
     <Box sx={{ display: 'flex', justifyContent: 'flex-start', my: 0.75 }}>
       <style>{thinkingShimmerKeyframes}</style>
-      <Box
-        sx={{
-          bgcolor: c.bg.surface,
-          border: `1px solid ${c.border.subtle}`,
-          borderRadius: '16px 16px 16px 4px',
-          px: 2,
-          py: 1.5,
-          boxShadow: c.shadow.sm,
-          display: 'flex',
-          alignItems: 'center',
-          minHeight: 36,
-        }}
-      >
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, py: 0.5, px: 1, ml: -1 }}>
         <Box
           component="span"
           sx={{
-            fontSize: '0.85rem',
+            fontSize: '0.8125rem',
             fontWeight: 500,
             background: `linear-gradient(90deg, ${shimmerBase} 0%, ${shimmerBase} 40%, ${shimmerHighlight} 50%, ${shimmerBase} 60%, ${shimmerBase} 100%)`,
             backgroundSize: '200% 100%',
@@ -234,6 +224,8 @@ interface AgentChatProps {
   workflowEditId?: string;
   // View-only transcript (e.g. the Run Monitor): renders messages + tool calls but no composer, so the session can't be typed into.
   readOnly?: boolean;
+  // Full size view: center the whole chat in a reading column so an expanded card reads like a chat page.
+  fullscreenChat?: boolean;
   // One-shot text to drop into the composer (e.g. a run attached as context).
   prefillPrompt?: string;
   // A workflow run attached as a removable context chip above the composer; while present, each send routes through onSendRunQuestion so the run's transcript rides along as hidden context for that turn.
@@ -242,8 +234,20 @@ interface AgentChatProps {
   onSendRunQuestion?: (prompt: string, runId: string) => Promise<void>;
 }
 
-const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose, embedded, autoFocus, isGlowing, onDismissGlow, initialContextPaths, onBranch, workflowEditId, readOnly, prefillPrompt, runContext, onClearRunContext, onSendRunQuestion }) => {
+const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose, embedded, autoFocus, isGlowing, onDismissGlow, initialContextPaths, onBranch, workflowEditId, readOnly, fullscreenChat, prefillPrompt, runContext, onClearRunContext, onSendRunQuestion }) => {
   const c = useClaudeTokens();
+  // Fullscreen reads as a place of its own: the user's onboarding accent washes down from the top and
+  // fades into the theme ground (dark or light), instead of a flat card color stretched to the window.
+  const { accent, gradient: accentStops } = useThemeAccent();
+  const { mode: themeMode } = useThemeMode();
+  const fullscreenWash = (() => {
+    if (!fullscreenChat) return undefined;
+    const stops = (accentStops && accentStops.length ? accentStops : [accent || '#6b62f0']);
+    const a = stops[0];
+    const b = stops[1] || stops[0];
+    const ground = themeMode === 'dark' ? '#1a1918' : '#F5F5F0';
+    return `linear-gradient(180deg, ${a}30 0%, ${b}18 22%, ${ground} 55%)`;
+  })();
   const STATUS_STYLES: Record<string, { color: string; bg: string }> = {
     running: { color: c.status.success, bg: c.status.successBg },
     waiting_approval: { color: c.status.warning, bg: c.status.warningBg },
@@ -253,6 +257,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   };
   const { id: routeId } = useParams<{ id: string }>();
   const id = sessionIdProp || routeId;
+  // True while a spawned surface (browser or built app) calls this chat home; gates the dock slot the real card overlays.
+  const hasDockedBrowser = useAppSelector((st) =>
+    Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)) ||
+    Object.values(st.dashboardLayout.viewCards).some((vc) => vc.docked_to === (sessionIdProp || routeId)));
   // A card linked as a workflow sidecar (Test Agent, or a watched run) swaps its composer for a Force Stop button: continuing the chat is meaningless, but killing the run is the common need. Once a Test Agent finishes, the button flips to a green "close" (see workflow_test_state + ForceStopAgentBar).
   const linkedSidecar = useAppSelector((s) => {
     const found = Object.values(s.workflows.openCards).find(
@@ -333,7 +341,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   // Holds the last non-empty suggestions so the docked banner's exit fade renders them instead of going blank the instant the array is cleared.
   const mcpSnapshotRef = useRef<Array<{ id: string; title: string; description: string; reason?: string }>>([]);
   const [mode, setMode] = useState('agent');
-  const [model, setModel] = useState('sonnet');
+  const [model, setModel] = useState('opus-5');
   // Workflow build chat only: brief "this model now runs the workflow" notice when the user switches models, so the run-model change isn't silent.
   const [workflowModelNotice, setWorkflowModelNotice] = useState<string | null>(null);
   const workflowModelNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -640,7 +648,12 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     };
   }, [id, session?.id, scheduleWindowRecompute]);
 
+  // Burst-reveal bookkeeping: ids present at open (or after a session/branch hop) are HISTORY and
+  // never animate; only ids that appear later, while the agent is working, type themselves out.
+  const seenMessageIdsRef = useRef<Set<string> | null>(null);
+
   React.useLayoutEffect(() => {
+    seenMessageIdsRef.current = null;
     const seed = initialSeedItems(viewportHeight);
     const total = renderItemsLengthRef.current;
     const end = total;
@@ -1055,27 +1068,96 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   const renderItems: RenderItem[] = useMemo(() => {
     const items: RenderItem[] = [];
     let i = 0;
+    // Live-updating cards: repeated ShowUI calls with the SAME component+props.id are one card that
+    // UPDATES IN PLACE at its first position (progress advances, data refreshes), never a stack of
+    // stale snapshots. Pre-scan maps each id key to its first slot and its latest call+result.
+    const firstCallIdByKey = new Map<string, string>();
+    const latestByKey = new Map<string, { call: (typeof activeBranchMessages)[number]; result: (typeof activeBranchMessages)[number] | null }>();
+    const keyByCallId = new Map<string, string>();
+    for (let s = 0; s < activeBranchMessages.length; s++) {
+      const m = activeBranchMessages[s];
+      const mc = m.content;
+      if (m.role !== 'tool_call' || typeof mc !== 'object' || !/(^|__)ShowUI$/.test(String(mc?.tool || ''))) continue;
+      const input = mc?.input as { component?: unknown; props?: { id?: unknown } } | undefined;
+      const compId = input?.props?.id;
+      if (!input?.component || typeof compId !== 'string' || !compId) continue;
+      const key = `${input.component}:${compId}`;
+      keyByCallId.set(m.id, key);
+      if (!firstCallIdByKey.has(key)) firstCallIdByKey.set(key, m.id);
+      const next = activeBranchMessages[s + 1];
+      latestByKey.set(key, { call: m, result: next && next.role === 'tool_result' ? next : null });
+    }
+    // Narration that led INTO a tool phase; folds into that phase's group on a finished session.
+    let leadNotes: typeof activeBranchMessages = [];
     while (i < activeBranchMessages.length) {
       const msg = activeBranchMessages[i];
       if (msg.role === 'tool_call' || msg.role === 'tool_result') {
         const group: typeof activeBranchMessages = [];
-        while (
-          i < activeBranchMessages.length &&
-          (activeBranchMessages[i].role === 'tool_call' ||
-            activeBranchMessages[i].role === 'tool_result')
-        ) {
-          group.push(activeBranchMessages[i]);
-          i++;
+        // On a finished session the whole tool PHASE folds into one quiet row: short narration
+        // LEADING INTO or BETWEEN tool runs is absorbed (readable on expand), only the final
+        // answer stays out. While running, narration streams visibly, so the phase never folds live.
+        const noteMarks: Array<{ afterCall: number; msg: (typeof activeBranchMessages)[number] }> =
+          leadNotes.map((m) => ({ afterCall: 0, msg: m }));
+        leadNotes = [];
+        let callsSoFar = 0;
+        while (i < activeBranchMessages.length) {
+          const m = activeBranchMessages[i];
+          if (m.role === 'tool_call' || m.role === 'tool_result') {
+            group.push(m);
+            if (m.role === 'tool_call') callsSoFar++;
+            i++;
+            continue;
+          }
+          if (!sessionRunning && m.role === 'assistant') {
+            let j = i;
+            while (j < activeBranchMessages.length && activeBranchMessages[j].role === 'assistant') j++;
+            const next = activeBranchMessages[j];
+            if (next && (next.role === 'tool_call' || next.role === 'tool_result')) {
+              for (let k = i; k < j; k++) {
+                if (!activeBranchMessages[k].hidden) noteMarks.push({ afterCall: callsSoFar, msg: activeBranchMessages[k] });
+              }
+              i = j;
+              continue;
+            }
+          }
+          break;
         }
 
-        const calls = group.filter((m) => m.role === 'tool_call');
+        const allCalls = group.filter((m) => m.role === 'tool_call');
         const results = group.filter((m) => m.role === 'tool_result');
-        const pairs: ToolPair[] = calls.map((call, idx) => ({
+        const allPairs: ToolPair[] = allCalls.map((call, idx) => ({
           type: 'tool_pair' as const,
           id: `pair-${call.id}`,
           call,
           result: results[idx] || null,
         }));
+
+        // ShowUI/AskUI calls render as inline components, never buried inside a collapsed group.
+        // They typically cap a run of work, so the quiet group row stays above the widget.
+        const showUiPairs = allPairs.filter((p) => isShowUiPair(p) || isAskUiPair(p));
+        const pairs = allPairs.filter((p) => !isShowUiPair(p) && !isAskUiPair(p));
+        const calls = pairs.map((p) => p.call);
+
+        // Folded narration goes back at its original position among the visible pairs.
+        const groupEntries: ToolGroupEntry[] | undefined = (() => {
+          if (noteMarks.length === 0) return undefined;
+          const entries: ToolGroupEntry[] = [];
+          let noteIdx = 0;
+          const noteText = (m: (typeof activeBranchMessages)[number]) =>
+            typeof m.content === 'string' ? m.content : '';
+          allPairs.forEach((pair, idx) => {
+            while (noteIdx < noteMarks.length && noteMarks[noteIdx].afterCall <= idx) {
+              entries.push({ kind: 'note', id: `note-${noteMarks[noteIdx].msg.id}`, text: noteText(noteMarks[noteIdx].msg) });
+              noteIdx++;
+            }
+            if (!isShowUiPair(pair) && !isAskUiPair(pair)) entries.push({ kind: 'pair', pair });
+          });
+          while (noteIdx < noteMarks.length) {
+            entries.push({ kind: 'note', id: `note-${noteMarks[noteIdx].msg.id}`, text: noteText(noteMarks[noteIdx].msg) });
+            noteIdx++;
+          }
+          return entries;
+        })();
 
         const mcpServers = new Set(
           calls.map((m) => {
@@ -1101,8 +1183,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             label,
             callCount: calls.length,
             mcpServer,
+            entries: groupEntries,
           } satisfies ToolGroup);
-        } else if (pairs.length <= 2) {
+        } else if (sessionRunning && pairs.length <= 2 && !groupEntries) {
+          // Live turns keep bare rows for streaming detail; finished transcripts always rest as the quiet group row.
           items.push(...pairs);
         } else if (pairs.length > 0) {
           const toolNames = new Set(
@@ -1116,9 +1200,40 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             pairs,
             label,
             callCount: calls.length,
+            entries: groupEntries,
           } satisfies ToolGroup);
+        } else if (noteMarks.length > 0) {
+          // Phase held only ShowUI/AskUI pairs: narration has no group to fold into, keep it visible.
+          for (const nm of noteMarks) items.push(nm.msg);
+        }
+        for (const p of showUiPairs) {
+          const key = keyByCallId.get(p.call.id);
+          if (!key || isAskUiPair(p)) {
+            items.push(p);
+            continue;
+          }
+          // Later updates render nowhere themselves; the first slot always shows the latest call
+          // under a STABLE key so React updates the mounted component instead of remounting it.
+          if (p.call.id !== firstCallIdByKey.get(key)) continue;
+          const latest = latestByKey.get(key);
+          items.push({
+            type: 'tool_pair' as const,
+            id: `showui-${key}`,
+            call: latest ? latest.call : p.call,
+            result: latest ? latest.result : p.result,
+          });
         }
       } else {
+        if (!sessionRunning && msg.role === 'assistant') {
+          let j = i;
+          while (j < activeBranchMessages.length && activeBranchMessages[j].role === 'assistant') j++;
+          const next = activeBranchMessages[j];
+          if (next && (next.role === 'tool_call' || next.role === 'tool_result')) {
+            leadNotes = activeBranchMessages.slice(i, j).filter((m) => !m.hidden);
+            i = j;
+            continue;
+          }
+        }
         if (!msg.hidden) {
           items.push(msg);
         }
@@ -1126,7 +1241,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
       }
     }
     return items;
-  }, [activeBranchMessages]);
+  }, [activeBranchMessages, sessionRunning]);
 
   React.useLayoutEffect(() => {
     const total = renderItems.length;
@@ -1345,9 +1460,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   const statusStyle = STATUS_STYLES[session.status] || { color: c.text.tertiary, bg: c.bg.secondary };
 
   return (
-    <Box sx={{ display: 'flex', height: '100%' }}>
+    <Box sx={{ display: 'flex', height: '100%', ...(fullscreenWash && { background: fullscreenWash }) }}>
       <ContextDrawer />
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden', ...(fullscreenChat && { maxWidth: FULLSCREEN_READING_MAX_W, width: '100%', mx: 'auto' }) }}>
         {!embedded && (
           <Box
             sx={{
@@ -1511,7 +1626,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               '&:hover': { scrollbarColor: `${c.border.medium} transparent` },
             }}
           >
-            <Box>
+            {/* The welcome greeting is the FIRST thing and it's the agent talking, no user message above it, so give it real air under the header instead of sitting flush at the top. */}
+            <Box sx={{ pt: session.is_welcome_draft ? 4 : 0 }}>
             {session.context_overflow && (() => {
               const reason = session.context_overflow.reason;
               const isAuth = reason === 'openswarm_pro_auth_expired' || reason === 'anthropic_auth_invalid' || reason === 'auth_error';
@@ -1598,6 +1714,22 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               }
               if (isToolPair(item)) {
                 const isPending = item.result === null && sessionRunning;
+                if (isAskUiPair(item)) {
+                  return (
+                    <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
+                      <AskUiBubble pair={item} sessionId={session.id} isPending={isPending} suppressReveal={item.call.id === justStreamedId} />
+                      {compactionChip}
+                    </Box>
+                  );
+                }
+                if (isShowUiPair(item)) {
+                  return (
+                    <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
+                      <ToolUiBubble pair={item} sessionId={session.id} isPending={isPending} suppressReveal={item.call.id === justStreamedId} sessionRunning={sessionRunning} />
+                      {compactionChip}
+                    </Box>
+                  );
+                }
                 return (
                   <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
                     <ToolCallBubble call={item.call} result={item.result} isPending={isPending} sessionId={session.id} suppressReveal={item.call.id === justStreamedId} />
@@ -1607,6 +1739,18 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               }
               const msg = item;
               const isEditing = editingMessageId === msg.id;
+              // First pass after open/hop seeds the set; later unseen assistant ids arrived live.
+              if (seenMessageIdsRef.current === null) {
+                seenMessageIdsRef.current = new Set(renderItems.map((it) => it.id));
+              }
+              const burstAnimate =
+                msg.role === 'assistant' &&
+                typeof msg.content === 'string' &&
+                !isEditing &&
+                !seenMessageIdsRef.current.has(msg.id) &&
+                msg.id !== justStreamedId &&
+                (sessionRunning || awaitingResponse);
+              seenMessageIdsRef.current.add(msg.id);
               const siblings = getSiblingBranches(msg.id);
               const hasBranches = siblings.length > 0;
               const currentBranchIdx = hasBranches
@@ -1624,15 +1768,26 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                     containIntrinsicSize: 'auto 120px',
                   }}
                 >
-                  <MessageBubble
-                    message={msg}
-                    editing={isEditing}
-                    onSaveEdit={handleSaveEdit}
-                    onCancelEdit={handleCancelEdit}
-                    viewportHeight={viewportHeight}
-                    viewportWidth={viewportWidth}
-                    scrollRoot={scrollRoot}
-                  />
+                  {msg.role === 'assistant' && typeof msg.content === 'string' && !isEditing ? (
+                    <BurstRevealBubble
+                      message={msg}
+                      animate={burstAnimate}
+                      onGrew={stickToBottomIfNeeded}
+                      viewportHeight={viewportHeight}
+                      viewportWidth={viewportWidth}
+                      scrollRoot={scrollRoot}
+                    />
+                  ) : (
+                    <MessageBubble
+                      message={msg}
+                      editing={isEditing}
+                      onSaveEdit={handleSaveEdit}
+                      onCancelEdit={handleCancelEdit}
+                      viewportHeight={viewportHeight}
+                      viewportWidth={viewportWidth}
+                      scrollRoot={scrollRoot}
+                    />
+                  )}
                   {!isEditing && (msg.role === 'user' || (msg.role === 'assistant' && lastAssistantIdsInTurn.has(msg.id))) && (
                     <MessageActionBar
                       role={msg.role as 'user' | 'assistant'}
@@ -1760,12 +1915,15 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   role="button"
                   aria-label="Dismiss"
                   onClick={() => id && dispatch(clearMcpSuggestions({ sessionId: id }))}
-                  sx={{ alignSelf: 'flex-start', color: c.text.muted, cursor: 'pointer', fontSize: '0.72rem', '&:hover': { color: c.text.secondary } }}
+                  sx={{ alignSelf: 'flex-start', color: c.text.muted, cursor: 'pointer', fontSize: '0.75rem', '&:hover': { color: c.text.secondary } }}
                 >
                   Dismiss
                 </Box>
               </Box>
             )}
+            {/* The surfaces this agent is driving, live inside the chat: browser snapshots + built
+                apps, each one click from popping out onto the canvas. */}
+            {!isDraft && id && <InlineSurfaceEmbeds c={c} sessionId={id} fullscreen={fullscreenChat} />}
             {/* First-run welcome chips: sit UNDER the streamed greeting, appear once it finishes,
                 vanish the moment the user answers. The greeting itself is a real assistant bubble. */}
             {session.is_welcome_draft && isDraft && welcomeGreetingDone && !session.messages.some((m) => m.role === 'user') && (
@@ -1779,7 +1937,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               <Box sx={{ overflowAnchor: 'none' }}>
                 <ThinkingBubble
                   label={preSendActivityLabel || session.turn_label?.label}
-                  seedKey={`${session.id}:${session.messages?.length ?? 0}`}
                 />
               </Box>
             )}
@@ -1805,7 +1962,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   }}
                 >
                   <PlayArrowIcon sx={{ fontSize: 14, color: c.accent.primary }} />
-                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 500, color: c.accent.primary }}>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.accent.primary }}>
                     Resume Agent Response
                   </Typography>
                 </Box>
@@ -1862,7 +2019,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               borderRadius: 2.5,
               cursor: 'pointer',
               fontWeight: 600,
-              fontSize: '0.85rem',
+              fontSize: '0.875rem',
               color: c.accent.primary,
               border: `1.5px solid ${c.accent.primary}`,
               background: `${c.accent.primary}08`,
@@ -1903,7 +2060,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                       ? <KeyboardArrowDownIcon sx={{ fontSize: 12, color: c.text.tertiary }} />
                       : <KeyboardArrowUpIcon sx={{ fontSize: 12, color: c.text.tertiary }} />
                     }
-                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 600, color: c.text.muted, letterSpacing: 0.2 }}>
+                    <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, color: c.text.muted, letterSpacing: 0.2 }}>
                       {queueLength} queued
                     </Typography>
                     <Tooltip title="Clear all">
@@ -2007,7 +2164,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                                 }}
                                 sx={{
                                   '& .MuiOutlinedInput-root': {
-                                    fontSize: '0.78rem',
+                                    fontSize: '0.75rem',
                                     color: c.text.primary,
                                     '& fieldset': { borderColor: c.border.medium },
                                     '&.Mui-focused fieldset': { borderColor: c.accent.primary },
@@ -2033,7 +2190,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                             <Typography
                               sx={{
                                 flex: 1,
-                                fontSize: '0.78rem',
+                                fontSize: '0.75rem',
                                 color: c.text.secondary,
                                 lineHeight: 1.5,
                                 overflow: 'hidden',
@@ -2103,10 +2260,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                       <ErrorSlime size={20} />
                     </Box>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: '0.86rem', fontWeight: 600, color: c.text.primary, mb: 0.4 }}>
+                      <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: c.text.primary, mb: 0.4 }}>
                         Haiku may run out of room with {enabledMcpCount} apps connected
                       </Typography>
-                      <Typography sx={{ fontSize: '0.78rem', color: c.text.secondary, lineHeight: 1.45 }}>
+                      <Typography sx={{ fontSize: '0.75rem', color: c.text.secondary, lineHeight: 1.45 }}>
                         Haiku is the fastest Claude model but holds the least at once.
                         Each connected app adds instructions Claude has to read first.
                         If your message fails with “Prompt is too long,” turn off a few
@@ -2242,6 +2399,28 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   </Fade>
                 );
               })()}
+              {/* Dock slot: a browser this agent spawned lives HERE by default (the real card overlays
+                  this rect geometrically, so the webview never remounts). Pinned between transcript
+                  and composer, never inside the scroller, so it can't be clipped by chat scroll. */}
+              {hasDockedBrowser && (
+                <Box
+                  data-browser-slot={id}
+                  sx={{
+                    // Percentage heights resolve against a NESTED wrapper here, not the card, which
+                    // pushed the slot (and the docked browser riding it) clean out of the chat.
+                    // Viewport units are the only stable yardstick in this column; shrink allowed so
+                    // a short card squeezes the slot instead of overflowing.
+                    flex: '0 1 auto',
+                    height: 'min(360px, 38vh)',
+                    minHeight: 180,
+                    mx: 1.5,
+                    mb: 1,
+                    borderRadius: '10px',
+                    border: `1px dashed ${c.border.medium}`,
+                    background: c.bg.secondary,
+                  }}
+                />
+              )}
               {readOnly ? null : isStoppableSidecar ? (
                 <ForceStopAgentBar onStop={handleStop} onSaveWorkflow={onTestSaveWorkflow} onContinueEditing={onTestContinueEditing} testState={testState} />
               ) : (
@@ -2263,7 +2442,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   sessionId={id}
                   autoFocus={autoFocus}
                   prefillPrompt={prefillPrompt}
-                  placeholderOverride={runContext ? 'Ask about this run...' : undefined}
+                  placeholderOverride={runContext ? 'Ask about this run...' : embedded ? 'Send a message...' : undefined}
                   runContext={runContext}
                   onClearRunContext={onClearRunContext}
                   thinkingLevel={session?.thinking_level ?? 'auto'}
@@ -2296,7 +2475,7 @@ function WorkflowModelNotice({ c, label }: { c: ReturnType<typeof useClaudeToken
         px: 1.75, py: 1, zIndex: 6,
       }}>
         <SwapHorizRoundedIcon sx={{ fontSize: 17, color: c.accent.primary, flexShrink: 0 }} />
-        <Box sx={{ fontSize: '0.83rem', color: c.text.primary, lineHeight: 1.4 }}>
+        <Box sx={{ fontSize: '0.8125rem', color: c.text.primary, lineHeight: 1.4 }}>
           This workflow will now be using <b>{display}</b>.
         </Box>
       </Box>
@@ -2319,7 +2498,7 @@ function FreeTrialModelNotice({ c, notice }: { c: ReturnType<typeof useClaudeTok
         px: 1.75, py: 1, zIndex: 6,
       }}>
         <InfoOutlinedIcon sx={{ fontSize: 17, color: c.accent.primary, flexShrink: 0 }} />
-        <Box sx={{ fontSize: '0.83rem', color: c.text.primary, lineHeight: 1.4 }}>
+        <Box sx={{ fontSize: '0.8125rem', color: c.text.primary, lineHeight: 1.4 }}>
           {display.kind === 'spent' ? (
             <>You're out of free runs, connect a model in Settings to use <b>{display.label}</b>.</>
           ) : (

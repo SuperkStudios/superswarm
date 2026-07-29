@@ -1,11 +1,20 @@
-import React, { type RefObject } from 'react';
+import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
+import { useAppDispatch, useAppSelector } from '@/shared/hooks';
+import { clearTiledCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayer from './TetherLayer';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
 import DashboardEmptyState from './DashboardEmptyState';
+import '../desktop/desktop.css';
+import DesktopDock from '../desktop/DesktopDock';
+import MinimizedStack from '../desktop/MinimizedStack';
+import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
+import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
+import { GRAIN_URL } from '@/shared/styles/grainTexture';
+import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -19,6 +28,7 @@ import type { Output } from '@/shared/state/outputsSlice';
 import type { CardType, useDashboardSelection } from '../hooks/state/useDashboardSelection';
 import type { useCanvasControls } from '../hooks/interaction/useCanvasControls';
 import { useWebviewSuspend } from '../hooks/interaction/useWebviewSuspend';
+import { deleteSelectedCards } from '../hooks/interaction/deleteSelectedCards';
 import type { Tether } from '../geometry/dashboardTethers';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
@@ -57,6 +67,7 @@ interface DashboardCanvasProps {
   toolbarOpen: boolean;
   searchPaletteOpen: boolean;
   newAgentBounce: boolean;
+  canvasEmpty: boolean;
   toolbarRef: RefObject<HTMLDivElement>;
   spawnOriginsRef: RefObject<Record<string, SpawnOrigin>>;
   revealSpawnedRef: RefObject<Set<string>>;
@@ -120,6 +131,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   toolbarOpen,
   searchPaletteOpen,
   newAgentBounce,
+  canvasEmpty,
   toolbarRef,
   spawnOriginsRef,
   revealSpawnedRef,
@@ -153,10 +165,60 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   onTidy,
   onSearchPaletteClose,
 }) => {
+  const { accent, gradient } = useThemeAccent();
+  const { washOpacity, grain } = useThemeWash();
+  // A single picked color stores gradient=null, so fall back to the accent (mirrors BeatShell).
+  const washStops = effectiveWashStops(gradient, accent);
   const dotSize = Math.max(1, 1.5 * canvas.zoom);
   const dotSpacing = 24 * canvas.zoom;
 
   useWebviewSuspend(browserCards, canvas.panX, canvas.panY, canvas.zoom, canvas.viewportRef);
+
+  // macOS full screen: one card owns the whole window, every piece of chrome steps aside; Esc exits.
+  const dispatch = useAppDispatch();
+  const fullscreenCardId = useAppSelector(selectFullscreenCardId);
+  // The Workflows window has its own fullscreen flag (not a tiledCard); its fill also hides the dock.
+  const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen;
+  const [headerRevealed, setHeaderRevealed] = React.useState(false);
+  const [appsWindowOpen, setAppsWindowOpen] = React.useState(false);
+  useEffect(() => {
+    if (!fullscreenCardId) return undefined;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      dispatch(clearTiledCard(fullscreenCardId));
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [fullscreenCardId, dispatch]);
+
+  // While the sidebar is docked, its top strip (a window drag region) hides the traffic lights AND
+  // eats the hover that would reveal them, so keep them visible the whole time the sidebar is open,
+  // like every Mac app with a sidebar. Only the immersive collapsed/fullscreen state hover-reveals.
+  const [chromeDocked, setChromeDocked] = React.useState(false);
+  useEffect(() => {
+    const onDocked = (e: Event): void => setChromeDocked(!!(e as CustomEvent).detail?.docked);
+    window.addEventListener('openswarm:chrome-docked', onDocked);
+    return () => window.removeEventListener('openswarm:chrome-docked', onDocked);
+  }, []);
+
+  // Arc-style chrome: the mac traffic lights ride the top-edge hover, in fullscreen too (Arc/Zen both
+  // keep the native buttons reachable in compact/fullscreen; Zen even exempts them from hover-leave).
+  useEffect(() => {
+    // While a card is fullscreen its OWN lights are the window controls; showing the natives too reads as double chrome.
+    window.openswarm?.setWindowButtonsVisible?.(!anyFullscreen && (headerRevealed || chromeDocked));
+  }, [headerRevealed, chromeDocked, anyFullscreen]);
+
+  // Reveal on any pointer graze of the top edge. The old 22px strip Box was dead in practice: the
+  // hidden header overlay's pointer-events:auto children sat above it and ate the mouseenter.
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      if (e.clientY <= 22) setHeaderRevealed(true);
+      else if (fullscreenCardId && e.clientY > 80) setHeaderRevealed(false);
+    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
+  }, [fullscreenCardId]);
 
   // Gestures write the transform imperatively (no React commit per frame), so a foreign render mid-gesture would paint the stale committed transform for a frame. Re-applying live after EVERY render seals that; do not remove.
   React.useLayoutEffect(() => {
@@ -168,17 +230,26 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
     <Box sx={{ position: 'relative', height: '100%', overflow: 'hidden' }}>
       {/* Floating header overlay */}
       <Box
+        onMouseLeave={() => setHeaderRevealed(false)}
         sx={{
+          display: fullscreenCardId ? 'none' : undefined,
           position: 'absolute',
           top: 0,
           left: 0,
           right: 0,
           zIndex: 10,
-          pointerEvents: 'none',
+          pointerEvents: headerRevealed ? undefined : 'none',
+          opacity: headerRevealed ? 1 : 0,
+          transform: headerRevealed ? 'translateY(0)' : 'translateY(-6px)',
+          transition: 'opacity 0.18s ease, transform 0.18s ease',
           // p: 3 (24px) was leaving a chunky air gap between the sidebar edge and the dashboard header that read as "two disconnected panels" rather than one continuous surface. 0.75 (6px) tightens the inset so the header floats just inside the content area without losing its breathing room from the top-most pixel.
-          p: 0.75,
+          pt: 0.75,
+          pr: 0.75,
           pb: 0,
-          background: `linear-gradient(to bottom, ${c.bg.page} 60%, transparent)`,
+          // Clears the macOS traffic lights when the sidebar is docked away (AppShell sets the var); 6px otherwise.
+          pl: 'var(--osw-header-inset, 6px)',
+          // No scrim: the header carries its own translucent pill (DashboardHeader), so a full-width
+          // page->transparent fade here just read as a light-leak band over the themed canvas.
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', pointerEvents: 'auto' }}>
@@ -200,13 +271,58 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         </Box>
       </Box>
 
+      {!anyFullscreen && (
+        <MinimizedStack
+          browserCards={browserCards}
+          onRestore={(cardId, rect) => {
+            canvas.actions.fitToCards([rect], 1.15, true);
+            onHighlightCard?.(cardId);
+          }}
+        />
+      )}
+
+      {!anyFullscreen && (
+        <DesktopDock
+          sessions={sessions}
+          cards={cards}
+          viewCards={viewCards}
+          browserCards={browserCards}
+          notes={notes}
+          workflowCards={workflowCards}
+          outputs={outputs}
+          selectedIds={Array.from(selection.selectedIds.keys())}
+          onFocusCard={(cardId, rect) => {
+            canvas.actions.fitToCards([rect], 1.15, true);
+            onHighlightCard?.(cardId);
+          }}
+          onApplications={() => setAppsWindowOpen((v) => !v)}
+          onNewAgent={onNewAgent}
+          onAddBrowser={onAddBrowser}
+          onAddNote={onAddNote}
+        />
+      )}
+
+      {appsWindowOpen && !fullscreenCardId && (
+        <ApplicationsWindow onClose={() => setAppsWindowOpen(false)} />
+      )}
+
       {/* Canvas viewport */}
       <Box
         ref={canvas.viewportRef}
+        data-canvas-viewport
         onMouseDown={onViewportMouseDown}
         onMouseMove={onViewportMouseMove}
         onMouseUp={onViewportMouseUp}
         onDoubleClick={onViewportDoubleClick}
+        onContextMenu={(e) => {
+          // Right-drag is the canvas marquee-select (Google-Maps style), so the native menu (Inspect
+          // Element in dev) shouldn't pop over it. Suppress only on the bare canvas; cards, inputs, and
+          // webviews keep their own menus.
+          const t = e.target as HTMLElement;
+          if (!t.closest('[data-select-id]') && !t.closest('input, textarea, [contenteditable]')) {
+            e.preventDefault();
+          }
+        }}
         sx={{
           position: 'absolute',
           inset: 0,
@@ -220,14 +336,42 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
                 : 'default',
         }}
       >
-        {/* Dot grid background; gestures move it imperatively via gridRef (phase + scale), commits re-render it here (dot radius included) */}
+        {/* Gradient wash: the user's theme-pad stops tint the canvas, Arc-window style; intensity + grain come from the theme device; sits under the dot grid. */}
+        {washStops && washStops.length > 0 && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              backgroundImage: washBackgroundUrl(washStops, washOpacity),
+              backgroundSize: '100% 100%',
+            }}
+          />
+        )}
+        {grain > 0 && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              opacity: grain,
+              backgroundImage: GRAIN_URL,
+            }}
+          />
+        )}
+
+        {/* Dot grid background; gestures move it imperatively via gridRef (phase + scale), commits re-render it here (dot radius included). The tile is an SVG IMAGE, not a procedural gradient: Chromium caches a decoded image as a GPU texture, while a radial-gradient re-rasterizes the whole layer every backgroundSize change, and under GPU memory pressure (many webviews, external monitors) those rasters get dropped and paint as a giant blank rectangle, the 1.5.9 white-patch bug. Same backgroundSize/Position write contract, so the per-frame camera writer is untouched. */}
         <Box
           ref={canvas.gridRef}
           sx={{
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            backgroundImage: `radial-gradient(circle, ${c.border.medium} ${dotSize}px, transparent ${dotSize}px)`,
+            // Arc fullscreen: the float sits on a clean themed ground, the dot texture is canvas-only.
+            display: anyFullscreen ? 'none' : undefined,
+            backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
+              `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
+            )}")`,
             backgroundSize: `${dotSpacing}px ${dotSpacing}px`,
             backgroundPosition: `${canvas.panX % dotSpacing}px ${canvas.panY % dotSpacing}px`,
           }}
@@ -281,12 +425,15 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             />
           </div>
         )}
-        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub && (
+        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub && !fullscreenCardId && (
           <DashboardEmptyState c={c} onLaunch={onToolbarSend} onStarter={onStarter} />
         )}
       </Box>
 
+      {/* display:contents when visible so the overlays' absolute children keep positioning against the canvas root; display:none (not unmount) so the toolbar composer draft survives fullscreen. */}
+      <Box sx={{ display: fullscreenCardId ? 'none' : 'contents' }}>
       <DashboardOverlays
+        anyFullscreen={anyFullscreen}
         canvas={canvas}
         dashboardId={dashboardId}
         sessions={sessions}
@@ -301,6 +448,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         toolbarOpen={toolbarOpen}
         searchPaletteOpen={searchPaletteOpen}
         newAgentBounce={newAgentBounce}
+        canvasEmpty={canvasEmpty}
         toolbarRef={toolbarRef}
         onNewAgent={onNewAgent}
         onToolbarCancel={onToolbarCancel}
@@ -312,10 +460,16 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onNewAgentBounceEnd={onNewAgentBounceEnd}
         onFitToView={onFitToView}
         onTidy={onTidy}
+        onDeleteSelected={() => {
+          deleteSelectedCards(selection.selectedIds, dispatch);
+          selection.deselectAll();
+        }}
+        hasSelection={selection.selectedIds.size > 0}
         onSearchPaletteClose={onSearchPaletteClose}
         toolbarPrefill={toolbarPrefill}
         toolbarPrefillMode={toolbarPrefillMode}
       />
+      </Box>
     </Box>
     </>
   );
