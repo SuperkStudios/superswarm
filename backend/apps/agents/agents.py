@@ -136,8 +136,11 @@ async def send_message(session_id: str, body: dict):
             async def p_emit_preflight():
                 try:
                     result = await run_preflight(prompt, task_id=session_id)
+                    # Stamp the cooldown whenever the classifier RAN, not only when it suggested:
+                    # a concrete prompt returns no suggestions, so the old placement never throttled
+                    # and the Haiku classifier re-fired on every single turn for the session's life.
+                    p_mcp_suggest_cooldown[session_id] = time.monotonic()
                     if result.get("suggestions") or result.get("is_vague"):
-                        p_mcp_suggest_cooldown[session_id] = time.monotonic()
                         await p_ws.send_to_session(session_id, "agent:mcp_suggestions", {
                             "session_id": session_id,
                             "suggestions": result.get("suggestions", []),
@@ -339,16 +342,6 @@ async def resume_session(session_id: str):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"session": session.model_dump(mode="json")}
-
-
-@agents.router.post("/sessions/{session_id}/warm-cache")
-async def warm_session_cache(session_id: str):
-    """Fire a max_tokens=1 dummy request to prime the Anthropic prompt cache; best-effort."""
-    try:
-        await agent_manager.warm_prompt_cache(session_id)
-    except Exception:
-        pass
-    return {"ok": True}
 
 
 @agents.router.post("/sessions/{session_id}/compact")

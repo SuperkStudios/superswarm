@@ -246,49 +246,5 @@ class RunSupport(AgentManagerProtocol):
         return await metadata.generate_turn_label(self.sessions.get(session_id), session_id, turn_id, user_prompt)
 
     @typechecked
-    async def warm_prompt_cache(self, session_id: str) -> None:
-        """Pre-warm Anthropic's prompt cache for a session by firing a
-        max_tokens=1 dummy request through the same agent path. Anthropic
-        processes the system+tools prefix and writes the cache; the next
-        real user turn lands a cache hit instead of paying cold-start.
-
-        Skips silently if the session doesn't exist, isn't on Anthropic,
-        or has no Anthropic credentials. Skips if a real request is
-        already in flight on this session, Anthropic permits parallel
-        requests but it just wastes the warm.
-        """
-        session = self.sessions.get(session_id)
-        if not session:
-            return
-        # If a real run is in flight, the cache will be warmed by it; firing again is wasted tokens.
-        existing = self.tasks.get(session_id)
-        if existing and not existing.done():
-            return
-
-        try:
-            from backend.apps.agents.providers.registry import find_builtin_model as find_builtin_model
-            entry = find_builtin_model(session.model)
-            if not entry or entry.get("api") != "anthropic":
-                return  # other providers handle caching automatically
-
-            from backend.apps.settings.credentials import get_anthropic_client
-            global_settings = load_settings()
-            # Free lane rotates pool accounts per call, so a warm ping primes a cache the next call won't hit, and worse it'd burn a metered run at idle (this fires on dashboard mount, not a user query). Skip it on the free trial.
-            if getattr(global_settings, "connection_mode", "own_key") == "free-trial":
-                return
-            client = get_anthropic_client(global_settings)
-
-            # Single ping with the same system + minimal user message. max_tokens=1 keeps it cheap; we don't care about the output.
-            await client.messages.create(
-                model=entry.get("model_id", session.model),
-                max_tokens=1,
-                system="You are a helpful assistant. Reply with one character.",
-                messages=[{"role": "user", "content": "ping"}],
-            )
-            logger.debug(f"Cache pre-warm fired for session {session_id}")
-        except Exception as e:
-            logger.debug(f"Cache pre-warm failed (non-fatal): {e}")
-
-    @typechecked
     async def generate_group_meta(self, session_id: str, group_id: str, tool_calls: List[dict], results_summary: Optional[List[str]] = None, is_refinement: bool = False) -> Dict:
         return await metadata.generate_group_meta(self.sessions.get(session_id), session_id, group_id, tool_calls, results_summary, is_refinement)

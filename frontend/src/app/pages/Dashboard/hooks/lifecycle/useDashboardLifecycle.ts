@@ -156,34 +156,7 @@ export function useDashboardLifecycle({
       ? (window as any).requestIdleCallback(loadDeferred, { timeout: 2000 })
       : window.setTimeout(loadDeferred, 200);
 
-    // Pre-warm Anthropic's prompt cache for sessions on this dashboard ~250ms after mount (debounced; AbortController cancels on dashboard switch). Fires a max_tokens=1 ping per session so the user's first real message hits a warm cache instead of paying cold-start TTFT. Cheap (~$0.0001/session) and non-blocking. Skips for non-Anthropic sessions server-side.
-    const warmAbort = new AbortController();
-    const warmTimer = setTimeout(async () => {
-      try {
-        const sessionsState = store.getState().agents.sessions;
-        const dashSessions = Object.values(sessionsState).filter(
-          (s) => s.dashboard_id === dashboardId &&
-                 s.status !== 'draft' &&
-                 s.mode !== 'browser-agent' &&
-                 s.mode !== 'sub-agent' &&
-                 s.mode !== 'invoked-agent',
-        );
-        for (const s of dashSessions) {
-          if (warmAbort.signal.aborted) break;
-          // Fire-and-forget, the endpoint always 200s and the side effect is invisible cache population.
-          fetch(`${API_BASE}/agents/sessions/${s.id}/warm-cache`, {
-            method: 'POST',
-            signal: warmAbort.signal,
-          }).catch(() => {});
-        }
-      } catch {
-        /* best-effort */
-      }
-    }, 250);
-
     return () => {
-      clearTimeout(warmTimer);
-      warmAbort.abort();
       cleanupBrowserHandler();
       unsubReconnect();
       dashboardWs.disconnect();
