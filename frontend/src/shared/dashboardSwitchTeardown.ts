@@ -7,17 +7,20 @@ import { detachBrowserCdp } from '@/shared/browserTeardown';
 // unmounts all the outgoing app + browser <webview>s in a single frame. Ripping several live GPU
 // surfaces out at once (app previews) or unmounting a browser with its CDP debugger still attached
 // piles up "non-existent mailbox" errors and SIGSEGVs the GPU/browser process, taking the whole app
-// down with no crash dump (the "navigate away and it quits itself" bug). Quiesce + detach the
-// outgoing webviews ONE AT A TIME first, so only trivial surfaces are left to tear down. Bounded per
-// item (the helpers self-cap), fail-open, and keep-alive browsers are skipped so they survive the
-// switch with their session intact.
+// down with no crash dump (the "navigate away and it quits itself" bug). We ready the outgoing
+// webviews before the reset so only trivial surfaces are left to tear down; keep-alive browsers are
+// skipped so they survive the switch with their session intact. Fail-open + bounded (the helpers
+// self-cap), so a wedged webview can never block the switch.
 export async function prepareDashboardSwitch(keepBrowserIds: string[]): Promise<void> {
   const keep = new Set(keepBrowserIds);
+  // Views release their heavy GPU SharedImage surface ONE AT A TIME (parallel surface teardown is
+  // the "non-existent mailbox" pile-up); browser CDP detaches are order-independent (the crash is
+  // unmounting with a debugger ATTACHED, and all we need is every debugger gone before the reset),
+  // so they run in PARALLEL: serial detach added ~72ms/browser and made a 20-card switch lag 1.4s.
   for (const outputId of getAllViewOutputIds()) {
     await quiesceViewWebview(outputId);
   }
-  for (const browserId of getAllBrowserIds()) {
-    if (keep.has(browserId)) continue;
-    await detachBrowserCdp(browserId);
-  }
+  await Promise.allSettled(
+    getAllBrowserIds().filter((b) => !keep.has(b)).map((b) => detachBrowserCdp(b)),
+  );
 }
