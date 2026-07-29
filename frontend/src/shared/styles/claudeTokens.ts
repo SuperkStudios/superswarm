@@ -83,7 +83,7 @@ export const lightTokens: ClaudeTokens = {
   },
   user: { bubble: '#DDD9CE' },
   font: {
-    sans: '"Anthropic Sans", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
+    sans: '"Inter Variable", Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     mono: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
     size: fontSize,
   },
@@ -135,7 +135,7 @@ export const darkTokens: ClaudeTokens = {
   },
   user: { bubble: '#393937' },
   font: {
-    sans: '"Anthropic Sans", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif',
+    sans: '"Inter Variable", Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     mono: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
     size: fontSize,
   },
