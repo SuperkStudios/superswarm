@@ -116,6 +116,10 @@ export function getWebview(browserId: string, tabId?: string): BrowserWebview | 
   return registry.get(makeKey(browserId, resolvedTabId));
 }
 
+export function getAllBrowserIds(): string[] {
+  return [...new Set([...registry.keys()].map((k) => k.split(':')[0]))];
+}
+
 export function getBrowserWebviews(browserId: string): BrowserWebview[] {
   const out: BrowserWebview[] = [];
   for (const [key, wv] of registry.entries()) {

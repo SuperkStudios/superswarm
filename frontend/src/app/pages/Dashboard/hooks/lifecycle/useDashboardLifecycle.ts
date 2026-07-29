@@ -29,6 +29,7 @@ import { fetchProviderHealth } from '@/shared/state/subscriptionsSlice';
 import { dashboardWs } from '@/shared/ws/WebSocketManager';
 import { initBrowserCommandHandler } from '@/shared/browserCommandHandler';
 import { getKeepAliveBrowserIds } from '@/shared/browserFocus';
+import { prepareDashboardSwitch } from '@/shared/dashboardSwitchTeardown';
 import { clearPendingBrowserUrl, clearPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { API_BASE } from '@/shared/config';
 import type { CanvasActions } from '../interaction/useCanvasControls';
@@ -118,10 +119,16 @@ export function useDashboardLifecycle({
       hasFittedRef.current = false;
       restoredExpandedRef.current = false;
       setOutputsRefetched(false);
-      dispatch(resetLayout({ keepBrowserIds: getKeepAliveBrowserIds() }));
-      // CRITICAL path: these populate the cards the user expects to see on first paint. Don't defer.
-      dispatch(fetchSessions({ dashboardId }));
-      dispatch(fetchLayout({ dashboardId }));
+      const keep = getKeepAliveBrowserIds();
+      // Quiesce + CDP-detach the OUTGOING dashboard's webviews serially BEFORE the store reset
+      // unmounts them all in one frame (the "navigate away kills the app" self-quit). Bounded +
+      // fail-open, so a wedged webview can never block the switch. See dashboardSwitchTeardown.
+      void prepareDashboardSwitch(keep).finally(() => {
+        dispatch(resetLayout({ keepBrowserIds: keep }));
+        // CRITICAL path: these populate the cards the user expects to see on first paint. Don't defer.
+        dispatch(fetchSessions({ dashboardId }));
+        dispatch(fetchLayout({ dashboardId }));
+      });
     }
     const cleanupBrowserHandler = initBrowserCommandHandler();
     // Global broadcasts (spawned browser cards) skip the replay log, so a socket gap loses them; a reconnect refetch is the only way they return.

@@ -11,6 +11,10 @@ export function registerViewWebview(outputId: string, wv: ViewWebview): void {
   registry.set(outputId, wv);
 }
 
+export function getAllViewOutputIds(): string[] {
+  return [...registry.keys()];
+}
+
 export function unregisterViewWebview(outputId: string): void {
   registry.delete(outputId);
 }
