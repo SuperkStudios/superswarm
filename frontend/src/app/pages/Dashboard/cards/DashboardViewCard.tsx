@@ -18,6 +18,7 @@ import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { requestAppSlot, releaseAppSlot, subscribeAppBudget } from '@/shared/appWebviewBudget';
 import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
 import { openCardContextMenu } from '../desktop/CardContextMenu';
@@ -56,6 +57,7 @@ const MIN_H = 200;
 // has no login/scroll state worth keeping, so we just unmount the webview when the card is off-screen or
 // too small to read, and remount (reload) on return. Asymmetric: resume instantly, suspend after a beat
 // so panning past a card doesn't reload it.
+const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 const APP_PREVIEW_MIN_PX = 260;   // below this on-screen width the live page is indistinguishable from a still
 const APP_PREVIEW_MARGIN_PX = 400; // resume once the card is within this of the viewport
 const APP_SUSPEND_SETTLE_MS = 1200;
@@ -224,23 +226,37 @@ const DashboardViewCard: React.FC<Props> = ({
       if (previewDeferred) {
         want = false; // reveal-parked: never boot until the first click clears the defer
       } else if (alwaysLive) {
+        // Actively used (selected, interacting, agent-driven, tiled, fullscreen): pinned, never capped.
+        if (isElectron) requestAppSlot(cardKey, 0, true);
         want = true;
       } else {
         const now = getCanvasState();
         const vpEl = document.querySelector('[data-canvas-viewport]');
         const vpW = vpEl ? (vpEl as HTMLElement).clientWidth : window.innerWidth;
         const vpH = vpEl ? (vpEl as HTMLElement).clientHeight : window.innerHeight;
+        let onscreen: boolean;
         if (cardWidth * now.zoom < APP_PREVIEW_MIN_PX) {
-          want = false;
+          onscreen = false;
         } else {
           const m = APP_PREVIEW_MARGIN_PX / now.zoom;
           const vx = -now.panX / now.zoom - m;
           const vy = -now.panY / now.zoom - m;
           const vw = vpW / now.zoom + 2 * m;
           const vh = vpH / now.zoom + 2 * m;
-          want = cardX < vx + vw && cardX + cardWidth > vx && cardY < vy + vh && cardY + cardHeight > vy;
+          onscreen = cardX < vx + vw && cardX + cardWidth > vx && cardY < vy + vh && cardY + cardHeight > vy;
+        }
+        if (!onscreen || !isElectron) {
+          want = onscreen; // non-Electron previews are cheap iframes, no renderer to cap
+        } else {
+          // On-screen but passive: go live only if the hard cap has a slot; closest-to-center wins it.
+          const cx = (-now.panX + vpW / 2) / now.zoom;
+          const cy = (-now.panY + vpH / 2) / now.zoom;
+          const ddx = cardX + cardWidth / 2 - cx;
+          const ddy = cardY + cardHeight / 2 - cy;
+          want = requestAppSlot(cardKey, ddx * ddx + ddy * ddy, false);
         }
       }
+      if (!want) releaseAppSlot(cardKey);
       if (want === previewLiveRef.current) return;
       if (want) {
         if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
@@ -265,14 +281,19 @@ const DashboardViewCard: React.FC<Props> = ({
       }
     };
     evaluate();
+    const unsubBudget = subscribeAppBudget(evaluate); // an eviction or a freed slot re-runs this card's decision
     window.addEventListener('openswarm:canvas-pan-changed', evaluate);
     window.addEventListener('resize', evaluate);
     return () => {
+      unsubBudget();
       window.removeEventListener('openswarm:canvas-pan-changed', evaluate);
       window.removeEventListener('resize', evaluate);
       if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
     };
-  }, [alwaysLive, previewDeferred, cardX, cardY, cardWidth, cardHeight, getCanvasState]);
+  }, [alwaysLive, previewDeferred, cardX, cardY, cardWidth, cardHeight, getCanvasState, cardKey]);
+
+  // Free the cap slot on unmount (card deleted, dashboard switch) so a slot is never leaked.
+  useEffect(() => () => releaseAppSlot(cardKey), [cardKey]);
 
   // Deselecting the card exits interact mode (click anywhere else on canvas).
   useEffect(() => {
