@@ -1,7 +1,7 @@
 import { getAllViewOutputIds } from '@/shared/viewWebviewRegistry';
 import { getAllBrowserIds } from '@/shared/browserRegistry';
 import { quiesceViewWebview } from '@/shared/viewTeardown';
-import { detachBrowserCdp } from '@/shared/browserTeardown';
+import { detachBrowsersCdpBounded } from '@/shared/browserTeardown';
 
 // Switching dashboards clears every card from the store in ONE reducer (resetLayout), so React
 // unmounts all the outgoing app + browser <webview>s in a single frame. Ripping several live GPU
@@ -20,7 +20,5 @@ export async function prepareDashboardSwitch(keepBrowserIds: string[]): Promise<
   for (const outputId of getAllViewOutputIds()) {
     await quiesceViewWebview(outputId);
   }
-  await Promise.allSettled(
-    getAllBrowserIds().filter((b) => !keep.has(b)).map((b) => detachBrowserCdp(b)),
-  );
+  await detachBrowsersCdpBounded(getAllBrowserIds().filter((b) => !keep.has(b)));
 }
