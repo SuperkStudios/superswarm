@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const os = require('os');
 
 const MODEL_FILE = 'ggml-base.en.bin';
 const MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
@@ -115,12 +116,17 @@ async function p_bootServer(resourceDir, userDataDir) {
     throw new Error(download.active ? 'model-downloading' : 'no-model');
   }
   const p = pickPort();
-  const child = spawn(bin, ['-m', model, '--port', String(p), '-nt', '--convert'], {
-    stdio: ['ignore', 'pipe', 'pipe'],
+  // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
+  const child = spawn(bin, ['-m', model, '--port', String(p), '-nt'], {
+    cwd: os.tmpdir(), // whisper writes per-request temp files beside cwd, and a Finder launch starts at the unwritable /
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+  // Drain stderr or the pipe buffer fills and blocks the child; it is also the only diagnostic we get.
+  child.stderr.on('data', (c) => console.log('[voice] whisper:', String(c).trim().slice(0, 400)));
   child.on('error', () => { proc = null; port = 0; });
-  child.on('exit', () => { proc = null; port = 0; readyPromise = null; });
-  const ok = await waitForReady(p, 20000);
+  child.on('exit', (code) => { if (code) console.log(`[voice] whisper-server exited code=${code}`); proc = null; port = 0; readyPromise = null; });
+  // Cold model load measured 15-38s on an M2; the old 20s budget timed out real first uses.
+  const ok = await waitForReady(p, 60000);
   if (!ok) {
     try { child.kill(); } catch (_) {}
     throw new Error('server-timeout');
