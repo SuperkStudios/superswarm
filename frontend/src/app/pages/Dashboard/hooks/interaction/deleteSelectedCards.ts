@@ -9,6 +9,7 @@ import type { CardType } from '../state/useDashboardSelection';
 /** Close every selected card, recording each so Cmd+Shift+T can bring it back. */
 export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch: AppDispatch): void {
   const viewIds: string[] = [];
+  const browserIds: string[] = [];
   for (const [id, type] of selectedIds) {
     if (type === 'agent') {
       dispatch(recordClosedCard({ kind: 'agent', id }));
@@ -18,7 +19,7 @@ export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch
       viewIds.push(id);
     } else if (type === 'browser') {
       dispatch(recordClosedCard({ kind: 'browser', id }));
-      removeBrowserCardCleanly(id, dispatch);
+      browserIds.push(id);
     } else if (type === 'note') {
       dispatch(recordClosedCard({ kind: 'note', id }));
       dispatch(removeNote(id));
@@ -30,6 +31,11 @@ export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch
       dispatch(closeWorkflowsHub());
     }
   }
-  // Tear view cards down ONE AT A TIME (each quiesces its GPU surface first); ripping several large app webviews out in one frame is what piles up "non-existent mailbox" errors and kills the GPU process.
-  void (async () => { for (const id of viewIds) await removeViewCardCleanly(id, dispatch); })();
+  // Tear webview-backed cards down ONE AT A TIME (each quiesces / CDP-detaches its GPU surface
+  // first); ripping several large app OR browser webviews out in one frame is what piles up
+  // "non-existent mailbox" errors and SIGSEGVs the GPU/browser process (the mass-delete self-quit).
+  void (async () => {
+    for (const id of viewIds) await removeViewCardCleanly(id, dispatch);
+    for (const id of browserIds) await removeBrowserCardCleanly(id, dispatch);
+  })();
 }
