@@ -499,6 +499,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
     bash scripts/build-mouseclamp.sh x64
     bash scripts/build-haptics.sh arm64
     bash scripts/build-haptics.sh x64
+    echo "Building whisper-server for dictation (arm64 + x64)..."
+    bash scripts/build-whisper.sh arm64
+    bash scripts/build-whisper.sh x64
 fi
 
 # Node's default ~4 GB heap OOMs while codesign'ing the .app on dual-arch
