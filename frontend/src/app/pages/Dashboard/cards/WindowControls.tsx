@@ -101,7 +101,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
             position: 'absolute', top: 19, width: 216, background: '#FFFFFF',
             // Invisible runway over the button-to-menu gap: without it the pointer crosses dead
             // space, mouseleave fires, and the menu vanishes mid-approach ("baited").
-            '&::before': { content: '""', position: 'absolute', top: -20, left: 0, right: 0, height: 20 },
+            '&::before': { content: '""', position: 'absolute', top: -8, left: 0, right: 0, height: 8 },
             ...(alignRight ? { right: -8 } : { left: -8 }),
             border: '1px solid rgba(0,0,0,0.06)', borderRadius: '12px', boxShadow: '0 .5rem 2rem rgba(0,0,0,.14)',
             p: 1.25, zIndex: 1200, transformOrigin: alignRight ? 'top right' : 'top left',

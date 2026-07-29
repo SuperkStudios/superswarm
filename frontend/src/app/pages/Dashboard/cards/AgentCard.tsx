@@ -37,7 +37,7 @@ import {
   clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
-import { useTiledStyle } from './tileZones';
+import { useTiledStyle, computeTiledStyle } from './tileZones';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { extractLatestTodos } from '../desktop/agentTodos';
@@ -559,21 +559,35 @@ const AgentCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      const effectiveW = Math.max(cardWidth, MIN_W);
-      const effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
+      let effectiveX = cardX;
+      let effectiveY = cardY;
+      let effectiveW = Math.max(cardWidth, MIN_W);
+      let effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
+      // Grabbing an edge of a TILED chat exits the tile and resizes from exactly where it sat,
+      // macOS-style; without this the handles resized the stale free-position geometry.
+      if (tileZone) {
+        const cam = getCanvasState();
+        const ts = computeTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
+        if (ts) {
+          effectiveX = ts.left; effectiveY = ts.top;
+          effectiveW = ts.width / cam.zoom; effectiveH = ts.height / cam.zoom;
+          setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
+          dispatch(clearTiledCard(session.id));
+        }
+      }
       resizeRef.current = {
         dir,
         startX: e.clientX,
         startY: e.clientY,
-        origX: cardX,
-        origY: cardY,
+        origX: effectiveX,
+        origY: effectiveY,
         origW: effectiveW,
         origH: effectiveH,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, expanded],
+    [cardX, cardY, cardWidth, cardHeight, expanded, tileZone, dispatch, session.id],
   );
 
   const computeResize = useCallback(
