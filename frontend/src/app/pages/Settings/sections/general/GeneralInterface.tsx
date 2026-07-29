@@ -61,10 +61,12 @@ const GeneralInterface: React.FC<{
           size="small"
           sx={toggleGroupSx}
         >
+          <ToggleButton value={0.8}>Tiny</ToggleButton>
           <ToggleButton value={0.9}>Small</ToggleButton>
           <ToggleButton value={1}>Default</ToggleButton>
           <ToggleButton value={1.1}>Large</ToggleButton>
-          <ToggleButton value={1.2}>Largest</ToggleButton>
+          <ToggleButton value={1.2}>Larger</ToggleButton>
+          <ToggleButton value={1.35}>Largest</ToggleButton>
         </ToggleButtonGroup>
       </Box>
 
