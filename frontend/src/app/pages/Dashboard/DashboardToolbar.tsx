@@ -98,7 +98,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     }, [settingsLoaded, defaultMode, defaultModel, defaultThinkingLevel]);
     // Ghost-text predictions: what the user might type next, in their own voice. Fetched once per app
     // load (cached), then one is shown at a time and cycled while the composer sits idle+empty. Empty
-    // list (no signal / no provider / error) just leaves the static "What should I do sir..." placeholder.
+    // list (no signal / no provider / error) just leaves the static "Ask me to do anything..." placeholder.
     const [ghostList, setGhostList] = useState<string[]>([]);
     const ghostFetchedRef = useRef(false);
     useEffect(() => {
@@ -443,7 +443,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
                 thinkingLevel={thinkingLevel}
                 onThinkingLevelChange={handleThinkingLevelChange}
                 prefillPrompt={prefillPrompt}
-                placeholderOverride="What should I do sir..."
+                placeholderOverride="Ask me to do anything..."
                 ghostSuggestion={ghostSuggestion}
               />
             </DarkTokensScope>
