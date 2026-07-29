@@ -95,13 +95,13 @@ const ToolSection: React.FC<ToolSectionProps> = ({
 
   return (
   <Card sx={{ bgcolor: c.bg.surface, border: `1px solid ${open && enabled ? c.accent.primary : c.border.subtle}`, borderRadius: 2, boxShadow: c.shadow.sm, '&:hover': { borderColor: c.accent.primary, boxShadow: '0 0 0 1px rgba(174,86,48,0.12)' }, transition: 'border-color 0.2s, box-shadow 0.2s' }}>
-    <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+    <CardContent sx={{ py: 1.1, px: 1.75, '&:last-child': { pb: 1.1 } }}>
       <Box
         onClick={() => enabled && onToggle()}
         sx={{ display: 'flex', alignItems: 'center', gap: 2, cursor: enabled ? 'pointer' : 'default' }}
       >
         <Box sx={{
-          width: 36, height: 36, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 30, height: 30, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
           bgcolor: c.bg.secondary, color: c.text.tertiary, flexShrink: 0,
           opacity: enabled ? 1 : 0.4, transition: 'opacity 0.2s',
         }}>
@@ -109,16 +109,17 @@ const ToolSection: React.FC<ToolSectionProps> = ({
         </Box>
         <Box sx={{ flex: 1, minWidth: 0, opacity: enabled ? 1 : 0.4, transition: 'opacity 0.2s' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>{label}</Typography>
+            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.9375rem' }}>{label}</Typography>
             <Chip label={`${count} tools`} size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.muted, fontSize: '0.6875rem', height: 20, '& .MuiChip-label': { px: 0.6 } }} />
             {deferred && (
               <Chip label="on-demand" size="small" sx={{ bgcolor: c.status.warningBg, color: c.status.warning, fontSize: '0.625rem', height: 18, '& .MuiChip-label': { px: 0.6 } }} />
             )}
           </Box>
-          <Typography sx={{ color: c.text.muted, fontSize: '0.8125rem' }}>{sectionDescription}</Typography>
+          <Typography sx={{ color: c.text.muted, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sectionDescription}</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
           <Switch
+            size="small"
             checked={enabled}
             onChange={(_, checked) => onEnabledChange(checked)}
             sx={{

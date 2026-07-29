@@ -260,10 +260,8 @@ export const CommandsContent: React.FC = () => {
                       fontSize: '0.625rem',
                       fontWeight: 600,
                       textTransform: 'uppercase',
-                      bgcolor: cmd.type === 'mode' ? `${modesMap[cmd.id]?.color || c.accent.primary}15`
-                        : `${c.status.success}15`,
-                      color: cmd.type === 'mode' ? (modesMap[cmd.id]?.color || c.accent.primary)
-                        : c.status.success,
+                      bgcolor: c.bg.secondary,
+                      color: c.text.muted,
                     }}
                   />
                   <Typography
@@ -350,8 +348,8 @@ export const CommandsContent: React.FC = () => {
                       fontSize: '0.625rem',
                       fontWeight: 600,
                       textTransform: 'uppercase',
-                      bgcolor: cmd.source === 'builtin' ? `${c.accent.primary}12` : cmd.source === 'view' ? '#f472b615' : `${c.status.info}15`,
-                      color: cmd.source === 'builtin' ? c.accent.primary : cmd.source === 'view' ? '#f472b6' : c.status.info,
+                      bgcolor: c.bg.secondary,
+                      color: c.text.muted,
                     }}
                   />
                   <Typography

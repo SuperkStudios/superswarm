@@ -102,7 +102,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                     key={tool.id}
                     sx={{ bgcolor: c.bg.surface, border: `1px solid ${isExpanded ? c.accent.primary : c.border.subtle}`, borderRadius: 2, boxShadow: c.shadow.sm, '&:hover': { borderColor: isDisabled ? c.border.subtle : c.accent.primary, boxShadow: isDisabled ? undefined : '0 0 0 1px rgba(174,86,48,0.12)' }, transition: 'border-color 0.2s, box-shadow 0.2s' }}
                   >
-                    <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.1, px: 1.75, '&:last-child': { pb: 1.5 } }}>
                       <Box
                         sx={{ display: 'flex', alignItems: 'center', gap: 2, cursor: isDisabled ? 'default' : 'pointer' }}
                         data-onboarding={isYoutube ? 'actions-youtube-chevron' : isReddit ? 'actions-reddit-chevron' : undefined}
@@ -110,7 +110,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                       >
                         {ig && (
                           <Box sx={{
-                            width: 36, height: 36, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            width: 30, height: 30, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
                             bgcolor: `${ig.color}18`, fontSize: '1.125rem', fontWeight: 700, color: ig.color, flexShrink: 0,
                             opacity: isDisabled ? 0.4 : 1, transition: 'opacity 0.2s',
                           }}>
@@ -119,7 +119,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                         )}
                         <Box sx={{ flex: 1, minWidth: 0, opacity: isDisabled ? 0.4 : 1, transition: 'opacity 0.2s' }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-                            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>{tool.name}</Typography>
+                            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.9375rem' }}>{tool.name}</Typography>
                             {isMcp && <Chip icon={<ExtensionIcon sx={{ fontSize: 12 }} />} label={isStdio ? 'MCP · stdio' : 'MCP'} size="small" sx={{ bgcolor: `${c.status.warning}20`, color: c.status.warning, fontSize: '0.75rem', height: 24 }} />}
                             {tool.command && <Chip icon={<TerminalIcon sx={{ fontSize: 12 }} />} label={`/${tool.command}`} size="small" sx={{ bgcolor: 'rgba(174,86,48,0.12)', color: c.accent.hover, fontSize: '0.75rem', height: 22 }} />}
                             {tool.auth_status === 'connected' && !ig && (

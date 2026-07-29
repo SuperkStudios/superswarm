@@ -73,7 +73,6 @@ const UsageStats: React.FC = () => {
     if (v === 0) return '$0.00';
     if (v < 0.001) return `$${v.toFixed(6)}`;
     if (v < 0.01) return `$${v.toFixed(5)}`;
-    if (v < 1) return `$${v.toFixed(4)}`;
     return `$${v.toFixed(2)}`;
   };
   const formatDuration = (s: number) => {

@@ -571,7 +571,6 @@ const Skills: React.FC = () => {
 
             {builderPreview.description && (
               <Box sx={{ mb: 2, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost, mb: 0.5 }}>Description</Typography>
                 <Typography sx={{ fontSize: '0.875rem', color: c.text.secondary, lineHeight: 1.6 }}>
                   {builderPreview.description}
                 </Typography>
@@ -645,7 +644,6 @@ const Skills: React.FC = () => {
               </Box>
 
               <Box sx={{ mb: 2, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost, mb: 0.5 }}>Description</Typography>
                 <Typography sx={{ fontSize: '0.875rem', color: c.text.secondary, lineHeight: 1.6 }}>
                   {selectedReg.description}
                 </Typography>
@@ -731,7 +729,6 @@ const Skills: React.FC = () => {
 
             {selectedLocal.description && (
               <Box sx={{ mb: 2, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost, mb: 0.5 }}>Description</Typography>
                 <Typography sx={{ fontSize: '0.875rem', color: c.text.secondary, lineHeight: 1.6 }}>
                   {selectedLocal.description}
                 </Typography>
