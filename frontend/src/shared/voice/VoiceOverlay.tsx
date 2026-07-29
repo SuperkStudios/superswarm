@@ -30,10 +30,15 @@ function hexToHue(hex: string): { h: number; s: number; l: number } {
   return { h, s: sat * 100, l: l * 100 };
 }
 
+// Interleaved wisps, like colored gases: neighbors always carry a DIFFERENT hue and overlap ~70%,
+// so mixture happens everywhere instead of three tinted patches sitting in a row.
 const LOBES = [
-  { left: '30%', width: '95vw', drift: 0.9, phase: 0.0 },
-  { left: '50%', width: '110vw', drift: 0.7, phase: 2.1 },
-  { left: '70%', width: '95vw', drift: 1.15, phase: 4.2 },
+  { left: '18%', width: '80vw', height: 200, drift: 0.9, phase: 0.0, hue: 0 },
+  { left: '34%', width: '95vw', height: 165, drift: 0.65, phase: 2.1, hue: 2 },
+  { left: '47%', width: '85vw', height: 210, drift: 1.1, phase: 4.2, hue: 1 },
+  { left: '60%', width: '100vw', height: 170, drift: 0.8, phase: 1.3, hue: 0 },
+  { left: '73%', width: '85vw', height: 205, drift: 1.2, phase: 3.4, hue: 2 },
+  { left: '88%', width: '78vw', height: 175, drift: 0.7, phase: 5.1, hue: 1 },
 ];
 
 const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ volumeRef }) => {
@@ -75,16 +80,16 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 170, zIndex: 2147482999, pointerEvents: 'none', overflow: 'visible' }}>
       {LOBES.map((lobe, i) => {
-        const col = [c0, c1, c2][i];
+        const col = [c0, c1, c2][lobe.hue];
         return (
           <div
             key={i}
             ref={(el) => { lobeRefs.current[i] = el; }}
             style={{
-              position: 'absolute', bottom: -40, left: lobe.left, width: lobe.width, height: 190,
+              position: 'absolute', bottom: -40, left: lobe.left, width: lobe.width, height: lobe.height,
               transform: 'translateX(-50%) scale(1, 0.45)', transformOrigin: 'bottom center',
               background: `radial-gradient(ellipse at 50% 100%, ${col} 0%, ${col}00 70%)`,
-              filter: 'blur(48px)', opacity: 0.26, willChange: 'transform, opacity',
+              filter: 'blur(52px)', opacity: 0.17, willChange: 'transform, opacity',
             }}
           />
         );
@@ -92,7 +97,7 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
       <div
         style={{
           position: 'absolute', left: 0, right: 0, bottom: 0, height: 90,
-          background: `linear-gradient(to right, ${c0}44, ${c1}55, ${c2}44)`,
+          background: `linear-gradient(to right, ${c1}33, ${c1}55, ${c1}33)`,
           maskImage: 'linear-gradient(to top, black 0%, transparent 100%)',
           WebkitMaskImage: 'linear-gradient(to top, black 0%, transparent 100%)',
           filter: 'blur(10px)',
