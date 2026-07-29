@@ -66,6 +66,7 @@ export function makeSettingsStyles(c: ClaudeTokens) {
       color: c.text.muted,
       borderColor: c.border.medium,
       textTransform: 'none' as const,
+      whiteSpace: 'nowrap' as const,
       px: 1.75,
       py: 0.5,
       gap: 0.5,

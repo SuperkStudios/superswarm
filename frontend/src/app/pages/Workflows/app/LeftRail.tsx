@@ -135,7 +135,10 @@ const LeftRail: React.FC<{ nav: AppNav }> = ({ nav }) => {
           );
         })}
         {filtered.length === 0 && (
-          <div style={{ padding: '18px 10px', fontSize: 12.5, color: WC.muted2 }}>No workflows yet.</div>
+          <div style={{ padding: '18px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: 12.5, color: WC.muted2 }}>No workflows yet.</div>
+            <div style={{ fontSize: 11.5, color: WC.faint, lineHeight: 1.5 }}>Schedule anything an agent can do, or ask a chat to watch a folder or site for you.</div>
+          </div>
         )}
       </div>
 

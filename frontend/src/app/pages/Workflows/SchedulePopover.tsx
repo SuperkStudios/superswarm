@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import BookmarkIcon from '@mui/icons-material/BookmarkBorderRounded';
 import SearchIcon from '@mui/icons-material/Search';
+import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonthRounded';
 import OpenInFullIcon from '@mui/icons-material/OpenInFullRounded';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -160,27 +161,37 @@ export default function SchedulePopover({
                 </Box>
               )}
             </Box>
-            <Box ref={historyScrollRef} onScroll={onHistoryScroll} sx={{ flex: 1, overflowY: 'auto', borderTop: `1px solid ${c.border.subtle}` }}>
+            <Box ref={historyScrollRef} onScroll={onHistoryScroll} sx={{ flex: 1, overflowY: 'auto', borderTop: `1px solid ${c.border.subtle}`, px: 0.75, py: 0.5 }}>
               {historyResults.length === 0 && !historyLoading && (
                 <Typography sx={{ px: 1.5, py: 2.5, fontSize: '0.8125rem', color: c.text.muted, textAlign: 'center' }}>{historyQuery ? 'No matching chats' : 'No chat history yet'}</Typography>
               )}
-              {historyResults.map((entry) => {
+              {historyResults.map((entry, idx) => {
                 const hasWorkflow = Boolean(workflowIconMap[entry.id]);
+                const bucket = dayBucket(entry.closed_at);
+                const prevBucket = idx > 0 ? dayBucket(historyResults[idx - 1].closed_at) : null;
                 return (
-                  <Box key={entry.id} onClick={() => onHistorySelect(entry.id)} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.9, cursor: 'pointer', '&:hover': { bgcolor: c.bg.elevated } }}>
-                    <Typography sx={{ flex: 1, fontSize: '0.8125rem', color: c.text.primary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</Typography>
-                    {/* Only annotate chats that became saved workflows.
-                        A small workflow glyph reads as a tag, where the
-                        old single-letter chip read as a random initial. */}
-                    {hasWorkflow && (
-                      <Tooltip title="This chat is saved as a workflow">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '4px', color: c.text.muted }}>
-                          <BookmarkIcon sx={{ fontSize: 13 }} />
-                        </Box>
-                      </Tooltip>
+                  <React.Fragment key={entry.id}>
+                    {bucket !== prevBucket && (
+                      <Typography sx={{ px: 1, pt: idx === 0 ? 0.75 : 1.5, pb: 0.5, fontSize: '0.6563rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: c.text.ghost }}>{bucket}</Typography>
                     )}
-                    <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, flexShrink: 0, whiteSpace: 'nowrap' }}>{relTime(entry.closed_at)}</Typography>
-                  </Box>
+                    <Box onClick={() => onHistorySelect(entry.id)} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.8, cursor: 'pointer', borderRadius: `${c.radius.md}px`, '&:hover': { bgcolor: c.bg.elevated } }}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '7px', bgcolor: c.bg.elevated, color: c.text.muted, flexShrink: 0 }}>
+                        <ChatBubbleOutlineIcon sx={{ fontSize: 13 }} />
+                      </Box>
+                      <Typography sx={{ flex: 1, fontSize: '0.8125rem', color: c.text.primary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</Typography>
+                      {/* Only annotate chats that became saved workflows.
+                          A small workflow glyph reads as a tag, where the
+                          old single-letter chip read as a random initial. */}
+                      {hasWorkflow && (
+                        <Tooltip title="This chat is saved as a workflow">
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '4px', color: c.text.muted }}>
+                            <BookmarkIcon sx={{ fontSize: 13 }} />
+                          </Box>
+                        </Tooltip>
+                      )}
+                      <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, flexShrink: 0, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{relTime(entry.closed_at)}</Typography>
+                    </Box>
+                  </React.Fragment>
                 );
               })}
             </Box>
@@ -264,6 +275,18 @@ function ModeChip({ label, icon, active, onClick }: { label: string; icon: React
       {label}
     </Box>
   );
+}
+
+function dayBucket(iso: string | null): string {
+  if (!iso) return 'Earlier';
+  const then = new Date(iso);
+  const now = new Date();
+  const startOfDay = (d: Date): number => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round((startOfDay(now) - startOfDay(then)) / 86400000);
+  if (dayDiff <= 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff < 7) return 'This week';
+  return 'Earlier';
 }
 
 function relTime(iso: string | null): string {
