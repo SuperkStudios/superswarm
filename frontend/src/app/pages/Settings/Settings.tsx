@@ -259,6 +259,10 @@ const Settings: React.FC = () => {
           boxShadow: c.shadow.md,
           transition: 'none',
           overflow: 'hidden',
+          // The serif brand face reads bookish inside dense settings panes; system sans here is
+          // what makes Claude/Linear-grade settings feel engineered. Mono labels keep their own
+          // stack (their per-component sx classes land later in the sheet and win).
+          '& .MuiTypography-root, & .MuiButton-root, & .MuiToggleButton-root, & .MuiChip-label, & .MuiInputBase-root': { fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif' },
         },
       }}
     >
