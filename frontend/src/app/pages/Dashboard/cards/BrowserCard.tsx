@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { store } from '@/shared/state/store';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -44,7 +45,7 @@ import {
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
-import { useTiledStyle } from './tileZones';
+import { useTiledStyle, computeTiledStyle } from './tileZones';
 import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
@@ -890,14 +891,27 @@ const BrowserCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      // Grabbing an edge of a TILED card exits the tile and resizes from exactly where it sat,
+      // macOS-style; without this the handles resized the stale free-position geometry.
+      let origX = cardX, origY = cardY, origW = cardWidth, origH = cardHeight;
+      const zone = store.getState().dashboardLayout.tiledCards[browserId];
+      if (zone) {
+        const cam = getCanvasState();
+        const ts = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
+        if (ts) {
+          origX = ts.left; origY = ts.top; origW = ts.width / cam.zoom; origH = ts.height / cam.zoom;
+          setLocalResize({ x: origX, y: origY, w: origW, h: origH });
+          dispatch(clearTiledCard(browserId));
+        }
+      }
       resizeRef.current = {
         dir, startX: e.clientX, startY: e.clientY,
-        origX: cardX, origY: cardY, origW: cardWidth, origH: cardHeight,
+        origX, origY, origW, origH,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight],
+    [cardX, cardY, cardWidth, cardHeight, getCanvasState, dispatch],
   );
 
   const computeResize = useCallback(
