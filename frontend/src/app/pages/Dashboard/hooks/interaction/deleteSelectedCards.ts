@@ -1,7 +1,7 @@
 import { closeSession } from '@/shared/state/agentsSlice';
 import { removeNote, removeWorkflowCard, closeWorkflowsHub, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
 import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
-import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
+import { removeBrowserCardsCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import type { AppDispatch } from '@/shared/state/store';
 import type { CardType } from '../state/useDashboardSelection';
@@ -36,6 +36,6 @@ export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch
   // "non-existent mailbox" errors and SIGSEGVs the GPU/browser process (the mass-delete self-quit).
   void (async () => {
     for (const id of viewIds) await removeViewCardCleanly(id, dispatch);
-    for (const id of browserIds) await removeBrowserCardCleanly(id, dispatch);
+    await removeBrowserCardsCleanly(browserIds, dispatch);
   })();
 }

@@ -38,3 +38,17 @@ export async function removeBrowserCardCleanly(
   forgetBrowser(browserId);
   dispatch(removeBrowserCard(browserId));
 }
+
+// Batch remove: detach every browser's CDP in PARALLEL (order-independent, the only invariant is
+// all debuggers gone before any unmount), THEN remove them. Serial detach cost ~72ms/browser, so a
+// 20-card multi-select delete lagged over a second; this keeps the crash-safe ordering but flat.
+export async function removeBrowserCardsCleanly(
+  browserIds: string[],
+  dispatch: Dispatch,
+): Promise<void> {
+  await Promise.allSettled(browserIds.map((id) => detachBrowserCdp(id)));
+  for (const id of browserIds) {
+    forgetBrowser(id);
+    dispatch(removeBrowserCard(id));
+  }
+}
