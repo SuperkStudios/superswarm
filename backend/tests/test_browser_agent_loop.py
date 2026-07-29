@@ -1511,3 +1511,70 @@ def test_strip_lone_surrogates():
     blocks[0]["text"].encode("utf-8")
     err = format_tool_result({"error": "bad \ud83e node"}, "BrowserClickIndex")
     err[0]["text"].encode("utf-8")
+
+
+def test_transient_429_retries_then_succeeds(monkeypatch):
+    # The free-pool-busy class: create raises a 429 twice, then the run proceeds. Backoffs zeroed so the test doesn't sleep.
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    import backend.apps.agents.core.error_classify as EC
+    monkeypatch.setattr(EC, "CAPACITY_BACKOFFS", [0, 0, 0], raising=True)
+
+    class FlakyLLM(FakeLLM):
+        def __init__(self, scripted, failures):
+            super().__init__(scripted)
+            self.failures = failures
+
+        async def create(self, **kw):
+            if self.failures > 0:
+                self.failures -= 1
+                self.calls.append(kw)
+                raise Exception(
+                    "Error code: 429 - {'type': 'error', 'error': {'type': 'free_pool_busy', "
+                    "'message': \"OpenSwarm's free pool is busy right now.\"}}"
+                )
+            return await super().create(**kw)
+
+    primary = FlakyLLM([Resp([Blk("text", "All done.")], stop_reason="end_turn")], failures=2)
+    aux = FakeAux()
+    p_install(monkeypatch, primary, aux)
+    result = asyncio.run(BA.run_browser_agent(task="check the page", browser_id="b1", model="sonnet"))
+    assert len(primary.calls) == 3
+    assert not result["summary"].startswith("Error:")
+
+
+def test_free_trial_exhausted_gets_friendly_summary(monkeypatch):
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+
+    class DeadLLM(FakeLLM):
+        async def create(self, **kw):
+            raise Exception(
+                "Error code: 402 - {'type': 'error', 'error': {'type': 'free_trial_exhausted', "
+                "'message': \"You've used all your free runs.\"}}"
+            )
+
+    primary = DeadLLM([])
+    aux = FakeAux()
+    p_install(monkeypatch, primary, aux)
+    result = asyncio.run(BA.run_browser_agent(task="check the page", browser_id="b1", model="sonnet"))
+    assert "used your free runs" in result["summary"]
+    assert "free_trial_exhausted" not in result["summary"]
+
+
+def test_capacity_budget_exhausted_gets_friendly_summary(monkeypatch):
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    import backend.apps.agents.core.error_classify as EC
+    monkeypatch.setattr(EC, "CAPACITY_BACKOFFS", [0], raising=True)
+
+    class Busy429LLM(FakeLLM):
+        async def create(self, **kw):
+            raise Exception(
+                "Error code: 429 - {'type': 'error', 'error': {'type': 'free_pool_busy', "
+                "'message': \"OpenSwarm's free pool is busy right now.\"}}"
+            )
+
+    primary = Busy429LLM([])
+    aux = FakeAux()
+    p_install(monkeypatch, primary, aux)
+    result = asyncio.run(BA.run_browser_agent(task="check the page", browser_id="b1", model="sonnet"))
+    assert "at capacity right now" in result["summary"]
+    assert "free_pool_busy" not in result["summary"]
