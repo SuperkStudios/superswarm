@@ -24,11 +24,15 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
 
   const pressStart = useCallback((): void => {
     if (holdMode) {
+      // A TAP while recording must stop: the quick tap's press-end fires before the async start
+      // flips state to 'recording', so without this the mic could be started by a click but never
+      // stopped by one.
+      if (stateRef.current === 'recording') { heldRef.current = false; void stop(); return; }
       if (stateRef.current === 'idle') { heldRef.current = true; void start(); }
     } else {
       toggle();
     }
-  }, [holdMode, start, toggle]);
+  }, [holdMode, start, stop, toggle]);
 
   const pressEnd = useCallback((): void => {
     if (holdMode && heldRef.current) {

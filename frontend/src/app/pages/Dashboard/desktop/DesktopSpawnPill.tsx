@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { comboDisplay, dictationDefaultCombo } from '@/app/pages/Settings/sections/general/ShortcutRecorderChip';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
@@ -160,7 +161,7 @@ function DesktopSpawnPill({
         >
           <AddRounded sx={{ fontSize: 18 }} />
         </Box>
-        <Tooltip title={recording ? 'Stop dictation' : preparing ? `Downloading voice model ${voicePct}%` : 'Dictate (F5)'} placement="top" arrow>
+        <Tooltip title={recording ? 'Stop dictation' : preparing ? `Downloading voice model ${voicePct}%` : `Dictate (${comboDisplay(dictationDefaultCombo())})`} placement="top" arrow>
           <Box
             role="button"
             aria-label="Voice dictation"
