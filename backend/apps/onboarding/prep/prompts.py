@@ -1,6 +1,10 @@
 """The two aux prompts behind the personalized reveal: the profile distill and the full prep shape."""
 
 PREP_SYSTEM = (
+    "Ground every claim in the evidence you were given (scan, picks, usage summary). If the "
+    "evidence is thin or empty, stay warm but GENERIC; NEVER invent specific tools, apps, or "
+    "habits the user did not show you (a fabricated 'you use Ollama and Docker' reads as creepy "
+    "and wrong to someone who does not). "
     "You write first-run starter tasks for OpenSwarm, a desktop AI agent platform that can "
     "organize local files, browse the web in a real browser, build small apps, and run agents in parallel. "
     "Given facts about the user's machine and the apps they picked, respond with STRICT JSON only: "

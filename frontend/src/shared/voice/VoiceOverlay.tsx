@@ -65,9 +65,13 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
 
   // Opposite side of the wheel from the chosen accent, with two flanking hues for a real gradient.
   const { h } = hexToHue(accent || '#6b62f0');
-  const c0 = `hsl(${(h + 156) % 360} 92% 62%)`;
-  const c1 = `hsl(${(h + 180) % 360} 94% 58%)`;
-  const c2 = `hsl(${(h + 204) % 360} 92% 64%)`;
+  // Wide, softly randomized spread around the complement: three tight neon bands read segmented
+  // (the red/orange/yellow stripe complaint); jittered hues + lower saturation blend like a real
+  // aurora while staying distinguishable. Jitter is per-mount so each dictation feels alive.
+  const jitter = React.useMemo(() => [Math.random() * 30 - 15, Math.random() * 20 - 10, Math.random() * 30 - 15], []);
+  const c0 = `hsl(${(h + 120 + jitter[0] + 360) % 360} 74% 64%)`;
+  const c1 = `hsl(${(h + 180 + jitter[1]) % 360} 78% 60%)`;
+  const c2 = `hsl(${(h + 240 + jitter[2]) % 360} 74% 66%)`;
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 170, zIndex: 2147482999, pointerEvents: 'none', overflow: 'visible' }}>
       {LOBES.map((lobe, i) => {
