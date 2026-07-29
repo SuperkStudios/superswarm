@@ -134,6 +134,7 @@ function DesktopDock({
   return (
     <Box
       ref={dockBodyRef}
+      data-desktop-dock
       onMouseMove={(e: React.MouseEvent) => applyDockMagnify(e.clientY)}
       onMouseLeave={() => { endHover(); applyDockMagnify(null); }}
       sx={{

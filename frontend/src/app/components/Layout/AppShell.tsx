@@ -436,7 +436,7 @@ const AppShell: React.FC = () => {
   return (
     <Box sx={{
       display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
-      ...(fsActive && fsWashStops ? { backgroundImage: washBackgroundUrl(fsWashStops, themeWashOpacity), backgroundSize: '100% 100%' } : {}),
+      ...(fsWashStops ? { backgroundImage: washBackgroundUrl(fsWashStops, themeWashOpacity), backgroundSize: '100% 100%' } : {}),
     }}>
       {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
           spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}

@@ -33,16 +33,22 @@ export interface TiledStyle {
   transformOrigin: string;
 }
 
-// The workspace = the canvas viewport element (already below the app header, dock floats over it),
-// measured live so we never hardcode chrome sizes that drift. Its screen origin cancels out of the
-// math below because the card shares the viewport's coordinate system, so we only need its size.
-function workspaceSize(): { w: number; h: number } {
+// The workspace = the canvas viewport element (already below the app header), measured live so we
+// never hardcode chrome sizes that drift. Its screen origin cancels out of the math below because
+// the card shares the viewport's coordinate system. x0 insets the LEFT edge past the floating dock
+// rail (macOS model: tiled windows start beside the Dock, never under it), which is what keeps
+// fullscreen AND half/quarter tiles clear of it.
+function workspaceRect(): { x0: number; w: number; h: number } {
   const el = document.querySelector('[data-canvas-viewport]');
-  if (el) {
-    const r = el.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) return { w: r.width, h: r.height };
+  const r = el?.getBoundingClientRect();
+  if (!r || !(r.width > 0 && r.height > 0)) return { x0: 0, w: window.innerWidth, h: window.innerHeight };
+  let x0 = 0;
+  const dock = document.querySelector('[data-desktop-dock]');
+  if (dock) {
+    const dr = dock.getBoundingClientRect();
+    if (dr.width > 0 && dr.right > r.left && dr.left < r.left + r.width * 0.25) x0 = dr.right - r.left + GAP;
   }
-  return { w: window.innerWidth, h: window.innerHeight };
+  return { x0, w: r.width, h: r.height };
 }
 
 export function computeTiledStyle(zone: string, panX: number, panY: number, zoom: number): TiledStyle | null {
@@ -50,11 +56,11 @@ export function computeTiledStyle(zone: string, panX: number, panY: number, zoom
   // zones use. Anchored to the VIEWPORT (not the window) so docked chrome, like the pinned sidebar,
   // squeezes the card instead of being covered by it (the canvas viewport shrinks with the sidebar).
   if (zone === 'fullscreen') {
-    const { w: vpW, h: vpH } = workspaceSize();
+    const { x0, w: vpW, h: vpH } = workspaceRect();
     return {
-      left: (GAP - panX) / zoom,
+      left: (x0 + GAP - panX) / zoom,
       top: (GAP - panY) / zoom,
-      width: vpW - GAP * 2,
+      width: vpW - x0 - GAP * 2,
       height: vpH - GAP * 2,
       transform: `scale(${1 / zoom})`,
       transformOrigin: 'top left',
@@ -62,13 +68,14 @@ export function computeTiledStyle(zone: string, panX: number, panY: number, zoom
   }
   const z = TILE_ZONES[zone];
   if (!z) return null;
-  const { w: vpW, h: vpH } = workspaceSize();
+  const { x0, w: vpW, h: vpH } = workspaceRect();
+  const usableW = vpW - x0;
   // Screen region (vpX + GAP, vpY + GAP, ...) converted to canvas coords: card lives inside the
   // pan/zoom layer, so screen = viewportOrigin + pan + canvasPos*zoom, and viewportOrigin cancels.
   return {
-    left: (z.x * vpW + GAP - panX) / zoom,
+    left: (x0 + z.x * usableW + GAP - panX) / zoom,
     top: (z.y * vpH + GAP - panY) / zoom,
-    width: z.w * vpW - GAP * 2,
+    width: z.w * usableW - GAP * 2,
     height: z.h * vpH - GAP * 2,
     transform: `scale(${1 / zoom})`,
     transformOrigin: 'top left',
@@ -154,8 +161,8 @@ export function useTiledStyle(
     let lastKey = '';
     const tick = (): void => {
       const cam = getLive();
-      const size = workspaceSize();
-      const key = `${cam.panX}:${cam.panY}:${cam.zoom}:${size.w}:${size.h}`;
+      const size = workspaceRect();
+      const key = `${cam.panX}:${cam.panY}:${cam.zoom}:${size.x0}:${size.w}:${size.h}`;
       if (key !== lastKey) { lastKey = key; apply(); }
       raf = window.requestAnimationFrame(tick);
     };
