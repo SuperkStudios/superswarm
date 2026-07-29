@@ -31,9 +31,9 @@ function hexToHue(hex: string): { h: number; s: number; l: number } {
 }
 
 const LOBES = [
-  { left: '14%', width: '58vw', drift: 0.9, phase: 0.0 },
-  { left: '50%', width: '74vw', drift: 0.7, phase: 2.1 },
-  { left: '86%', width: '52vw', drift: 1.15, phase: 4.2 },
+  { left: '30%', width: '95vw', drift: 0.9, phase: 0.0 },
+  { left: '50%', width: '110vw', drift: 0.7, phase: 2.1 },
+  { left: '70%', width: '95vw', drift: 1.15, phase: 4.2 },
 ];
 
 const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ volumeRef }) => {
@@ -68,10 +68,10 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
   // Wide, softly randomized spread around the complement: three tight neon bands read segmented
   // (the red/orange/yellow stripe complaint); jittered hues + lower saturation blend like a real
   // aurora while staying distinguishable. Jitter is per-mount so each dictation feels alive.
-  const jitter = React.useMemo(() => [Math.random() * 30 - 15, Math.random() * 20 - 10, Math.random() * 30 - 15], []);
-  const c0 = `hsl(${(h + 120 + jitter[0] + 360) % 360} 74% 64%)`;
-  const c1 = `hsl(${(h + 180 + jitter[1]) % 360} 78% 60%)`;
-  const c2 = `hsl(${(h + 240 + jitter[2]) % 360} 74% 66%)`;
+  const jitter = React.useMemo(() => [Math.random() * 16 - 8, Math.random() * 12 - 6, Math.random() * 16 - 8], []);
+  const c0 = `hsl(${(h + 158 + jitter[0] + 360) % 360} 68% 63%)`;
+  const c1 = `hsl(${(h + 180 + jitter[1]) % 360} 72% 60%)`;
+  const c2 = `hsl(${(h + 202 + jitter[2]) % 360} 68% 65%)`;
   return (
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 170, zIndex: 2147482999, pointerEvents: 'none', overflow: 'visible' }}>
       {LOBES.map((lobe, i) => {
@@ -84,7 +84,7 @@ const VoiceAurora: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ 
               position: 'absolute', bottom: -40, left: lobe.left, width: lobe.width, height: 190,
               transform: 'translateX(-50%) scale(1, 0.45)', transformOrigin: 'bottom center',
               background: `radial-gradient(ellipse at 50% 100%, ${col} 0%, ${col}00 70%)`,
-              filter: 'blur(26px)', opacity: 0.3, willChange: 'transform, opacity',
+              filter: 'blur(48px)', opacity: 0.26, willChange: 'transform, opacity',
             }}
           />
         );
