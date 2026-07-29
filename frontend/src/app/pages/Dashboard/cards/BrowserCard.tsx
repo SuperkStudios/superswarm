@@ -49,7 +49,7 @@ import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { handleApproval } from '@/shared/state/agentsSlice';
+import { handleApproval, expandSession } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import {
   registerWebview,
@@ -828,6 +828,9 @@ const BrowserCard: React.FC<Props> = ({
       const dockTarget = slotHit?.getAttribute('data-browser-slot') || chatHit?.getAttribute('data-select-id') || null;
       if (dockTarget) {
         dispatch(setBrowserDocked({ browserId, dockedTo: dockTarget }));
+        // Chats live as collapsed pills by default; docking into a pill used to park the card at
+        // -100000 instantly (it just vanished). Open the chat so the drop visibly lands in the slot.
+        dispatch(expandSession(dockTarget));
       } else if (dockedTo) {
         dispatch(setBrowserDocked({ browserId, dockedTo: null }));
       }

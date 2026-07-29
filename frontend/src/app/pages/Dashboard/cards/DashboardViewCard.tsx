@@ -17,6 +17,7 @@ import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
 import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
@@ -431,6 +432,8 @@ const DashboardViewCard: React.FC<Props> = ({
       const dockTarget = slotHit?.getAttribute('data-browser-slot') || chatHit?.getAttribute('data-select-id') || null;
       if (dockTarget) {
         dispatch(setViewDocked({ cardKey, dockedTo: dockTarget }));
+        // Same as BrowserCard: docking into a collapsed pill must open the chat, not vanish the app.
+        dispatch(expandSession(dockTarget));
       } else if (dockedTo) {
         dispatch(setViewDocked({ cardKey, dockedTo: null }));
       }
