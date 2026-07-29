@@ -11,6 +11,13 @@ import VoiceOverlay from './VoiceOverlay';
 export function VoiceDictationProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const { state, lastText, error, pct, feedback, toggle, start, stop, volumeRef } = useVoiceDictation();
   const holdMode = useAppSelector((s) => s.settings.data.voice_hold_to_talk ?? true);
+  const dictationShortcut = useAppSelector((s) => s.settings.data.dictation_shortcut ?? null);
+
+  // Push the user's combo to main on boot and on change so every hotkey tier rebinds live.
+  useEffect(() => {
+    const bridge = window as unknown as { openswarm?: { setVoiceHotkey?: (combo: string | null) => void } };
+    bridge.openswarm?.setVoiceHotkey?.(dictationShortcut);
+  }, [dictationShortcut]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const heldRef = useRef(false);

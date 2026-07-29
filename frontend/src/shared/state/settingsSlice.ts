@@ -45,6 +45,7 @@ export interface AppSettings {
   zoom_sensitivity: number;
   theme: 'light' | 'dark';
   new_agent_shortcut: string;
+  dictation_shortcut?: string | null;
   anthropic_api_key: string | null;
   openai_api_key?: string | null;
   google_api_key?: string | null;
@@ -165,6 +166,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   voice_hold_to_talk: true,
   theme: 'light',
   new_agent_shortcut: 'Meta+l',
+  dictation_shortcut: null,
   anthropic_api_key: null,
   browser_homepage: 'https://duckduckgo.com',
   auto_select_mode_on_new_agent: false,

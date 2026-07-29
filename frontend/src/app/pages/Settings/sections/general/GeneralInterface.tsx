@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
@@ -8,13 +8,13 @@ import Slider from '@mui/material/Slider';
 import Switch from '@mui/material/Switch';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
-import KeyboardIcon from '@mui/icons-material/Keyboard';
 import LanguageIcon from '@mui/icons-material/Language';
 import { AppSettings } from '@/shared/state/settingsSlice';
 import { useClaudeTokens, useThemeWash } from '@/shared/styles/ThemeContext';
 import AccentColorPad from '@/app/components/theme/AccentColorPad';
 import type { SettingsStyles } from '../settingsStyles';
 import { settingSelectAttrs } from '../settingSelect';
+import ShortcutRecorderChip, { dictationDefaultCombo, comboDisplay } from './ShortcutRecorderChip';
 
 const GeneralInterface: React.FC<{
   form: AppSettings;
@@ -23,7 +23,6 @@ const GeneralInterface: React.FC<{
 }> = ({ form, setForm, styles }) => {
   const c = useClaudeTokens();
   const { washOpacity, grain, setWashOpacity, setGrain } = useThemeWash();
-  const [recordingShortcut, setRecordingShortcut] = useState(false);
   const { fieldSx, sectionSx, rowSx, rowLastSx, inlineRowSx, inlineRowLastSx, labelSx, descSx, toggleGroupSx, switchSx } = styles;
 
   return (
@@ -72,7 +71,7 @@ const GeneralInterface: React.FC<{
       <Box sx={inlineRowSx} {...settingSelectAttrs('voice_hold_to_talk', 'Dictation', 'Interface', 'Hold to talk, or tap to start and stop.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Dictation</Typography>
-          <Typography sx={descSx}>{`How the mic button and the dictation shortcut (${/Mac/.test(navigator.platform) ? '\u2318\u21e7D' : 'Ctrl+Shift+D'}) work.`}</Typography>
+          <Typography sx={descSx}>{`How the mic button and the dictation shortcut (${comboDisplay(form.dictation_shortcut || dictationDefaultCombo())}) work.`}</Typography>
         </Box>
         <ToggleButtonGroup
           value={form.voice_hold_to_talk ?? true}
@@ -90,6 +89,17 @@ const GeneralInterface: React.FC<{
           <ToggleButton value={true}>Hold to talk</ToggleButton>
           <ToggleButton value={false}>Tap to toggle</ToggleButton>
         </ToggleButtonGroup>
+      </Box>
+
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_shortcut', 'Dictation shortcut', 'Interface', 'Global hotkey that starts dictation.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Dictation shortcut</Typography>
+          <Typography sx={descSx}>Works anywhere, even with the app in the background.</Typography>
+        </Box>
+        <ShortcutRecorderChip
+          value={form.dictation_shortcut || dictationDefaultCombo()}
+          onChange={(combo) => setForm({ ...form, dictation_shortcut: combo })}
+        />
       </Box>
 
       <Box sx={rowSx} {...settingSelectAttrs('accent_color', 'Accent color', 'Interface', 'The accent color used across the app.')}>
@@ -138,57 +148,10 @@ const GeneralInterface: React.FC<{
           <Typography sx={labelSx}>New agent shortcut</Typography>
           <Typography sx={descSx}>Keyboard shortcut to create an agent.</Typography>
         </Box>
-        <Box
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (!recordingShortcut) return;
-            if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
-            e.preventDefault();
-            const parts: string[] = [];
-            if (e.metaKey) parts.push('Meta');
-            if (e.ctrlKey) parts.push('Ctrl');
-            if (e.altKey) parts.push('Alt');
-            if (e.shiftKey) parts.push('Shift');
-            parts.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
-            setForm({ ...form, new_agent_shortcut: parts.join('+') });
-            setRecordingShortcut(false);
-          }}
-          onBlur={() => setRecordingShortcut(false)}
-          onClick={() => setRecordingShortcut(true)}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 0.75,
-            px: 1.5,
-            py: 0.75,
-            borderRadius: `${c.radius.sm}px`,
-            border: `1px solid ${recordingShortcut ? c.accent.primary : c.border.medium}`,
-            cursor: 'pointer',
-            outline: 'none',
-            transition: 'border-color 0.15s',
-            '&:hover': { borderColor: c.accent.primary },
-          }}
-        >
-          <KeyboardIcon sx={{ fontSize: 16, color: recordingShortcut ? c.accent.primary : c.text.tertiary }} />
-          {recordingShortcut ? (
-            <Typography sx={{ fontSize: '0.8125rem', color: c.accent.primary, fontWeight: 500 }}>
-              Press shortcut…
-            </Typography>
-          ) : (
-            <Typography sx={{ fontSize: '0.8125rem', color: c.text.primary, fontFamily: c.font.mono, fontWeight: 500 }}>
-              {form.new_agent_shortcut
-                .split('+')
-                .map((p) => {
-                  if (p === 'Meta') return '⌘';
-                  if (p === 'Ctrl') return 'Ctrl';
-                  if (p === 'Alt') return '⌥';
-                  if (p === 'Shift') return '⇧';
-                  return p.toUpperCase();
-                })
-                .join(' + ')}
-            </Typography>
-          )}
-        </Box>
+        <ShortcutRecorderChip
+          value={form.new_agent_shortcut}
+          onChange={(combo) => setForm({ ...form, new_agent_shortcut: combo })}
+        />
       </Box>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('auto_select_mode_on_new_agent', 'Auto-enable element selection', 'Interface', 'Enter element selection mode when creating a new agent.')}>

@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
   // True keyboard hold-to-talk needs the native key tap; renderers ask so Settings copy stays honest,
   // and request triggers the macOS Accessibility prompt when the tap is blocked on permission.
+  setVoiceHotkey: (combo) => ipcRenderer.send('voice:set-hotkey', combo),
   voiceHoldCapable: () => ipcRenderer.invoke('voice:hold-capable'),
   voiceRequestHoldPermission: () => ipcRenderer.invoke('voice:request-hold-permission'),
   haptic: (pattern) => ipcRenderer.invoke('haptic:perform', pattern),

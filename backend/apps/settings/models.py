@@ -49,6 +49,9 @@ class AppSettings(BaseModel):
     # Shared across App Builder workspaces (each runs its own vite port / localStorage origin); null = follow system.
     app_template_theme_override: Optional[Literal["light", "dark"]] = None
     new_agent_shortcut: str = "Meta+l"
+    # None = platform default (Cmd/Ctrl+Shift+D); parts format matches new_agent_shortcut.
+    dictation_shortcut: Optional[str] = None
+    voice_hold_to_talk: bool = True
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
     openai_api_key: Optional[str] = None
