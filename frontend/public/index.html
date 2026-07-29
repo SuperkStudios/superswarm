@@ -41,6 +41,28 @@
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
 </head>
 <body>
+  <script>
+    // Pre-React boot paint: last session's wash gradient (or the stock one) on the root element,
+    // so a reload never flashes a flat white frame while the bundle boots. Stock stops mirror
+    // DEFAULT_WASH_STOPS in shared/styles/washBackground.ts; keep them in sync by hand.
+    (function () {
+      try {
+        var mode = localStorage.getItem('self-swarm-theme-mode') === 'dark' ? 'dark' : 'light';
+        var g = null;
+        try { g = JSON.parse(localStorage.getItem('self-swarm-theme-gradient') || 'null'); } catch (e) {}
+        var accent = localStorage.getItem('self-swarm-theme-accent');
+        var stops = Array.isArray(g) && g.length > 1 ? g : (accent ? [accent, accent] : ['#B7CDEA', '#EFE0D2', '#E7BDD1']);
+        if (stops.length === 1) stops = [stops[0], stops[0]];
+        var alpha = parseFloat(localStorage.getItem('self-swarm-theme-wash-opacity') || '');
+        if (!isFinite(alpha) || alpha < 0 || alpha > 1) alpha = 0.17;
+        var a = Math.round(alpha * 255).toString(16);
+        if (a.length < 2) a = '0' + a;
+        var css = stops.map(function (hex, i) { return hex + a + ' ' + Math.round((i / (stops.length - 1)) * 100) + '%'; }).join(', ');
+        var base = mode === 'dark' ? '#3D3D3A' : '#F5F4ED';
+        document.documentElement.style.background = 'linear-gradient(115deg, ' + css + ') fixed, ' + base;
+      } catch (e) { /* boot paint is cosmetic; never block boot */ }
+    })();
+  </script>
   <div id="root"></div>
 </body>
 </html>
