@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { effectiveWashStops } from '@/shared/styles/washBackground';
 import { motion } from 'framer-motion';
 import { ArrowLeft } from 'lucide-react';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
@@ -53,7 +54,7 @@ const BeatShell: React.FC<{
   // Once the user has picked stops the stage wears them (our theme beat repaints live); before that it stays Arc-mauve.
   const { accent, gradient } = useThemeAccent();
   const { washOpacity, grain } = useThemeWash();
-  const stops = gradient ?? (accent ? [accent] : null);
+  const stops = effectiveWashStops(gradient, accent);
   // Picked color reads VIVID on the stage (alpha floor over near-white), not muddied into the mauve.
   const washAlpha = Math.round(Math.max(0.5, washOpacity) * 255).toString(16).padStart(2, '0');
   const stageBg = stageDark

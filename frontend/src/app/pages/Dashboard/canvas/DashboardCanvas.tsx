@@ -14,7 +14,7 @@ import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import { GRAIN_URL } from '@/shared/styles/grainTexture';
-import { washBackgroundUrl } from '@/shared/styles/washBackground';
+import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -168,7 +168,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   const { accent, gradient } = useThemeAccent();
   const { washOpacity, grain } = useThemeWash();
   // A single picked color stores gradient=null, so fall back to the accent (mirrors BeatShell).
-  const washStops = gradient ?? (accent ? [accent] : null);
+  const washStops = effectiveWashStops(gradient, accent);
   const dotSize = Math.max(1, 1.5 * canvas.zoom);
   const dotSpacing = 24 * canvas.zoom;
 

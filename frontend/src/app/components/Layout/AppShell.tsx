@@ -38,7 +38,7 @@ import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
-import { washBackgroundUrl } from '@/shared/styles/washBackground';
+import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
@@ -96,7 +96,7 @@ const AppShell: React.FC = () => {
   // the content floats as a rounded card). Mirrors the DashboardCanvas wash formula.
   const { accent: themeAccent, gradient: themeGradient } = useThemeAccent();
   const { washOpacity: themeWashOpacity } = useThemeWash();
-  const fsWashStops = themeGradient ?? (themeAccent ? [themeAccent] : null);
+  const fsWashStops = effectiveWashStops(themeGradient, themeAccent);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
     const d = s.settings.data as any;

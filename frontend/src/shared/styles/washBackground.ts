@@ -12,3 +12,13 @@ export function washBackgroundUrl(stops: string[], washOpacity: number): string 
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' preserveAspectRatio='none'><defs><linearGradient id='w' x1='0%' y1='0%' x2='90%' y2='42%'>${stopEls}</linearGradient></defs><rect width='100' height='100' fill='url(%23w)'/></svg>`;
   return `url("data:image/svg+xml,${svg.replace(/#/g, '%23').replace(/'/g, '%27')}")`;
 }
+
+// Stock wallpaper when the user hasn't picked an accent yet: a designed blue-to-cream-to-pink
+// gradient (contrasting stops), so a fresh install and the onboarding stage never look flat/white.
+export const DEFAULT_WASH_STOPS = ['#B7CDEA', '#EFE0D2', '#E7BDD1'];
+
+export function effectiveWashStops(gradient: string[] | null, accent: string | null): string[] {
+  if (gradient && gradient.length > 0) return gradient;
+  if (accent) return [accent];
+  return DEFAULT_WASH_STOPS;
+}
