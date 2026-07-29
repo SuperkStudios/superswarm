@@ -197,11 +197,13 @@ const DashboardViewCard: React.FC<Props> = ({
     // A RO only fires on slot RESIZE; the chat tiling/untiling MOVES the slot without resizing the
     // window, so re-measure on camera writes + settle timers or the docked card lags behind.
     window.addEventListener('openswarm:canvas-pan-changed', measure);
+    document.addEventListener('visibilitychange', measure);
     const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('openswarm:canvas-pan-changed', measure);
+      document.removeEventListener('visibilitychange', measure);
       timers.forEach((tm) => window.clearTimeout(tm));
     };
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);

@@ -123,7 +123,7 @@ export function useTiledStyle(
       ? el
       : (el.parentElement as HTMLElement | null) ?? el;
     const posProps = ['left', 'top'];
-    const sizeProps = ['width', 'height', 'transform', 'transform-origin'];
+    const sizeProps = ['width', 'height', 'transform', 'transform-origin', 'transition'];
     const clearAll = (): void => {
       posProps.forEach((pr) => posEl.style.removeProperty(pr));
       sizeProps.forEach((pr) => el.style.removeProperty(pr));
@@ -142,10 +142,18 @@ export function useTiledStyle(
       el.style.setProperty('height', `${s.height}px`, 'important');
       el.style.setProperty('transform', s.transform, 'important');
       el.style.setProperty('transform-origin', s.transformOrigin, 'important');
+      // Transitions OUTRANK inline important in the cascade, and in an occluded window they pin at
+      // t=0 forever, freezing the tile at stale geometry. Tiled cards track the camera instantly
+      // by design, so geometry must never animate here.
+      el.style.setProperty('transition', 'none', 'important');
     };
     apply();
     window.addEventListener('openswarm:canvas-pan-changed', apply);
     window.addEventListener('resize', apply);
+    // An occluded window freezes rAF (framer, the tracker below), so geometry set while hidden can
+    // land stale; re-apply the moment the window is visible again.
+    document.addEventListener('visibilitychange', apply);
+    window.addEventListener('focus', apply);
     // The workspace can change size WITHOUT a window resize (chrome collapsing on fullscreen-enter,
     // a banner appearing). These inline writes OVERRIDE the class styles, so they must re-measure on
     // the same signals the React path uses or the tile keeps the pre-collapse viewport (the
@@ -170,6 +178,8 @@ export function useTiledStyle(
     return () => {
       window.removeEventListener('openswarm:canvas-pan-changed', apply);
       window.removeEventListener('resize', apply);
+      document.removeEventListener('visibilitychange', apply);
+      window.removeEventListener('focus', apply);
       ro.disconnect();
       timers.forEach((tm) => window.clearTimeout(tm));
       window.cancelAnimationFrame(raf);
