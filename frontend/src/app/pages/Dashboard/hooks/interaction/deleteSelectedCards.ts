@@ -1,5 +1,5 @@
 import { closeSession } from '@/shared/state/agentsSlice';
-import { removeNote, removeWorkflowCard, closeWorkflowsHub, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
+import { removeWorkflowCard, closeWorkflowsHub, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
 import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
 import { removeBrowserCardsCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
@@ -20,9 +20,6 @@ export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch
     } else if (type === 'browser') {
       dispatch(recordClosedCard({ kind: 'browser', id }));
       browserIds.push(id);
-    } else if (type === 'note') {
-      dispatch(recordClosedCard({ kind: 'note', id }));
-      dispatch(removeNote(id));
     } else if (type === 'workflow') {
       dispatch(recordClosedCard({ kind: 'workflow', id }));
       dispatch(removeWorkflowCard(id));

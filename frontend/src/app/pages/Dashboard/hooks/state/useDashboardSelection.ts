@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, RefObject } from 'react';
-import type { CardPosition, ViewCardPosition, BrowserCardPosition, NotePosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
+import type { CardPosition, ViewCardPosition, BrowserCardPosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
 import { viewCardKey } from '@/shared/state/dashboardLayoutSlice';
 
 export type { CardType } from '@/shared/state/dashboardLayoutSlice';
@@ -43,7 +43,6 @@ export function useDashboardSelection(
   cards: Record<string, CardPosition>,
   viewCards: Record<string, ViewCardPosition>,
   browserCards: Record<string, BrowserCardPosition> = {},
-  notes: Record<string, NotePosition> = {},
   workflowCards: Record<string, WorkflowCardPosition> = {},
   workflowsHub: WorkflowsHubPosition | null = null,
 ) {
@@ -78,11 +77,10 @@ export function useDashboardSelection(
     for (const card of Object.values(cards)) next.set(card.session_id, 'agent');
     for (const vc of Object.values(viewCards)) next.set(viewCardKey(vc.output_id, vc.instance), 'view');
     for (const bc of Object.values(browserCards)) next.set(bc.browser_id, 'browser');
-    for (const n of Object.values(notes)) next.set(n.note_id, 'note');
     for (const wc of Object.values(workflowCards)) next.set(wc.workflow_id, 'workflow');
     if (workflowsHub) next.set('workflows-hub', 'workflows-hub');
     setSelectedIds(next);
-  }, [cards, viewCards, browserCards, notes, workflowCards, workflowsHub]);
+  }, [cards, viewCards, browserCards, workflowCards, workflowsHub]);
 
   const selectCard = useCallback(
     (id: string, type: CardType, shiftKey: boolean) => {
@@ -157,19 +155,6 @@ export function useDashboardSelection(
         }
       }
 
-      for (const n of Object.values(notes)) {
-        if (
-          rectsIntersect(rect, {
-            x: n.x,
-            y: n.y,
-            width: n.width,
-            height: n.height,
-          })
-        ) {
-          intersecting.set(n.note_id, 'note');
-        }
-      }
-
       for (const wc of Object.values(workflowCards)) {
         if (
           rectsIntersect(rect, {
@@ -210,7 +195,7 @@ export function useDashboardSelection(
 
       return intersecting;
     },
-    [cards, viewCards, browserCards, notes, workflowCards, workflowsHub],
+    [cards, viewCards, browserCards, workflowCards, workflowsHub],
   );
 
   const handleCanvasMouseDown = useCallback(

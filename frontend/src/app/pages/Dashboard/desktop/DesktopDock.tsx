@@ -4,7 +4,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import LanguageIcon from '@mui/icons-material/Language';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
-import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import { openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
@@ -17,7 +16,6 @@ import type {
   CardPosition,
   ViewCardPosition,
   BrowserCardPosition,
-  NotePosition,
   WorkflowCardPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
@@ -27,14 +25,12 @@ interface DesktopDockProps {
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
-  notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   outputs: Record<string, Output>;
   selectedIds: string[];
   onFocusCard: (id: string, rect: CardRect) => void;
   onApplications: () => void;
   onAddBrowser: () => void;
-  onAddNote: () => void;
 }
 
 const TILE = 30;
@@ -46,14 +42,12 @@ function DesktopDock({
   cards,
   viewCards,
   browserCards,
-  notes,
   workflowCards,
   outputs,
   selectedIds,
   onFocusCard,
   onApplications,
   onAddBrowser,
-  onAddNote,
 }: DesktopDockProps): React.ReactElement | null {
   const dispatch = useAppDispatch();
   const dockBodyRef = useRef<HTMLDivElement | null>(null);
@@ -92,8 +86,8 @@ function DesktopDock({
   const hoverTimer = useRef<number | null>(null);
 
   const entries = useMemo<DockEntry[]>(
-    () => buildDockEntries({ sessions, cards, viewCards, browserCards, notes, workflowCards, outputs }),
-    [sessions, cards, viewCards, browserCards, notes, workflowCards, outputs],
+    () => buildDockEntries({ sessions, cards, viewCards, browserCards, workflowCards, outputs }),
+    [sessions, cards, viewCards, browserCards, workflowCards, outputs],
   );
 
   const beginHover = useCallback(
@@ -201,11 +195,10 @@ function DesktopDock({
       {entries.length > 0 && (
         <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
       )}
-      {/* The og toolbar's actions, dock-resident: browser, workflow, note, then settings + apps below their own divider. New-chat lives in the spawn pill, history on the top island. */}
+      {/* The og toolbar's actions, dock-resident: browser, workflow, then settings + apps below their own divider. New-chat lives in the spawn pill, history on the top island. */}
       {([
         { label: 'New browser', icon: <LanguageIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: onAddBrowser },
         { label: 'Workflows', icon: <EventRepeatIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
-        { label: 'New note', icon: <StickyNote2OutlinedIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: onAddNote },
         { label: 'Settings', icon: <SettingsIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: () => dispatch(openSettingsModal(undefined)), divider: true },
         { label: 'Applications', icon: <AppsRoundedIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
       ] as { label: string; icon: React.ReactNode; act: () => void; divider?: boolean; bg?: string }[]).map((a) => (

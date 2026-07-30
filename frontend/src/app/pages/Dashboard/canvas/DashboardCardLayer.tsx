@@ -3,7 +3,6 @@ import { AnimatePresence } from 'framer-motion';
 import AgentCard from '../cards/AgentCard';
 import DashboardViewCard from '../cards/DashboardViewCard';
 import BrowserCard from '../cards/BrowserCard';
-import NoteCard from '../cards/NoteCard';
 import WorkflowsAppCard from '@/app/pages/Workflows/app/WorkflowsAppCard';
 import RunMonitor from '@/app/pages/Workflows/app/RunMonitor';
 import {
@@ -13,7 +12,6 @@ import {
   type CardPosition,
   type ViewCardPosition,
   type BrowserCardPosition,
-  type NotePosition,
   type WorkflowCardPosition,
   type WorkflowsHubPosition,
 } from '@/shared/state/dashboardLayoutSlice';
@@ -33,7 +31,6 @@ interface DashboardCardLayerProps {
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
   keepAliveBrowserCards: Record<string, BrowserCardPosition>;
-  notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
   outputs: Record<string, Output>;
@@ -44,7 +41,6 @@ interface DashboardCardLayerProps {
   highlightedCardId: string | null;
   autoFocusSessionId: string | null;
   focusedCardId: string | null;
-  pendingFocusNoteId: string | null;
   multiDragDelta: { dx: number; dy: number } | null;
   shakeDirection: Direction | null;
   spawnOriginsRef: RefObject<Record<string, SpawnOrigin>>;
@@ -67,7 +63,6 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
   viewCards,
   browserCards,
   keepAliveBrowserCards,
-  notes,
   workflowCards,
   workflowsHub,
   outputs,
@@ -78,7 +73,6 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
   highlightedCardId,
   autoFocusSessionId,
   focusedCardId,
-  pendingFocusNoteId,
   multiDragDelta,
   shakeDirection,
   spawnOriginsRef,
@@ -236,30 +230,6 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
           onDragMove={onDragMove}
           onDragEnd={onDragEnd}
           onDoubleClick={onDoubleClick}
-          onBringToFront={onBringToFront}
-        />
-      ))}
-      {Object.values(notes).map((n) => (
-        <NoteCard
-          key={`note-${n.note_id}`}
-          noteId={n.note_id}
-          cardX={n.x}
-          cardY={n.y}
-          cardWidth={n.width}
-          cardHeight={n.height}
-          cardZOrder={n.zOrder ?? 0}
-          getCanvasState={getCanvasState}
-          cmdHeld={cmdHeld}
-          content={n.content}
-          color={n.color}
-          isSelected={selection.isSelected(n.note_id)}
-          isHighlighted={highlightedCardId === n.note_id}
-          multiDragDelta={multiDragDelta}
-          autoFocus={pendingFocusNoteId === n.note_id}
-          onCardSelect={onCardSelect}
-          onDragStart={onDragStart}
-          onDragMove={onDragMove}
-          onDragEnd={onDragEnd}
           onBringToFront={onBringToFront}
         />
       ))}

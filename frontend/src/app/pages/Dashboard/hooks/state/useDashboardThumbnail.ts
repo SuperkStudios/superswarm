@@ -14,13 +14,11 @@ function dashboardSignature(s: {
   cards: Record<string, unknown>;
   viewCards: Record<string, unknown>;
   browserCards: Record<string, unknown>;
-  notes: Record<string, unknown>;
 }): string {
   return [
     ...Object.keys(s.cards),
     ...Object.keys(s.viewCards),
     ...Object.keys(s.browserCards),
-    ...Object.keys(s.notes),
   ].sort().join(',');
 }
 

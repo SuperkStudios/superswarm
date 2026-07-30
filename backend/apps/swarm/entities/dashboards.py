@@ -57,7 +57,7 @@ class DashboardExportable:
         expanded = [b for b in (ctx.bundle_id_for(EntityType.session, s) for s in (layout.get("expanded_session_ids") or [])) if b]
         return {"name": self.p_data.get("name") or "Dashboard", "layout": {
             **layout, "cards": cards, "view_cards": view_cards,
-            "browser_cards": browser_cards, "notes": layout.get("notes") or {},
+            "browser_cards": browser_cards,
             "expanded_session_ids": expanded,
         }}
 
@@ -114,7 +114,7 @@ class DashboardExportable:
             "updated_at": now,
             "layout": {
                 **layout, "cards": cards, "view_cards": view_cards,
-                "browser_cards": browser_cards, "notes": layout.get("notes") or {},
+                "browser_cards": browser_cards,
                 "expanded_session_ids": expanded,
             },
         }

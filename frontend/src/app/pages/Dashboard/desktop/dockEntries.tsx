@@ -1,7 +1,6 @@
 import React from 'react';
 import LanguageIcon from '@mui/icons-material/Language';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import EditNoteIcon from '@mui/icons-material/EditNote';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import { MessageCircle } from 'lucide-react';
 import { pickIcon } from '../canvas/DashboardGlyph';
@@ -11,7 +10,6 @@ import type {
   CardPosition,
   ViewCardPosition,
   BrowserCardPosition,
-  NotePosition,
   WorkflowCardPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
@@ -40,7 +38,6 @@ export interface DockSlices {
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
-  notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   outputs: Record<string, Output>;
 }
@@ -60,7 +57,7 @@ function hueFor(name: string): string {
   return AGENT_TILE_HUES[Math.abs(h) % AGENT_TILE_HUES.length];
 }
 
-export function buildDockEntries({ sessions, cards, viewCards, browserCards, notes, workflowCards, outputs }: DockSlices): DockEntry[] {
+export function buildDockEntries({ sessions, cards, viewCards, browserCards, workflowCards, outputs }: DockSlices): DockEntry[] {
   const list: DockEntry[] = [];
   for (const card of Object.values(cards)) {
     const session = sessions[card.session_id];
@@ -99,17 +96,6 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, not
       // Never letters in the dock: a real symbol reads as an app, a glyph initial reads as a bug.
       icon: <GridViewRoundedIcon sx={{ fontSize: 16, color: '#fff' }} />,
       thumbnail: output?.thumbnail,
-    });
-  }
-  for (const note of Object.values(notes)) {
-    const firstLine = (note.content || '').split('\n')[0].trim();
-    list.push({
-      id: note.note_id,
-      label: firstLine || 'Note',
-      rect: note,
-      tileBg: 'linear-gradient(135deg, #f2d270, #e0b23e)',
-      icon: <EditNoteIcon sx={{ fontSize: 18, color: '#7a5d10' }} />,
-      snippet: (note.content || '').slice(0, 140),
     });
   }
   for (const [cardKey, wf] of Object.entries(workflowCards)) {

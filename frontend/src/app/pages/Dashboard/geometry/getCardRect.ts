@@ -17,10 +17,6 @@ export function getCardRect(id: string, type: CardType):
     const bc = layoutState.browserCards[id];
     if (!bc) return undefined;
     return { x: bc.x, y: bc.y, width: bc.width, height: bc.height };
-  } else if (type === 'note') {
-    const n = layoutState.notes[id];
-    if (!n) return undefined;
-    return { x: n.x, y: n.y, width: n.width, height: n.height };
   } else if (type === 'workflow') {
     const wc = layoutState.workflowCards[id];
     if (!wc) return undefined;

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 
-// One right-click menu for every canvas entity (chats, browsers, notes, apps, workflow cards,
+// One right-click menu for every canvas entity (chats, browsers, apps, workflow cards,
 // minimized pills). Cards call openCardContextMenu with their items; this overlay renders the
 // native-feeling glass menu (SpacesStrip grammar) and closes on outside press / Esc / item click.
 export interface CardMenuItem {

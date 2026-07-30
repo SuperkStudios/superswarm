@@ -2,7 +2,6 @@
 
   - Message.client_message_id round-trip (optimistic dedupe)
   - Mode migration: 'chat' -> 'ask' on reconcile + lifespan deletion
-  - DashboardLayout notes round-trip
 """
 
 from __future__ import annotations
@@ -184,62 +183,6 @@ def test_reconcile_idempotent():
             asyncio.run(mgr.reconcile_on_startup())
             mtime_after_second = os.path.getmtime(os.path.join(td, f"{sid}.json"))
         assert mtime_after_first == mtime_after_second, "reconcile must be idempotent"
-
-
-# --------------------------------------------------------------------------- Group 6, Notes layout serialization ---------------------------------------------------------------------------
-
-
-def test_dashboard_layout_notes_round_trip():
-    from backend.apps.dashboards.models import DashboardLayout, NotePosition
-
-    n = NotePosition(note_id="n1", x=100, y=200, content="todo: ship",
-                     color="yellow", width=240, height=200)
-    layout = DashboardLayout(notes={"n1": n})
-    dumped = layout.model_dump(mode="json")
-    assert "notes" in dumped
-    assert dumped["notes"]["n1"]["content"] == "todo: ship"
-
-    rehydrated = DashboardLayout.model_validate(dumped)
-    assert rehydrated.notes["n1"].content == "todo: ship"
-    assert rehydrated.notes["n1"].color == "yellow"
-
-
-def test_dashboard_layout_legacy_no_notes():
-    """Older dashboard JSON without 'notes' must still load cleanly."""
-    from backend.apps.dashboards.models import DashboardLayout
-
-    legacy = {
-        "cards": {}, "view_cards": {}, "browser_cards": {},
-        "expanded_session_ids": [],
-    }
-    layout = DashboardLayout.model_validate(legacy)
-    assert layout.notes == {}
-
-
-def test_notes_stress_many_round_trips():
-    """500 notes with random colors / positions must all serialize."""
-    from backend.apps.dashboards.models import DashboardLayout, NotePosition
-
-    notes = {}
-    colors = ["yellow", "pink", "blue", "green", "purple", "gray"]
-    for i in range(500):
-        nid = f"n{i}"
-        notes[nid] = NotePosition(
-            note_id=nid,
-            x=random.uniform(-5000, 5000),
-            y=random.uniform(-5000, 5000),
-            width=random.uniform(160, 600),
-            height=random.uniform(120, 600),
-            content="x" * random.randint(0, 5000),
-            color=random.choice(colors),
-        )
-    layout = DashboardLayout(notes=notes)
-    dumped = layout.model_dump(mode="json")
-    rehydrated = DashboardLayout.model_validate(dumped)
-    assert len(rehydrated.notes) == 500
-    for nid, orig in notes.items():
-        assert rehydrated.notes[nid].content == orig.content
-        assert rehydrated.notes[nid].color == orig.color
 
 
 # --------------------------------------------------------------------------- Group 7, Concurrent send_message dedupe stress Real-world scenario: user mashes Enter quickly. 50 concurrent sends each with a unique client_message_id must produce 50 echoed messages carrying the right ids. Pure pydantic / asyncio test, no real agent loop. ---------------------------------------------------------------------------

@@ -20,7 +20,6 @@ import type {
   CardPosition,
   ViewCardPosition,
   BrowserCardPosition,
-  NotePosition,
   WorkflowCardPosition,
   WorkflowsHubPosition,
 } from '@/shared/state/dashboardLayoutSlice';
@@ -50,7 +49,6 @@ interface DashboardCanvasProps {
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
   keepAliveBrowserCards: Record<string, BrowserCardPosition>;
-  notes: Record<string, NotePosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
   outputs: Record<string, Output>;
@@ -60,7 +58,6 @@ interface DashboardCanvasProps {
   highlightedCardId: string | null;
   autoFocusSessionId: string | null;
   focusedCardId: string | null;
-  pendingFocusNoteId: string | null;
   multiDragDelta: { dx: number; dy: number } | null;
   shakeDirection: Direction | null;
   neighborDirections: NeighborDirections;
@@ -95,7 +92,6 @@ interface DashboardCanvasProps {
   onAddView: (outputId: string, opts?: { newInstance?: boolean }) => void;
   onHistoryResume: (sessionId: string) => void;
   onAddBrowser: () => void;
-  onAddNote: () => void;
   onNewAgentBounceEnd: () => void;
   onFitToView: () => void;
   onTidy: () => void;
@@ -114,7 +110,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   viewCards,
   browserCards,
   keepAliveBrowserCards,
-  notes,
   workflowCards,
   workflowsHub,
   outputs,
@@ -124,7 +119,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   highlightedCardId,
   autoFocusSessionId,
   focusedCardId,
-  pendingFocusNoteId,
   multiDragDelta,
   shakeDirection,
   neighborDirections,
@@ -159,7 +153,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   onAddView,
   onHistoryResume,
   onAddBrowser,
-  onAddNote,
   onNewAgentBounceEnd,
   onFitToView,
   onTidy,
@@ -261,7 +254,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             browserCards={browserCards}
             workflowCards={workflowCards}
             workflowsHub={workflowsHub}
-            notes={notes}
             expandedSessionIds={expandedSessionIds}
             outputs={outputs}
             dashboardId={dashboardId}
@@ -287,7 +279,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           cards={cards}
           viewCards={viewCards}
           browserCards={browserCards}
-          notes={notes}
           workflowCards={workflowCards}
           outputs={outputs}
           selectedIds={Array.from(selection.selectedIds.keys())}
@@ -297,7 +288,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           }}
           onApplications={() => setAppsWindowOpen((v) => !v)}
           onAddBrowser={onAddBrowser}
-          onAddNote={onAddNote}
         />
       )}
 
@@ -399,7 +389,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               viewCards={viewCards}
               browserCards={browserCards}
               keepAliveBrowserCards={keepAliveBrowserCards}
-              notes={notes}
               workflowCards={workflowCards}
               workflowsHub={workflowsHub}
               outputs={outputs}
@@ -410,7 +399,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               highlightedCardId={highlightedCardId}
               autoFocusSessionId={autoFocusSessionId}
               focusedCardId={focusedCardId}
-              pendingFocusNoteId={pendingFocusNoteId}
               multiDragDelta={multiDragDelta}
               shakeDirection={shakeDirection}
               spawnOriginsRef={spawnOriginsRef}
@@ -459,7 +447,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onAddView={onAddView}
         onHistoryResume={onHistoryResume}
         onAddBrowser={onAddBrowser}
-        onAddNote={onAddNote}
         onNewAgentBounceEnd={onNewAgentBounceEnd}
         onFitToView={onFitToView}
         onTidy={onTidy}

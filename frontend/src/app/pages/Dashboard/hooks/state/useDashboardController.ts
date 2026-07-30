@@ -34,7 +34,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     dashboardName, sessions, expandedSessionIds, cards, viewCards, browserCards, keepAliveBrowserCards,
     workflowCards, workflowItems, workflowOpenCards, workflowsHub,
     pendingFocusWorkflowId, pendingFocusWorkflowsHub,
-    notes, pendingFocusNoteId, layoutInitialized, persistedExpandedSessionIds,
+    layoutInitialized, persistedExpandedSessionIds,
     zoomSensitivity, newAgentShortcut, browserHomepage, expandNewChats,
     autoRevealSubAgents, outputs, outputsLoaded, glowingAgentCards, glowingBrowserCards,
   } = useDashboardSelectors(dashboardId);
@@ -74,7 +74,6 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     cards,
     viewCards,
     browserCards,
-    notes,
     workflowCards,
     workflowsHub,
   );
@@ -200,7 +199,6 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     browserCards,
     workflowCards,
     workflowsHub,
-    notes,
     expandedSessionIds,
     captureNow,
   });
@@ -281,14 +279,12 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
   const {
     handleAddView,
     handleAddBrowser,
-    handleAddNote,
     handleHistoryResume,
     handleFitToView,
     handleTidy,
   } = useDashboardCardActions({
     expandedSessionIds,
     browserHomepage,
-    pendingFocusNoteId,
     selection,
     canvasActions: canvas.actions,
     getCardRect,
@@ -332,10 +328,10 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
 
   return {
     c, dashboardId, dashboardName, canvas, selection, sessions, sessionList,
-    cards, viewCards, browserCards, keepAliveBrowserCards, notes, outputs, glowingAgentCards,
+    cards, viewCards, browserCards, keepAliveBrowserCards, outputs, glowingAgentCards,
     workflowCards, workflowsHub,
     expandedSessionIds, tethers, highlightedCardId, autoFocusSessionId,
-    focusedCardId, pendingFocusNoteId, multiDragDelta, shakeDirection,
+    focusedCardId, multiDragDelta, shakeDirection,
     neighborDirections, toolbarOpen, searchPaletteOpen, newAgentBounce, canvasEmpty,
     toolbarRef, spawnOriginsRef, revealSpawnedRef, measuredHeightsRef, getCanvasState,
     toolbarPrefill,
@@ -360,7 +356,6 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     onAddView: handleAddView,
     onHistoryResume: handleHistoryResume,
     onAddBrowser: handleAddBrowser,
-    onAddNote: handleAddNote,
     onNewAgentBounceEnd: () => {
       bounceDismissedRef.current = true;
       setNewAgentBounce(false);

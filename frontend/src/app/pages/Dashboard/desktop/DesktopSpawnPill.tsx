@@ -10,14 +10,12 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { useVoice } from '@/shared/voice/voiceContext';
 import { useAppSelector } from '@/shared/hooks';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
-import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import LanguageIcon from '@mui/icons-material/Language';
 
 interface DesktopSpawnPillProps {
   onOpenComposer: () => void;
-  onAddNote: () => void;
   onAddBrowser: () => void;
   onAddApp: () => void;
   onWorkflows: () => void;
@@ -25,7 +23,6 @@ interface DesktopSpawnPillProps {
 }
 
 const MENU_ITEMS: Array<{ key: string; label: string; icon: React.ElementType }> = [
-  { key: 'note', label: 'Add note', icon: StickyNote2OutlinedIcon },
   { key: 'browser', label: 'Browser', icon: LanguageIcon },
   { key: 'app', label: 'Add app', icon: GridViewRoundedIcon },
   { key: 'workflows', label: 'Workflows', icon: EventRepeatIcon },
@@ -35,7 +32,6 @@ const MENU_ITEMS: Array<{ key: string; label: string; icon: React.ElementType }>
 /** Collapsed desktop composer: one dark pill that spawns an agent; + tucks the add actions away. */
 function DesktopSpawnPill({
   onOpenComposer,
-  onAddNote,
   onAddBrowser,
   onAddApp,
   onWorkflows,
@@ -60,7 +56,6 @@ function DesktopSpawnPill({
   }, [menuOpen]);
 
   const actions: Record<string, () => void> = {
-    note: onAddNote,
     browser: onAddBrowser,
     app: onAddApp,
     workflows: onWorkflows,

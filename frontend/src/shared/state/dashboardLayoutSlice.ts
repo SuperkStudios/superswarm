@@ -31,7 +31,7 @@ export const WORKFLOW_CARD_GAP = 140;
 const GRID_ORIGIN = { x: 40, y: 100 };
 const GRID_COLS_FALLBACK = 4;
 
-export type CardType = 'agent' | 'view' | 'browser' | 'note' | 'workflow' | 'workflows-hub' | 'workflows-monitor';
+export type CardType = 'agent' | 'view' | 'browser' | 'workflow' | 'workflows-hub' | 'workflows-monitor';
 
 export interface CardPosition {
   session_id: string;
@@ -111,29 +111,11 @@ export interface WorkflowsHubPosition {
   fullscreen?: boolean;
 }
 
-
-export type NoteColor = 'yellow' | 'pink' | 'blue' | 'green' | 'purple' | 'gray';
-
-export interface NotePosition {
-  note_id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  content: string;
-  color: NoteColor;
-  zOrder: number;
-}
-
-export const DEFAULT_NOTE_W = 240;
-export const DEFAULT_NOTE_H = 200;
-
-// One entry in the Ctrl/Cmd+Shift+T "reopen last closed" stack: a full snapshot for browser/view/workflow/note/tab, just the session id for an agent (its session is brought back via resumeSession).
+// One entry in the Ctrl/Cmd+Shift+T "reopen last closed" stack: a full snapshot for browser/view/workflow/tab, just the session id for an agent (its session is brought back via resumeSession).
 export type ClosedCard =
   | { uid: string; kind: 'browser'; closedAt: number; card: BrowserCardPosition }
   | { uid: string; kind: 'view'; closedAt: number; card: ViewCardPosition }
   | { uid: string; kind: 'workflow'; closedAt: number; card: WorkflowCardPosition }
-  | { uid: string; kind: 'note'; closedAt: number; note: NotePosition }
   | { uid: string; kind: 'tab'; closedAt: number; browserId: string; index: number; tab: BrowserTab }
   | { uid: string; kind: 'agent'; closedAt: number; sessionId: string; position: CardPosition | null };
 
@@ -147,13 +129,12 @@ export interface DashboardLayoutState {
   browserCards: Record<string, BrowserCardPosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
-  notes: Record<string, NotePosition>;
   closedCardPositions: Record<string, CardPosition>;
   /** Session-global LIFO undo stack for Ctrl/Cmd+Shift+T; survives dashboard switches (resetLayout leaves it alone). */
   recentlyClosed: ClosedCard[];
   glowingBrowserCards: Record<string, { sourceId: string; fading: boolean; label?: string }>;
   glowingAgentCards: Record<string, { sourceId: string; fading: boolean; sourceYRatio?: number; label?: string }>;
-  /** Window controls: cards collapsed to a title pill (many at once). Keyed by any card id (session/note/browser/view/workflow). */
+  /** Window controls: cards collapsed to a title pill (many at once). Keyed by any card id (session/browser/view/workflow). */
   minimizedCards: Record<string, boolean>;
   /** macOS-style tiling: card id -> zone ('fullscreen' | 'fill' | 'left'|'right'|'top'|'bottom' | 'tl'|'tr'|'bl'|'br' | 't3l'|'t3c'|'t3r'). A tiled card renders at that viewport region (webview stays mounted); 'fullscreen' also hides the app chrome. */
   tiledCards: Record<string, string>;
@@ -167,7 +148,6 @@ export interface DashboardLayoutState {
   pendingFocusBrowserId: string | null;
   // Set when a view card is opened from outside the canvas (sidebar app click / toolbar picker) so the dashboard fits+highlights it on arrival; holds the card key.
   pendingFocusViewCardId: string | null;
-  pendingFocusNoteId: string | null;
   /** Transient: snapshot stand-ins for off-screen webviews; never rides the layout PUT. */
   suspendedBrowserCards: Record<string, { dataUrl: string; capturedAt: number }>;
   /** Transient: spawned cards that are about to be removed; surfaces the fade + Keep pill. */
@@ -203,7 +183,6 @@ const initialState: DashboardLayoutState = {
   browserCards: {},
   workflowCards: {},
   workflowsHub: null,
-  notes: {},
   closedCardPositions: {},
   recentlyClosed: [],
   glowingBrowserCards: {},
@@ -217,7 +196,6 @@ const initialState: DashboardLayoutState = {
   saveArmed: false,
   pendingFocusBrowserId: null,
   pendingFocusViewCardId: null,
-  pendingFocusNoteId: null,
   suspendedBrowserCards: {},
   endingBrowserCards: {},
   activeViewCardId: null,
@@ -236,7 +214,6 @@ interface LayoutPayload {
   browserCards: Record<string, BrowserCardPosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
-  notes: Record<string, NotePosition>;
   expandedSessionIds: string[];
 }
 
@@ -273,7 +250,6 @@ export const fetchLayout = createAsyncThunk(
       browserCards: browserCards as Record<string, BrowserCardPosition>,
       workflowCards: (layout.workflow_cards ?? {}) as Record<string, WorkflowCardPosition>,
       workflowsHub: (layout.workflows_hub ?? null) as WorkflowsHubPosition | null,
-      notes: (layout.notes ?? {}) as Record<string, NotePosition>,
       expandedSessionIds: (layout.expanded_session_ids ?? []) as string[],
     } satisfies LayoutPayload;
   },
@@ -299,7 +275,6 @@ export const saveLayout = createAsyncThunk(
           browser_cards: payload.browserCards,
           workflow_cards: payload.workflowCards,
           workflows_hub: payload.workflowsHub,
-          notes: payload.notes,
           expanded_session_ids: payload.expandedSessionIds,
         },
       }),
@@ -349,10 +324,6 @@ function collectOccupiedRects(
   }
   if (state.workflowsHub) {
     rects.push({ x: state.workflowsHub.x, y: state.workflowsHub.y, w: state.workflowsHub.width, h: state.workflowsHub.height });
-  }
-  for (const n of Object.values(state.notes)) {
-    if (exclude?.type === 'note' && exclude.id === n.note_id) continue;
-    rects.push({ x: n.x, y: n.y, w: n.width, h: n.height });
   }
   return rects;
 }
@@ -527,7 +498,7 @@ export function placeInParentColumn(
   return placeBesideCard(state, parentCard, newW, newH, expandedSessionIds, exclude);
 }
 
-// Where a user-created card (chat/app/browser/note) should land. Resolved in the UI layer where selection + viewport are known, then handed to the add reducers as an explicit x/y. `beside` (the currently selected card) docks the new card to its right, stacking under that column (collision-aware); `viewportCenter` (canvas-space center of what the user is looking at) drops it dead-center "in front of you", overlapping whatever's there. With neither, falls back to the legacy top-left grid scan.
+// Where a user-created card (chat/app/browser) should land. Resolved in the UI layer where selection + viewport are known, then handed to the add reducers as an explicit x/y. `beside` (the currently selected card) docks the new card to its right, stacking under that column (collision-aware); `viewportCenter` (canvas-space center of what the user is looking at) drops it dead-center "in front of you", overlapping whatever's there. With neither, falls back to the legacy top-left grid scan.
 export interface SpawnAnchor {
   beside?: { x: number; y: number; width: number; height: number };
   viewportCenter?: { x: number; y: number };
@@ -677,12 +648,10 @@ const dashboardLayoutSlice = createSlice({
       for (const c of Object.values(state.viewCards)) tally(c.zOrder);
       for (const c of Object.values(state.browserCards)) tally(c.zOrder);
       for (const c of Object.values(state.workflowCards)) tally(c.zOrder);
-      for (const n of Object.values(state.notes)) tally(n.zOrder);
       if (state.workflowsHub) tally(state.workflowsHub.zOrder);
       if (state.workflowsMonitorCard) tally(state.workflowsMonitorCard.zOrder);
       if (type === 'agent') currentZ = state.cards[id]?.zOrder ?? 0;
       else if (type === 'view') currentZ = state.viewCards[id]?.zOrder ?? 0;
-      else if (type === 'note') currentZ = state.notes[id]?.zOrder ?? 0;
       else if (type === 'workflow') currentZ = state.workflowCards[id]?.zOrder ?? 0;
       else if (type === 'workflows-hub') currentZ = state.workflowsHub?.zOrder ?? 0;
       else if (type === 'workflows-monitor') currentZ = state.workflowsMonitorCard?.zOrder ?? 0;
@@ -696,9 +665,6 @@ const dashboardLayoutSlice = createSlice({
       } else if (type === 'view') {
         const card = state.viewCards[id];
         if (card) card.zOrder = z;
-      } else if (type === 'note') {
-        const note = state.notes[id];
-        if (note) note.zOrder = z;
       } else if (type === 'workflow') {
         const card = state.workflowCards[id];
         if (card) card.zOrder = z;
@@ -1472,12 +1438,6 @@ const dashboardLayoutSlice = createSlice({
             card.x += dx;
             card.y += dy;
           }
-        } else if (item.type === 'note') {
-          const note = state.notes[item.id];
-          if (note) {
-            note.x += dx;
-            note.y += dy;
-          }
         } else if (item.type === 'workflow') {
           const card = state.workflowCards[item.id];
           if (card) {
@@ -1499,67 +1459,6 @@ const dashboardLayoutSlice = createSlice({
       }
     },
 
-    addNote(
-      state,
-      action: PayloadAction<{ x?: number; y?: number; expandedSessionIds?: string[]; color?: NoteColor; content?: string }>,
-    ) {
-      const id = `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-      let posX: number, posY: number;
-      if (action.payload.x != null && action.payload.y != null) {
-        posX = action.payload.x;
-        posY = action.payload.y;
-      } else {
-        const rects = collectOccupiedRects(state, action.payload.expandedSessionIds);
-        const pos = findOpenGridCell(rects, DEFAULT_NOTE_W, DEFAULT_NOTE_H);
-        posX = pos.x;
-        posY = pos.y;
-      }
-      state.notes[id] = {
-        note_id: id,
-        x: posX,
-        y: posY,
-        width: DEFAULT_NOTE_W,
-        height: DEFAULT_NOTE_H,
-        content: action.payload.content ?? '',
-        color: action.payload.color || 'yellow',
-        zOrder: state.nextZOrder++,
-      };
-      state.pendingFocusNoteId = id;
-    },
-
-    setNotePosition(state, action: PayloadAction<{ noteId: string; x: number; y: number }>) {
-      const n = state.notes[action.payload.noteId];
-      if (n) { n.x = action.payload.x; n.y = action.payload.y; }
-    },
-
-    setNoteSize(state, action: PayloadAction<{ noteId: string; width: number; height: number }>) {
-      const n = state.notes[action.payload.noteId];
-      if (n) {
-        n.width = Math.max(160, action.payload.width);
-        n.height = Math.max(120, action.payload.height);
-      }
-    },
-
-    updateNoteContent(state, action: PayloadAction<{ noteId: string; content: string }>) {
-      const n = state.notes[action.payload.noteId];
-      if (n) n.content = action.payload.content;
-    },
-
-    setNoteColor(state, action: PayloadAction<{ noteId: string; color: NoteColor }>) {
-      const n = state.notes[action.payload.noteId];
-      if (n) n.color = action.payload.color;
-    },
-
-    removeNote(state, action: PayloadAction<string>) {
-      delete state.notes[action.payload];
-      delete state.tiledCards[action.payload];
-      delete state.minimizedCards[action.payload];
-    },
-
-    clearPendingFocusNoteId(state) {
-      state.pendingFocusNoteId = null;
-    },
-
     // Snapshot a card onto the reopen stack RIGHT BEFORE it's closed (the data must still be in state). Dispatch only from genuine user closes, not programmatic teardown.
     recordClosedCard(
       state,
@@ -1575,8 +1474,6 @@ const dashboardLayoutSlice = createSlice({
         entry = { uid, kind, closedAt, card: { ...state.viewCards[id] } };
       } else if (kind === 'workflow' && state.workflowCards[id]) {
         entry = { uid, kind, closedAt, card: { ...state.workflowCards[id] } };
-      } else if (kind === 'note' && state.notes[id]) {
-        entry = { uid, kind, closedAt, note: { ...state.notes[id] } };
       } else if (kind === 'agent') {
         entry = { uid, kind, closedAt, sessionId: id, position: state.cards[id] ? { ...state.cards[id] } : null };
       } else if (kind === 'tab' && browserId && state.browserCards[browserId]) {
@@ -1603,8 +1500,6 @@ const dashboardLayoutSlice = createSlice({
         state.viewCards[viewCardKey(entry.card.output_id, entry.card.instance)] = { ...entry.card, zOrder };
       } else if (entry.kind === 'workflow') {
         state.workflowCards[entry.card.workflow_id] = { ...entry.card, zOrder };
-      } else if (entry.kind === 'note') {
-        state.notes[entry.note.note_id] = { ...entry.note, zOrder };
       } else if (entry.kind === 'tab') {
         const card = state.browserCards[entry.browserId];
         if (card) {
@@ -1699,7 +1594,6 @@ const dashboardLayoutSlice = createSlice({
       state.browserCards = keptBrowsers;
       state.workflowCards = {};
       state.workflowsHub = null;
-      state.notes = {};
       state.closedCardPositions = {};
       state.glowingBrowserCards = {};
       state.glowingAgentCards = {};
@@ -1707,7 +1601,6 @@ const dashboardLayoutSlice = createSlice({
       state.nextZOrder = 1;
       state.initialized = false;
       state.saveArmed = false;
-      state.pendingFocusNoteId = null;
       state.suspendedBrowserCards = keptSuspended;
       state.endingBrowserCards = {};
       state.pendingFocusWorkflowId = null;
@@ -1743,7 +1636,6 @@ const dashboardLayoutSlice = createSlice({
           state.browserCards = { ...incoming, ...keptAlive };
           state.workflowCards = action.payload.workflowCards || {};
           state.workflowsHub = action.payload.workflowsHub || null;
-          state.notes = action.payload.notes || {};
         } else {
           const occupied = collectOccupiedRects(state, action.payload.expandedSessionIds);
           addMissingCards(state.cards, action.payload.cards, occupied);
@@ -1754,7 +1646,6 @@ const dashboardLayoutSlice = createSlice({
           }
           addMissingCards(state.workflowCards, action.payload.workflowCards || {}, occupied);
           if (!state.workflowsHub && action.payload.workflowsHub) state.workflowsHub = action.payload.workflowsHub;
-          addMissingCards(state.notes, action.payload.notes || {}, occupied);
         }
         state.persistedExpandedSessionIds = action.payload.expandedSessionIds;
 
@@ -1774,10 +1665,6 @@ const dashboardLayoutSlice = createSlice({
         for (const w of Object.values(state.workflowCards)) {
           if (!w.zOrder) w.zOrder = 0;
           if (w.zOrder > maxZ) maxZ = w.zOrder;
-        }
-        for (const n of Object.values(state.notes)) {
-          if (!n.zOrder) n.zOrder = 0;
-          if (n.zOrder > maxZ) maxZ = n.zOrder;
         }
         state.nextZOrder = maxZ + 1;
       })
@@ -1903,13 +1790,6 @@ export const {
   setWorkflowsHubPosition,
   setWorkflowsHubSize,
   clearPendingFocusWorkflowsHub,
-  addNote,
-  setNotePosition,
-  setNoteSize,
-  updateNoteContent,
-  setNoteColor,
-  removeNote,
-  clearPendingFocusNoteId,
   recordClosedCard,
   restoreClosedCard,
   popClosedCard,
@@ -1942,7 +1822,7 @@ export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayout
   if (!entry) return null;
   const id = entry[0];
   // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
-  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.notes || id in s.workflowCards;
+  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards;
   return exists ? id : null;
 };
 

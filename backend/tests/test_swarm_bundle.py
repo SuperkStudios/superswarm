@@ -302,7 +302,7 @@ def test_dashboard_export_import_carries_agent_cards_and_transcript(tmp_path, mo
         "cards": {sid1: {"session_id": sid1}, sid2: {"session_id": sid2}},
         "view_cards": {},
         "browser_cards": {bkey: {"browser_id": bkey, "url": "u", "spawned_by": None}},
-        "notes": {}, "expanded_session_ids": [sid1],
+        "expanded_session_ids": [sid1],
     }}))
 
     raw, _ = closure.build_bundle(EntityType.dashboard, did)

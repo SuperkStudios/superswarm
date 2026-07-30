@@ -183,13 +183,6 @@ test.describe('deep interactive coverage', () => {
     await page.waitForTimeout(500);
   });
 
-  test('Add note mounts (sticky)', async ({}, info) => {
-    await safeClick(page.getByRole('button', { name: 'Add note' }) as any, 'Add note');
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: info.outputPath('note.png') });
-    noNewCrashes('Add note mount');
-  });
-
   test('Add App picker opens', async ({}, info) => {
     await safeClick(page.getByRole('button', { name: 'Add App' }) as any, 'Add App');
     await page.waitForTimeout(1500);

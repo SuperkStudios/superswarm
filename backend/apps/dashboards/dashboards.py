@@ -547,7 +547,6 @@ async def duplicate_dashboard(dashboard_id: str):
         "cards": new_cards,
         "view_cards": source_layout.get("view_cards", {}) or {},
         "browser_cards": new_browser_cards,
-        "notes": source_layout.get("notes", {}) or {},
         "expanded_session_ids": new_expanded,
     }
 

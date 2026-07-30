@@ -1,4 +1,4 @@
-import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { report } from '@/shared/serviceClient';
 import { store } from '@/shared/state/store';
 import { useAppDispatch } from '@/shared/hooks';
@@ -7,14 +7,10 @@ import {
   tidyLayout,
   addViewCard,
   addBrowserCard,
-  addNote,
-  clearPendingFocusNoteId,
   DEFAULT_VIEW_CARD_W,
   DEFAULT_VIEW_CARD_H,
   DEFAULT_BROWSER_CARD_W,
   DEFAULT_BROWSER_CARD_H,
-  DEFAULT_NOTE_W,
-  DEFAULT_NOTE_H,
   EXPANDED_CARD_MIN_H,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
@@ -26,7 +22,6 @@ type Selection = ReturnType<typeof useDashboardSelection>;
 interface UseDashboardCardActionsArgs {
   expandedSessionIds: string[];
   browserHomepage: string;
-  pendingFocusNoteId: string | null;
   selection: Selection;
   canvasActions: CanvasActions;
   getCardRect: (id: string, type: CardType) => { x: number; y: number; width: number; height: number } | undefined;
@@ -39,7 +34,6 @@ interface UseDashboardCardActionsArgs {
 export function useDashboardCardActions({
   expandedSessionIds,
   browserHomepage,
-  pendingFocusNoteId,
   selection,
   canvasActions,
   getCardRect,
@@ -77,29 +71,6 @@ export function useDashboardCardActions({
     const pos = getSpawnPlacement(DEFAULT_BROWSER_CARD_W, DEFAULT_BROWSER_CARD_H);
     dispatch(addBrowserCard({ url: browserHomepage, expandedSessionIds, x: pos.x, y: pos.y }));
   }, [dispatch, browserHomepage, expandedSessionIds, getSpawnPlacement]);
-
-  const handleAddNote = useCallback(() => {
-    report('dashboard', 'note_added');
-    const prevIds = new Set(Object.keys(store.getState().dashboardLayout.notes));
-    const pos = getSpawnPlacement(DEFAULT_NOTE_W, DEFAULT_NOTE_H);
-    dispatch(addNote({ expandedSessionIds, x: pos.x, y: pos.y }));
-    setTimeout(() => {
-      const allNotes = store.getState().dashboardLayout.notes;
-      const newId = Object.keys(allNotes).find((id) => !prevIds.has(id));
-      if (newId) {
-        const note = allNotes[newId];
-        canvasActions.revealCards([{ x: note.x, y: note.y, width: note.width, height: note.height }]);
-        handleHighlightCard(newId);
-      }
-    }, 200);
-  }, [dispatch, expandedSessionIds, getSpawnPlacement, canvasActions, handleHighlightCard]);
-
-  // Auto-clear pendingFocusNoteId after the note has had a chance to mount + autofocus.
-  useEffect(() => {
-    if (!pendingFocusNoteId) return;
-    const t = setTimeout(() => dispatch(clearPendingFocusNoteId()), 800);
-    return () => clearTimeout(t);
-  }, [pendingFocusNoteId, dispatch]);
 
   const handleHistoryResume = useCallback((sessionId: string) => {
     dispatch(resumeSession({ sessionId })).then((action) => {
@@ -157,7 +128,6 @@ export function useDashboardCardActions({
   return {
     handleAddView,
     handleAddBrowser,
-    handleAddNote,
     handleHistoryResume,
     handleFitToView,
     handleTidy,

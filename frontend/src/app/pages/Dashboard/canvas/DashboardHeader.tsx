@@ -13,7 +13,7 @@ import DashboardGlyph from './DashboardGlyph';
 import ShareButton from '@/app/components/share/ShareButton';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import { saveLayout, viewCardKey } from '@/shared/state/dashboardLayoutSlice';
-import type { CardPosition, ViewCardPosition, BrowserCardPosition, NotePosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
+import type { CardPosition, ViewCardPosition, BrowserCardPosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 import type { CanvasActions } from '../hooks/interaction/useCanvasControls';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
@@ -26,7 +26,6 @@ interface DashboardHeaderProps {
   browserCards: Record<string, BrowserCardPosition>;
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
-  notes: Record<string, NotePosition>;
   expandedSessionIds: string[];
   outputs: Record<string, Output>;
   dashboardId: string | undefined;
@@ -51,7 +50,6 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   browserCards,
   workflowCards,
   workflowsHub,
-  notes,
   expandedSessionIds,
   outputs,
   dashboardId,
@@ -194,7 +192,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               onOpen={() => {
                 // Layout saves are debounced, so a just-added app/agent card may not be on disk yet. The export reads disk, flush the live layout now so Share captures the current board, not a stale one.
                 if (!dashboardId) return;
-                dispatch(saveLayout({ dashboardId, cards, viewCards, browserCards, workflowCards, workflowsHub, notes, expandedSessionIds }));
+                dispatch(saveLayout({ dashboardId, cards, viewCards, browserCards, workflowCards, workflowsHub, expandedSessionIds }));
               }}
             />
           </Box>
