@@ -1,8 +1,8 @@
-"""DuckDuckGo parsing robustness: rate-limit (202) and ad-row stripping.
+"""DuckDuckGo parsing robustness: bot challenge (202) and ad-row stripping.
 
 These pin the two bugs that turned DDG into a flaky 'No results found' source:
-  1. DDG serves its throttle challenge as HTTP 202 (a 2xx), so raise_for_status()
-     missed it and we parsed an empty page as a real empty result set.
+  1. DDG serves its bot challenge as HTTP 202 (a 2xx), so a status check missed
+     it and we parsed an empty page as a real empty result set.
   2. Sponsored rows point at DDG's own y.js click-tracker (ad_domain/ad_provider)
      and were emitted as junk 'duckduckgo.com/y.js?...' results.
 
@@ -51,12 +51,15 @@ async def test_202_raises_rate_limited_not_empty(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_reports_rate_limit_clearly(monkeypatch):
-    p_patch_client(monkeypatch, p_reply(202, "throttle"))
+async def test_execute_names_the_real_cause_not_a_rate_limit(monkeypatch):
+    p_patch_client(monkeypatch, p_reply(202, "challenge"))
     parts = await WebSearchTool().execute({"query": "x", "num_results": 5}, None)
     msg = parts[0]["text"].lower()
-    assert "rate-limit" in msg
+    assert "bot challenge" in msg
     assert "no search results" not in msg  # the old bogus message must be gone
+    # It is a fingerprint challenge, not a cooldown, so we must not send the model off to wait.
+    assert "rate-limit" not in msg and "rate limit" not in msg
+    assert "wait" not in msg
 
 
 @pytest.mark.asyncio
