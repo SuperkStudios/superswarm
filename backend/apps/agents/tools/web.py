@@ -14,9 +14,10 @@ from backend.apps.agents.tools.search.search_ddg import (
     HTTP_TIMEOUT,
     USER_AGENT,
 )
-from backend.apps.agents.tools.fetch.page_text import PageText, body_to_text, html_to_text, looks_like_pdf
+from backend.apps.agents.tools.fetch.html_to_text import html_to_text
+from backend.apps.agents.tools.fetch.page_text import PageText, body_to_text, looks_like_pdf
 from backend.apps.agents.tools.search.search_ddg import search_ddg as run_ddg_search
-from backend.apps.agents.tools.ssrf_guard import SSRFBlocked, safe_fetch
+from backend.apps.agents.tools.ssrf_guard import DomainUnreachable, SSRFBlocked, safe_fetch
 
 P_MAX_OUTPUT_BYTES = 250 * 1024  # ~250 KB covers ~95% of articles/wikis/docs.
 
@@ -180,6 +181,8 @@ class WebFetchTool(BaseTool):
                 timeout=HTTP_TIMEOUT,
             )
             resp.raise_for_status()
+        except DomainUnreachable as exc:
+            return PageText(text=f"Could not reach {url}: {exc}", kind="error")
         except SSRFBlocked as exc:
             return PageText(text=f"Refused to fetch {url}: {exc}", kind="error")
         except httpx.HTTPStatusError as exc:

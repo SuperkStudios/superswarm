@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 from typeguard import typechecked
 
 from backend.apps.agents.tools.browser_http import browser_request
-from backend.apps.agents.tools.fetch.page_text import html_to_text
+from backend.apps.agents.tools.fetch.html_to_text import html_to_text
 
 P_WAYBACK_LATEST = "https://web.archive.org/web/2/"
 P_ALLOWED_HOST = "web.archive.org"
@@ -25,6 +25,8 @@ P_TIMEOUT = 10.0
 # Below this the "snapshot" is a stub or an archived error page, not the article.
 P_MIN_SUBSTANCE_CHARS = 200
 P_SNAPSHOT_RE = re.compile(r"/web/(\d{4})(\d{2})(\d{2})\d*/")
+# What the archive shows when the crawler was bounced to a login page: it is a 200 with real words, so only the wording gives it away.
+P_INTERSTITIAL_MARKER = "response at crawl time"
 
 
 @typechecked
@@ -46,7 +48,7 @@ async def fetch_wayback(url: str) -> Optional[str]:
     if reply.status != 200:
         return None
     text = html_to_text(reply.text).strip()
-    if len(text) < P_MIN_SUBSTANCE_CHARS:
+    if len(text) < P_MIN_SUBSTANCE_CHARS or P_INTERSTITIAL_MARKER in text:
         return None
     taken = snapshot_date(reply.url)
     header = f"Archived copy of {url}"

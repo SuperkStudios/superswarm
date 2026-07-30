@@ -72,20 +72,6 @@ def extract_pdf_text(content: bytes) -> Optional[str]:
 
 
 @typechecked
-def html_to_text(raw_html: str) -> str:
-    """Main-content extraction, with a regex strip as the floor for login walls and JS-heavy pages."""
-    from backend.apps.agents.tools.search.search_ddg import strip_html
-    try:
-        import trafilatura  # type: ignore
-        extracted = trafilatura.extract(
-            raw_html, include_comments=False, include_tables=True, favor_precision=True,
-        )
-    except Exception:
-        extracted = None
-    return extracted or strip_html(raw_html)
-
-
-@typechecked
 def body_to_text(content_type: str, content: bytes, raw_text: str) -> PageText:
     """Readable text plus what it came from; never raw binary."""
     if looks_like_pdf(content_type, content):
