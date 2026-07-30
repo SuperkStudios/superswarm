@@ -27,6 +27,9 @@ from backend.apps.agents.manager.run.client_pool import dispose_client_soon
 
 logger = logging.getLogger(__name__)
 
+# Agent-spawned children, never a chat the user started, so they stay out of chat history.
+P_NON_CHAT_MODES = {"browser-agent", "sub-agent", "invoked-agent", "app-agent"}
+
 
 from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
@@ -155,13 +158,35 @@ class SessionLifecycle(AgentManagerProtocol):
         dashboard_id: Optional[str] = None,
         closed_only: bool = False,
     ) -> Dict:
-        """Return paginated, optionally filtered summaries of closed sessions."""
-        all_data = load_all_session_data()
-        all_data.sort(key=lambda pair: pair[1].get("closed_at") or "", reverse=True)
+        """Return paginated, optionally filtered summaries of sessions, live ones included."""
+        # A malformed file (a list, a bare string) would blow up data.get and 500 the whole endpoint.
+        all_data = [pair for pair in load_all_session_data() if isinstance(pair[1], dict)]
+        # Restore deletes the file of every still-open session at boot, so the live ones exist ONLY in memory; without merging them your current chats simply are not in history.
+        on_disk = {data.get("id", sid) for sid, data in all_data}
+        for sid, session in self.sessions.items():
+            if sid in on_disk:
+                continue
+            all_data.append((sid, {
+                "id": sid,
+                "name": session.name,
+                "status": session.status,
+                "model": session.model,
+                "mode": session.mode,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+                "closed_at": None,
+                "cost_usd": session.cost_usd,
+                "dashboard_id": session.dashboard_id,
+                "search_text": build_search_text(session),
+            }))
+        # Sort on last-activity, not closed_at: keying on closed_at alone sorted every live chat ("" ) below every finished one, i.e. off page 1.
+        all_data.sort(key=lambda pair: str(pair[1].get("closed_at") or pair[1].get("created_at") or ""), reverse=True)
 
         q_lower = q.strip().lower()
         history = []
         for sid, data in all_data:
+            # Children are machinery, not chats: a busy user's real history was buried under hundreds of "Browser Agent" rows.
+            if data.get("mode") in P_NON_CHAT_MODES:
+                continue
             # The boot fetch wants CLOSED sessions only: open ones landing in the client's history map made its resurrection gate swallow their terminal frames. Search keeps the full pool (open sessions on other dashboards are reachable nowhere else).
             if closed_only and not data.get("closed_at"):
                 continue

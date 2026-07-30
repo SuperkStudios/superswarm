@@ -559,11 +559,13 @@ export const searchHistory = createAsyncThunk(
     const params = new URLSearchParams({ q, limit: String(limit), offset: String(offset) });
     if (dashboardId) params.set('dashboard_id', dashboardId);
     const res = await fetch(`${AGENTS_API}/history?${params}`);
+    if (!res.ok) throw new Error(`history ${res.status}`);
     const data = await res.json();
+    // A 500 body has no sessions array; without this the reducer stored undefined and the popover's .map took the whole dashboard down.
     return {
-      sessions: data.sessions as HistorySession[],
-      total: data.total as number,
-      hasMore: data.has_more as boolean,
+      sessions: Array.isArray(data.sessions) ? (data.sessions as HistorySession[]) : [],
+      total: typeof data.total === 'number' ? data.total : 0,
+      hasMore: !!data.has_more,
       query: q,
       offset,
     };

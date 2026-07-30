@@ -15,6 +15,7 @@ import AddIcon from '@mui/icons-material/Add';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppSelector } from '@/shared/hooks';
+import { displaySessionName } from '@/shared/state/sessionDisplay';
 import type { WorkflowRun } from '@/shared/state/workflowsSlice';
 import ScheduleCalendar from './ScheduleCalendar';
 import { HistoryList } from './WorkflowCardSubviews';
@@ -178,7 +179,7 @@ export default function SchedulePopover({
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '7px', bgcolor: c.bg.elevated, color: c.text.muted, flexShrink: 0 }}>
                         <ChatBubbleOutlineIcon sx={{ fontSize: 13 }} />
                       </Box>
-                      <Typography sx={{ flex: 1, fontSize: '0.8125rem', color: c.text.primary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</Typography>
+                      <Typography sx={{ flex: 1, fontSize: '0.8125rem', color: c.text.primary, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displaySessionName(entry.name)}</Typography>
                       {/* Only annotate chats that became saved workflows.
                           A small workflow glyph reads as a tag, where the
                           old single-letter chip read as a random initial. */}
@@ -291,8 +292,7 @@ function dayBucket(iso: string | null): string {
 
 function relTime(iso: string | null): string {
   if (!iso) return '';
-  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (sec < 60) return 'just now';
+  const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000); if (sec < 60) return 'just now';
   const m = Math.floor(sec / 60); if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;

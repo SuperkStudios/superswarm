@@ -133,11 +133,32 @@ def test_history_closed_only_filters_open_sessions(monkeypatch):
     ]
     import backend.apps.agents.manager.session.SessionLifecycle as lifecycle_mod
     monkeypatch.setattr(lifecycle_mod, "load_all_session_data", lambda: list(rows))
+    # get_history also merges LIVE sessions, so pin them empty or a leftover from another test leaks in.
+    monkeypatch.setattr(agent_manager, "sessions", {})
     closed = agent_manager.get_history(closed_only=True)
     assert [s["id"] for s in closed["sessions"]] == ["closed1"]
     # Search keeps the full pool: open sessions on other dashboards are reachable nowhere else.
     everything = agent_manager.get_history()
     assert {s["id"] for s in everything["sessions"]} == {"open1", "closed1"}
+
+
+def test_history_includes_live_sessions_missing_from_disk(monkeypatch):
+    """Boot deletes the file of every still-open session, so history must merge memory or your current chats vanish."""
+    from backend.apps.agents.core.models import AgentSession
+    import backend.apps.agents.manager.session.SessionLifecycle as lifecycle_mod
+
+    rows = [("closed1", {"id": "closed1", "name": "closed chat", "closed_at": "2026-07-01T00:00:00", "dashboard_id": None})]
+    monkeypatch.setattr(lifecycle_mod, "load_all_session_data", lambda: list(rows))
+    live = AgentSession(id="live1", name="live chat", model="haiku")
+    monkeypatch.setattr(agent_manager, "sessions", {"live1": live})
+
+    everything = agent_manager.get_history()
+    assert {s["id"] for s in everything["sessions"]} == {"closed1", "live1"}
+    # A live session is not closed, so the boot fetch still must not see it.
+    closed = agent_manager.get_history(closed_only=True)
+    assert [s["id"] for s in closed["sessions"]] == ["closed1"]
+    # Findable by content, not just by name.
+    assert [s["id"] for s in agent_manager.get_history(q="live chat")["sessions"]] == ["live1"]
 
 
 def test_history_route_threads_closed_only(monkeypatch):
