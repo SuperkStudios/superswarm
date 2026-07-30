@@ -10,6 +10,8 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
 import { useAppDispatch } from '@/shared/hooks';
 import { getWebview } from '@/shared/browserRegistry';
 import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
+import { openCardContextMenu } from './openCardContextMenu';
+import { dockTileMenuRows } from './dockTileMenuRows';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -176,6 +178,10 @@ function DesktopDock({
             onClick={() => {
               endHover();
               onFocusCard(entry.id, entry.rect);
+            }}
+            onContextMenu={(e: React.MouseEvent) => {
+              endHover();
+              openCardContextMenu(e, { items: dockTileMenuRows(entry, dispatch, () => onFocusCard(entry.id, entry.rect)) });
             }}
             sx={{
               position: 'relative',

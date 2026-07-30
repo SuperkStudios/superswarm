@@ -15,14 +15,15 @@ import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import AddIcon from '@mui/icons-material/Add';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
-import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
+import { Output, SERVE_BASE, updateOutput } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { requestAppSlot, releaseAppSlot, subscribeAppBudget } from '@/shared/appWebviewBudget';
 import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { viewCardMenuRows } from './viewCardMenuRows';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useTiledStyle, computeTiledStyle } from './tileZones';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -33,6 +34,7 @@ import TerminalPanel, { TerminalLine } from '@/app/pages/Views/TerminalPanel';
 import AppCodePanel from '@/app/pages/Views/AppCodePanel';
 import HistoryPanel from '@/app/pages/Views/HistoryPanel';
 import ShareButton from '@/app/components/share/ShareButton';
+import ShareModal from '@/app/components/share/ShareModal';
 import { getDefault } from '@/shared/inputSchemaDefaults';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
 import {
@@ -597,8 +599,9 @@ const DashboardViewCard: React.FC<Props> = ({
   };
 
   const [reloadMenuRect, setReloadMenuRect] = useState<DOMRect | null>(null);
-  const handleHardReload = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const [shareOpen, setShareOpen] = useState(false);
+  const handleHardReload = useCallback(async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setReloadMenuRect(null);
     const wsId = output.workspace_id;
     if (wsId) {
@@ -645,13 +648,19 @@ const DashboardViewCard: React.FC<Props> = ({
       data-select-type="view-card"
       data-select-id={cardKey}
       data-keepalive-hidden={isMinimized ? '1' : undefined}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
-        items: [
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Minimize', onClick: onMinimize },
-          { label: 'Close', danger: true, onClick: () => handleRemove() },
-        ],
-      })}
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
+        rename: { value: output.name, onCommit: (name) => { void dispatch(updateOutput({ id: output.id, name })); } },
+        items: viewCardMenuRows({
+          output, cardKey, dispatch, tileZone, isMinimized,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          onTile,
+          onMinimize: () => (isMinimized ? dispatch(toggleMinimizeCard({ cardId: cardKey })) : onMinimize()),
+          onReload: () => previewRef.current?.reload(),
+          onHardReload: () => { void handleHardReload(); },
+          onShare: () => setShareOpen(true),
+          onClose: () => handleRemove(),
+        }),
+      }); }}
       data-select-meta={JSON.stringify({ name: output.name, description: output.description, path: output.workspace_path })}
       className="osw-card"
       onPointerDownCapture={() => onBringToFront?.(cardKey, 'view')}
@@ -987,6 +996,8 @@ const DashboardViewCard: React.FC<Props> = ({
         </>,
         document.body,
       )}
+
+      {shareOpen && <ShareModal target={{ kind: 'app', id: output.id, name: output.name }} open onClose={() => setShareOpen(false)} />}
     </Box>
   );
 };

@@ -9,6 +9,8 @@ import { GLASS_SURFACE, GLASS_SURFACE_BLUR } from '@/shared/styles/glassSurface'
 import { dropMinimizedShot } from './minimizedShots';
 import { buildMinimizedEntries, MinimizedEntry, MinimizedRect } from './minimizedEntries';
 import MinimizedTile, { MINIMIZED_TILE_W } from './MinimizedTile';
+import { openCardContextMenu } from './openCardContextMenu';
+import { tileMenuRows } from '../cards/tileMenuRows';
 import type { BrowserCardPosition, ViewCardPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 
@@ -88,6 +90,15 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
           onRestore={() => restore(entry)}
           onClose={() => close(entry)}
           onTile={(zone: string) => { restore(entry); if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone })); }}
+          onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+            items: [
+              { label: 'Restore', onClick: () => restore(entry) },
+              { label: 'Restore full screen', onClick: () => { restore(entry); dispatch(setTiledCard({ cardId: entry.id, zone: 'fullscreen' })); } },
+              { label: 'Tile to zone', submenu: tileMenuRows((zone) => { restore(entry); if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone })); }) },
+              { kind: 'separator' },
+              { label: 'Close', danger: true, onClick: () => close(entry) },
+            ],
+          })}
         />
       ))}
     </Box>

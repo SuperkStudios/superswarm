@@ -6,6 +6,8 @@ import DashboardHeader from './DashboardHeader';
 import TetherLayer from './TetherLayer';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
+import CardContextMenu from '../desktop/CardContextMenu';
+import { useCanvasContextMenu } from './useCanvasContextMenu';
 import DashboardEmptyState from './DashboardEmptyState';
 import '../desktop/desktop.css';
 import DesktopDock from '../desktop/DesktopDock';
@@ -176,6 +178,11 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen || settingsFullscreen;
   const [headerRevealed, setHeaderRevealed] = React.useState(false);
   const [appsWindowOpen, setAppsWindowOpen] = React.useState(false);
+  const onCanvasContextMenu = useCanvasContextMenu({
+    dispatch, dashboardId, expandedSessionIds, selection, canvasEmpty,
+    viewportRef: canvas.viewportRef, getCamera: canvas.actions.getLiveState,
+    onNewAgent, onAddBrowser, onApplications: () => setAppsWindowOpen(true), onTidy, onFitToView,
+  });
   useEffect(() => {
     if (!fullscreenCardId) return undefined;
     const onKey = (e: KeyboardEvent): void => {
@@ -315,15 +322,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onMouseMove={onViewportMouseMove}
         onMouseUp={onViewportMouseUp}
         onDoubleClick={onViewportDoubleClick}
-        onContextMenu={(e) => {
-          // Right-drag is the canvas marquee-select (Google-Maps style), so the native menu (Inspect
-          // Element in dev) shouldn't pop over it. Suppress only on the bare canvas; cards, inputs, and
-          // webviews keep their own menus.
-          const t = e.target as HTMLElement;
-          if (!t.closest('[data-select-id]') && !t.closest('input, textarea, [contenteditable]')) {
-            e.preventDefault();
-          }
-        }}
+        onContextMenu={onCanvasContextMenu}
         sx={{
           position: 'absolute',
           inset: 0,
@@ -468,6 +467,10 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         toolbarPrefillMode={toolbarPrefillMode}
       />
       </Box>
+
+      {/* Sibling of everything: the menu used to live inside the help pill's z:10 box (so any card
+          brought to front painted over it) and inside the fullscreen display:none wrapper. */}
+      <CardContextMenu />
     </Box>
     </>
   );

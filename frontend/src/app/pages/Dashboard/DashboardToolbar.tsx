@@ -17,7 +17,9 @@ import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp } from '@/shared/s
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { searchHistory, clearHistorySearch } from '@/shared/state/agentsSlice';
+import { searchHistory, clearHistorySearch, deleteSession, renameSession } from '@/shared/state/agentsSlice';
+import { openCardContextMenu } from './desktop/openCardContextMenu';
+import { displaySessionName } from '@/shared/state/sessionDisplay';
 import { updateSettingsPatch, AppSettings } from '@/shared/state/settingsSlice';
 import { store } from '@/shared/state/store';
 import { API_BASE, getAuthToken } from '@/shared/config';
@@ -252,6 +254,25 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       handleCloseHistory();
     }, [onHistoryResume, handleCloseHistory]);
 
+    const handleHistoryContextMenu = useCallback((e: React.MouseEvent, entry: { id: string; name: string }) => {
+      openCardContextMenu(e, {
+        rename: { value: displaySessionName(entry.name), onCommit: (name) => { void dispatch(renameSession({ sessionId: entry.id, name })); } },
+        items: [
+          { label: 'Resume chat', onClick: () => handleHistorySelect(entry.id) },
+          { kind: 'separator' },
+          {
+            label: 'Delete chat',
+            danger: true,
+            onClick: () => {
+              void dispatch(deleteSession({ sessionId: entry.id })).then(() => {
+                dispatch(searchHistory({ q: historyQuery, limit: HISTORY_PAGE_SIZE, offset: 0 }));
+              });
+            },
+          },
+        ],
+      });
+    }, [dispatch, handleHistorySelect, historyQuery]);
+
     const handleHistoryLoadMore = useCallback(() => {
       if (historySearch.loading || !historySearch.hasMore) return;
       dispatch(searchHistory({
@@ -460,6 +481,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               historyQuery={historyQuery}
               onHistoryQueryChange={setHistoryQuery}
               onHistorySelect={handleHistorySelect}
+              onHistoryContextMenu={handleHistoryContextMenu}
               onNewChat={() => { handleCloseHistory(); onNewAgent(); }}
               onWorkflowSelect={(wid) => {
                 dispatch(openWorkflowsApp({ workflowId: wid }));

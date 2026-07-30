@@ -59,12 +59,12 @@ import {
   registerPendingLoad,
   wakePendingLoad,
   type BrowserWebview,
-  getWebview,
 } from '@/shared/browserRegistry';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { browserCardMenuRows, browserTabMenuRows } from './browserCardMenuRows';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
 import { getActionLabel } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
@@ -644,6 +644,8 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleTabPointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation();
+    // A right-click still fires pointerdown; arming the drag here would capture the pointer under the menu.
+    if (e.button !== 0) return;
     const tabId = (e.currentTarget as HTMLElement).getAttribute('data-tab-id');
     if (!tabId) return;
     tabDragRef.current = { tabId, startX: e.clientX, startY: e.clientY, isDragging: false, detached: false };
@@ -1015,16 +1017,22 @@ const BrowserCard: React.FC<Props> = ({
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
       // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
       data-keepalive-hidden={keepAliveHidden || isMinimized || dockParked ? '1' : undefined}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
-        items: [
-          { label: 'New Tab', onClick: () => dispatch(addBrowserTab({ browserId, url: browserHomepage })) },
-          { label: 'Reload', onClick: () => { try { (getWebview(browserId) as { reload?: () => void } | undefined)?.reload?.(); } catch { /* webview gone */ } } },
-          { label: 'Copy URL', onClick: () => { void navigator.clipboard.writeText(activeUrl); } },
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Minimize', onClick: handleMinimize },
-          { label: 'Close', danger: true, onClick: () => { dispatch(recordClosedCard({ kind: 'browser', id: browserId })); removeBrowserCardCleanly(browserId, dispatch); } },
-        ],
-      })}
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
+        items: browserCardMenuRows({
+          browserId, dispatch, tabs, activeUrl, activeTitle, homepage: browserHomepage, tileZone, isMinimized,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          nav: {
+            reload: () => { try { webviewMap.current.get(activeTabId)?.reload(); } catch { /* webview gone */ } },
+            back: () => { try { webviewMap.current.get(activeTabId)?.goBack(); } catch { /* webview gone */ } },
+            forward: () => { try { webviewMap.current.get(activeTabId)?.goForward(); } catch { /* webview gone */ } },
+            canGoBack: activeLocal.canGoBack,
+            canGoForward: activeLocal.canGoForward,
+          },
+          onTile,
+          onMinimize: () => (isMinimized ? dispatch(toggleMinimizeCard({ cardId: browserId })) : handleMinimize()),
+          onFind: () => { setFindOpen(true); setFindFocusSignal((n) => n + 1); },
+        }),
+      }); }}
       onPointerDownCapture={(e: React.PointerEvent) => {
         onBringToFront?.(browserId, 'browser');
         // Capture-phase so chrome clicks (tab strip, URL bar) the children swallow still select the card; clicks inside the guest page never reach the host at all. Shift keeps the bubbled toggle path. Pass the target so URL-bar/tab presses select without yanking the camera.
@@ -1144,6 +1152,9 @@ const BrowserCard: React.FC<Props> = ({
               <Box
                 key={tab.id}
                 data-tab-id={tab.id}
+                onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+                  items: browserTabMenuRows({ browserId, dispatch, tab, tabCount: tabs.length, homepage: browserHomepage }),
+                })}
                 onPointerDown={handleTabPointerDown}
                 onPointerMove={handleTabPointerMove}
                 onPointerUp={handleTabPointerUp}

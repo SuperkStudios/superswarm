@@ -15,6 +15,7 @@ interface MinimizedTileProps {
   onRestore: () => void;
   onClose: () => void;
   onTile: (zone: string) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 export const MINIMIZED_TILE_W = 132;
@@ -27,7 +28,7 @@ const REST_EDGE = 'rgba(255,255,255,0.10)';
 const HOVER_EDGE = 'rgba(255,255,255,0.16)';
 
 /** One parked window: its own last frame, a favicon or glyph, and the title. Hover reveals the lights. */
-function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile }: MinimizedTileProps): React.ReactElement {
+function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile, onContextMenu }: MinimizedTileProps): React.ReactElement {
   const [faviconFailed, setFaviconFailed] = useState(false);
   const preview = getMinimizedShot(entry.id) || entry.thumbnail || null;
   const showFavicon = entry.kind === 'browser' && !!entry.faviconUrl && !faviconFailed;
@@ -55,6 +56,7 @@ function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile }: 
     <Box
       className="osw-card osw-pill-host osw-min-tile"
       onClick={onRestore}
+      onContextMenu={onContextMenu}
       title={entry.label}
       sx={{
         position: 'relative',

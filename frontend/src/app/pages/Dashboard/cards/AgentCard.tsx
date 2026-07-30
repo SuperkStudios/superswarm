@@ -19,7 +19,6 @@ import {
   collapseSession,
   expandSession,
   closeSession,
-  deleteSession,
   fetchSession,
   renameSession,
 } from '@/shared/state/agentsSlice';
@@ -39,7 +38,8 @@ import {
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
 import { useTiledStyle, computeTiledStyle } from './tileZones';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { agentCardMenuRows } from './agentCardMenuRows';
 import { extractLatestTodos } from '../desktop/agentTodos';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
@@ -833,15 +833,14 @@ const AgentCard: React.FC<Props> = ({
         e.stopPropagation();
         onDoubleClick?.(session.id, 'agent');
       }}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
         rename: { value: displayChatTitle(session), onCommit: (name) => dispatch(renameSession({ sessionId: session.id, name })) },
-        items: [
-          { label: expanded ? 'Collapse' : 'Open', onClick: () => dispatch(expanded ? collapseSession(session.id) : expandSession(session.id)) },
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Close', onClick: () => handleRemove() },
-          { label: 'Delete chat', danger: true, onClick: () => { void dispatch(deleteSession({ sessionId: session.id })); } },
-        ],
-      })}
+        items: agentCardMenuRows({
+          session, dispatch, expanded, tileZone, expandedSessionIds,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          onTile, onClose: () => handleRemove(),
+        }),
+      }); }}
       sx={{
         position: 'relative',
         // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
