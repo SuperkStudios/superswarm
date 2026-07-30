@@ -47,9 +47,11 @@ export const ARC_CHIP_SX: Record<string, unknown> = {
   },
   // red / yellow / green land at 150deg / 90deg / 30deg on a 12px arc over the chip's crown.
   // Keyed off the HOST (whole pill/thumb) hover, so grazing any part of it fans the dots out.
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(1)': { transform: 'translate(calc(-50% - 11px), calc(-50% + 5px)) scale(1)', opacity: 1 },
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(2)': { transform: 'translate(-50%, calc(-50% - 7px)) scale(1)', opacity: 1, transitionDelay: '40ms' },
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(3)': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
+  // Addressed by data-light, never by position: green is a wrapper DIV among two BUTTONs, and the
+  // old nth-of-type counted per tag, so it dealt green the red slot and parked it on top of Close.
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="close"]': { transform: 'translate(calc(-50% - 11px), calc(-50% + 5px)) scale(1)', opacity: 1 },
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="minimize"]': { transform: 'translate(-50%, calc(-50% - 7px)) scale(1)', opacity: 1, transitionDelay: '40ms' },
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="zoom"]': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
 };
 
 function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: WindowControlsProps): React.ReactElement {
@@ -71,8 +73,8 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
   const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 550); };
   const stop = (e: React.PointerEvent | React.MouseEvent): void => { e.stopPropagation(); };
 
-  const btn = (color: string, symbol: string, onClick: () => void, label: string): React.ReactElement => (
-    <Box component="button" type="button" aria-label={label}
+  const btn = (color: string, symbol: string, onClick: () => void, label: string, slot: string): React.ReactElement => (
+    <Box component="button" type="button" aria-label={label} data-light={slot}
       onClick={(e: React.MouseEvent) => { e.stopPropagation(); onClick(); }} onPointerDown={stop} sx={dotSx(color)}>
       <span>{symbol}</span>
     </Box>
@@ -86,9 +88,9 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
         // through the dots, and you can't aim at a dot without hovering its card first anyway.
         pointerEvents: 'none', '.osw-card:hover &': { pointerEvents: 'auto' },
       }}>
-      {btn(RED, '×', onClose, 'Close')}
-      {btn(YELLOW, '−', onMinimize, 'Minimize')}
-      <Box ref={greenRef} sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+      {btn(RED, '×', onClose, 'Close', 'close')}
+      {btn(YELLOW, '−', onMinimize, 'Minimize', 'minimize')}
+      <Box ref={greenRef} data-light="zoom" sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
         onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
         <Box component="button" type="button" aria-label={tiled ? 'Exit Full Screen' : 'Full Screen'}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onTile(tiled ? 'restore' : 'fullscreen'); }}
