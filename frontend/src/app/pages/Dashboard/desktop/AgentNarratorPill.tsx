@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CheckIcon from '@mui/icons-material/Check';
 import DashboardGlyph from '../canvas/DashboardGlyph';
+import { GLASS_SURFACE, GLASS_SURFACE_BLUR } from '@/shared/styles/glassSurface';
 import ShowUiWidgetView from '@/app/pages/AgentChat/tool-ui/ShowUiWidgetView';
 import AskUiBubble from '@/app/pages/AgentChat/tool-ui/AskUiBubble';
 import type { ToolPair } from '@/app/pages/AgentChat/tool-bubbles/ToolCallBubble';
@@ -17,22 +18,24 @@ interface AgentNarratorPillProps {
   askPair?: ToolPair | null;
   sessionId?: string;
   browserShot: string | null;
+  /** The turn's plain-text answer, shown when the turn produced no richer artifact. */
+  finalText?: string | null;
   selected: boolean;
   highlighted: boolean;
 }
 
-const GLASS = 'rgba(24,14,32,0.8)';
-const GLASS_BLUR = 'blur(18px) saturate(150%)';
+const GLASS = GLASS_SURFACE;
+const GLASS_BLUR = GLASS_SURFACE_BLUR;
 const MAX_VISIBLE_TODOS = 4;
 
 /** Collapsed agent as the desktop narrator pill; below it, the best artifact wins: live question > widget > browser shot > plan > Thinking. */
-function AgentNarratorPill({ label, running, todos, artifact, askPair, sessionId, browserShot, selected, highlighted }: AgentNarratorPillProps): React.ReactElement {
+function AgentNarratorPill({ label, running, todos, artifact, askPair, sessionId, browserShot, finalText, selected, highlighted }: AgentNarratorPillProps): React.ReactElement {
   const visibleTodos = (todos || []).slice(0, MAX_VISIBLE_TODOS);
   const hiddenCount = (todos?.length || 0) - visibleTodos.length;
   const ring = selected || highlighted ? { outline: '2px solid #3b82f6', outlineOffset: '2px' } : undefined;
   const liveAsk = askPair && sessionId ? askPair : null;
   // One key per ladder state so a state CHANGE remounts the artifact and replays the one-shot entrance; nothing loops.
-  const artifactKey = liveAsk ? `ask-${liveAsk.id}` : artifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : running ? 'thinking' : 'none';
+  const artifactKey = liveAsk ? `ask-${liveAsk.id}` : artifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : running ? 'thinking' : finalText ? 'final' : 'none';
 
   return (
     <Box
@@ -173,6 +176,36 @@ function AgentNarratorPill({ label, running, todos, artifact, askPair, sessionId
         >
           <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.6)' }}>
             Thinking...
+          </Typography>
+        </Box>
+      ) : finalText ? (
+        // Last resort, and the common one: a turn that just talked back. Without this a collapsed card answered "hi" with silence.
+        <Box
+          key={artifactKey}
+          className="osw-artifact"
+          sx={{
+            maxWidth: 320,
+            px: 1.5,
+            py: 0.875,
+            borderRadius: '14px',
+            background: GLASS,
+            backdropFilter: GLASS_BLUR,
+            WebkitBackdropFilter: GLASS_BLUR,
+            boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.75rem',
+              color: 'rgba(255,255,255,0.82)',
+              lineHeight: 1.45,
+              display: '-webkit-box',
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {finalText}
           </Typography>
         </Box>
       ) : null}

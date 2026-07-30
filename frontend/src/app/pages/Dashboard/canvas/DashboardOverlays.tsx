@@ -96,9 +96,9 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
 }) => {
   return (
     <>
-      {/* Floating bottom toolbar (all floating chrome steps aside while anything is fullscreen) */}
+      {/* Floating bottom toolbar (all floating chrome steps aside while anything is fullscreen). Sits at 30 not 16 so the spawn pill's 26px shadow reach clears the canvas root's clip. */}
       {!anyFullscreen && (
-      <Box sx={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
+      <Box sx={{ position: 'absolute', bottom: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 10 }}>
         <DashboardToolbar
           ref={toolbarRef}
           inputOpen={toolbarOpen}

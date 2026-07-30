@@ -15,6 +15,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { createDraftSession, launchAndSendFirstMessage, type AgentConfig } from '@/shared/state/agentsSlice';
+import { addBrowserCard } from '@/shared/state/dashboardLayoutSlice';
 import { getLastDashboardId } from '@/shared/lastDashboardId';
 import { API_BASE } from '@/shared/config';
 
@@ -198,7 +199,7 @@ const HelpPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </Box>
               <ChevronRightRoundedIcon sx={{ fontSize: 16, color: 'rgba(255,255,255,0.4)' }} />
             </Box>
-            <Box component="button" onClick={() => { openExternal(DISCORD_URL); onClose(); }} sx={rowSx}>
+            <Box component="button" onClick={() => { dispatch(addBrowserCard({ url: DISCORD_URL })); onClose(); }} sx={rowSx}>
               <ForumOutlinedIcon sx={iconSx} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500 }}>Talk to the team</Typography>
@@ -206,7 +207,7 @@ const HelpPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               </Box>
               <ArrowOutwardRoundedIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }} />
             </Box>
-            <Box component="button" onClick={() => { openExternal(DOCS_URL); onClose(); }} sx={rowSx}>
+            <Box component="button" onClick={() => { dispatch(addBrowserCard({ url: DOCS_URL })); onClose(); }} sx={rowSx}>
               <MenuBookOutlinedIcon sx={iconSx} />
               <Typography sx={{ flex: 1, fontSize: '0.8125rem', fontWeight: 500 }}>Docs &amp; shortcuts</Typography>
               <ArrowOutwardRoundedIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }} />

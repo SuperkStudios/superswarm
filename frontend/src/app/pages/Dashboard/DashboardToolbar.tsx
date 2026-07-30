@@ -419,7 +419,8 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
           boxShadow: historyOpen || !isExpanded ? 'none' : '0 12px 32px rgba(0,0,0,0.4)',
           padding: isExpanded ? '6px' : '0px',
           userSelect: 'none' as const,
-          overflow: inputOpen || newAgentBounce || historyOpen ? 'visible' : 'hidden',
+          // Only the view picker needs clipping (it scrolls its own list); anything else clipped the collapsed spawn pill's drop shadow flat against its own border box.
+          overflow: viewPickerOpen ? 'hidden' : 'visible',
           // historyOpen: width owned by SchedulePopover; leave undefined so framer-motion measures intrinsic size.
           width: viewPickerOpen ? 580 : historyOpen ? undefined : isExpanded ? 540 : undefined,
         }}

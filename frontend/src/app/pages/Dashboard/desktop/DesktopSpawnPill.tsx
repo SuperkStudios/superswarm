@@ -8,6 +8,7 @@ import MicNoneOutlinedIcon from '@mui/icons-material/MicNoneOutlined';
 import MicIcon from '@mui/icons-material/Mic';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useVoice } from '@/shared/voice/voiceContext';
+import { useAppSelector } from '@/shared/hooks';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
@@ -41,6 +42,7 @@ function DesktopSpawnPill({
   onHistory,
 }: DesktopSpawnPillProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
+  const newAgentShortcut = useAppSelector((s) => s.settings.data.new_agent_shortcut);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const { state: voiceState, pct: voicePct, pressStart: voicePressStart, pressEnd: voicePressEnd } = useVoice();
   const recording = voiceState === 'recording';
@@ -124,22 +126,26 @@ function DesktopSpawnPill({
           background: 'rgba(22,12,34,0.66)',
           backdropFilter: 'blur(20px) saturate(160%)',
           WebkitBackdropFilter: 'blur(20px) saturate(160%)',
-          boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
+          // Reach (offset + blur) stays under the 30px the canvas leaves below us, or the bottom edge shears the tail off.
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
           cursor: 'text',
         }}
         onClick={onOpenComposer}
       >
-        <Typography
-          sx={{
-            fontSize: '0.8125rem',
-            color: 'rgba(255,255,255,0.55)',
-            fontWeight: 400,
-            userSelect: 'none',
-            mr: 1.5,
-          }}
-        >
-          Ask me anything...
-        </Typography>
+        {/* Tooltip sits on the placeholder, not the whole pill, so it can't double up with the + and mic tooltips. */}
+        <Tooltip title={`Ask me anything (${comboDisplay(newAgentShortcut || 'Meta+l')})`} placement="top" arrow>
+          <Typography
+            sx={{
+              fontSize: '0.8125rem',
+              color: 'rgba(255,255,255,0.55)',
+              fontWeight: 400,
+              userSelect: 'none',
+              mr: 1.5,
+            }}
+          >
+            Ask me anything...
+          </Typography>
+        </Tooltip>
         <Box
           role="button"
           aria-label="Add to canvas"

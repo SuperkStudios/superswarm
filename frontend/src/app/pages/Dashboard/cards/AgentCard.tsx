@@ -49,6 +49,7 @@ import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
 import { parseMcpToolName, getMcpShortAction } from '@/shared/mcpToolMeta';
 import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
+import { GLASS_SURFACE, GLASS_SURFACE_BLUR, GLASS_SURFACE_TEXT } from '@/shared/styles/glassSurface';
 import { useDashboardActive } from '@/shared/hooks/useDashboardActive';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
 import { useStreamingMessage } from '@/shared/state/streamingSlice';
@@ -712,6 +713,20 @@ const AgentCard: React.FC<Props> = ({
     [session.messages, session.status],
   );
   const pillMode = !expanded && !hasPending && !isDraft && !tileZone;
+  // Glass bubble + fullscreen scrim are both dark in either theme, so the title goes light on them.
+  const titleColor = expanded ? GLASS_SURFACE_TEXT : c.text.primary;
+  // The answer a finished turn actually spoke, for pills with no widget/plan to show. Only the last assistant say, never a tool line.
+  const pillFinalText = useMemo(() => {
+    if (session.status === 'running') return null;
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      const m = session.messages[i];
+      if (m.role === 'user') break;
+      if (m.role === 'assistant' && typeof m.content === 'string' && m.content.trim()) {
+        return m.content.trim().slice(0, 400);
+      }
+    }
+    return session.last_message_preview?.trim() || null;
+  }, [session.messages, session.status, session.last_message_preview]);
   const pillLabel = session.turn_label?.label || displayChatTitle(session);
   const pillRunning = session.status === 'running';
 
@@ -1049,6 +1064,7 @@ const AgentCard: React.FC<Props> = ({
             askPair={pillAskPair}
             sessionId={session.id}
             browserShot={browserShot}
+            finalText={pillFinalText}
             selected={isSelected}
             highlighted={isHighlighted}
           />
@@ -1068,7 +1084,7 @@ const AgentCard: React.FC<Props> = ({
           ...(expanded
             ? tiledStyle
               ? {
-                  // Fullscreen/tiled: no room above the card, keep the inside hover scrim.
+                  // Fullscreen/tiled: no room above the card, so the scrim rides on top. Never hidden: in fullscreen the title and the lights are the only way out.
                   position: 'absolute',
                   top: 0,
                   left: 0,
@@ -1077,9 +1093,7 @@ const AgentCard: React.FC<Props> = ({
                   px: 2,
                   pt: 1.5,
                   pb: 2,
-                  opacity: 0,
-                  transition: 'opacity 0.15s ease',
-                  '&:hover': { opacity: 1 },
+                  opacity: 1,
                   background: 'linear-gradient(to bottom, rgba(20,12,28,0.92) 0%, rgba(20,12,28,0.65) 60%, rgba(20,12,28,0) 100%)',
                   borderRadius: '12px 12px 0 0',
                   // Header text must read over the dark scrim regardless of app theme.
@@ -1087,7 +1101,7 @@ const AgentCard: React.FC<Props> = ({
                   '& input': { color: 'rgba(255,255,255,0.92)' },
                 }
               : {
-                  // On the canvas the title + lights pop up ABOVE the card, same as the minimized pill.
+                  // On the canvas the title + lights pop up ABOVE the card, same as the minimized pill. Always visible: a hover-only name means you can't tell your agents apart at a glance.
                   position: 'absolute',
                   bottom: '100%',
                   top: 'auto',
@@ -1096,11 +1110,6 @@ const AgentCard: React.FC<Props> = ({
                   zIndex: 17,
                   px: 0.25,
                   pb: 0.75,
-                  opacity: 0,
-                  pointerEvents: 'none',
-                  transition: 'opacity 0.15s ease, transform 0.15s ease',
-                  transform: 'translateY(4px)',
-                  '.osw-card:hover &': { opacity: 1, pointerEvents: 'auto', transform: 'none' },
                 }
             : {
                 position: 'relative',
@@ -1140,20 +1149,35 @@ const AgentCard: React.FC<Props> = ({
               display: 'flex',
               alignItems: 'center',
               gap: 1,
-              borderRadius: 1,
+              // Expanded titles wear the same glass bubble as the collapsed pill; a bare label floating over the canvas read as a stray caption.
+              ...(expanded && !tiledStyle && {
+                alignSelf: 'flex-start',
+                flex: '0 1 auto',
+                // mr auto or the row's space-between flings the bubble to the far edge, away from the lights.
+                mr: 'auto',
+                maxWidth: '100%',
+                px: 1.25,
+                py: 0.375,
+                borderRadius: 999,
+                background: GLASS_SURFACE,
+                backdropFilter: GLASS_SURFACE_BLUR,
+                WebkitBackdropFilter: GLASS_SURFACE_BLUR,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+              }),
+              ...(!(expanded && !tiledStyle) && { borderRadius: 1 }),
             }}
           >
             <InlineEditableTitle
               value={displayChatTitle(session)}
               onCommit={(name) => dispatch(renameSession({ sessionId: session.id, name }))}
-              sx={{ flex: '0 1 auto', minWidth: 0, maxWidth: '100%', color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}
+              sx={{ flex: '0 1 auto', minWidth: 0, maxWidth: '100%', color: titleColor, fontWeight: 600, fontSize: '1rem' }}
             >
               <Typewriter
                 value={displayChatTitle(session)}
                 enabled={!!session.name && !isLegacyAutoName(session.name)}
               >
                 {(t) => (
-                  <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Typography sx={{ color: titleColor, fontWeight: 600, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t}
                   </Typography>
                 )}
