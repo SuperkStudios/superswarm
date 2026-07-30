@@ -7,6 +7,15 @@ import backend.apps.agents.tools.search.search_startpage as SP
 import backend.apps.web.web as W
 from backend.apps.agents.tools.web import DDGRateLimited, WebSearchTool
 import backend.apps.agents.tools.ssrf_guard as p_ssrf
+from backend.apps.web.tier_breaker import reset_tier_health
+
+
+@pytest.fixture(autouse=True)
+def fresh_breaker():
+    # The breaker is per-process by design, so without this one test's forced outage cools the next test's tier.
+    reset_tier_health()
+    yield
+    reset_tier_health()
 
 
 @pytest.fixture(autouse=True)

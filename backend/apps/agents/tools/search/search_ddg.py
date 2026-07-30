@@ -51,7 +51,16 @@ async def search_ddg(query: str, num_results: int) -> str:
         if lite is None:
             raise DDGRateLimited(query)
         return lite
+    # A hard block (403 is what html escalates to after the 202s) used to skip lite entirely, so a whole second frontend went untried; measured 7 times in one 44-query round.
     if reply.status >= 400:
+        try:
+            lite = await search_ddg_lite(query, num_results)
+        except Exception as exc:
+            raise RuntimeError(f"DuckDuckGo html returned HTTP {reply.status}; lite: {exc}") from None
+        if lite is None:
+            raise DDGRateLimited(query)
+        if lite:
+            return lite
         raise RuntimeError(f"DuckDuckGo html returned HTTP {reply.status}")
 
     body = reply.text

@@ -187,8 +187,8 @@ async def search(body: SearchBody) -> Dict:
                 "backend": "openai_subscription"}
 
     tiers = [
-        CascadeTier(name="ddg", run=try_keyless, budget=KEYLESS_TIER_SECONDS),
-        CascadeTier(name="startpage", run=try_startpage, budget=KEYLESS_TIER_SECONDS),
+        CascadeTier(name="ddg", run=try_keyless, budget=KEYLESS_TIER_SECONDS, breaker=True),
+        CascadeTier(name="startpage", run=try_startpage, budget=KEYLESS_TIER_SECONDS, breaker=True),
         CascadeTier(name="browser_search", run=try_browser_search, budget=BROWSER_TIER_SECONDS),
     ] + p_grounded_tiers("search", body.primary, {
         "gemini_native": try_gemini,
@@ -232,9 +232,12 @@ async def search(body: SearchBody) -> Dict:
 async def fetch(body: FetchBody) -> Dict:
     """Fetch a URL, primary-aware. Mirrors the /search cascade."""
     # Belt-and-suspenders: even though we delegate to remote Gemini/OpenAI fetchers (which can't reach private IPs), validating the URL here means a private/metadata URL gets a 4xx instead of being silently forwarded.
-    from backend.apps.agents.tools.ssrf_guard import SSRFBlocked, assert_safe_url
+    from backend.apps.agents.tools.ssrf_guard import DomainUnreachable, SSRFBlocked, assert_safe_url
     try:
         await assert_safe_url(body.url)
+    except DomainUnreachable:
+        # A domain that no longer resolves is the archive's whole reason for existing, so let the cascade run instead of 400ing here.
+        pass
     except SSRFBlocked as exc:
         raise HTTPException(status_code=400, detail=f"Refused: {exc}")
     gemini_key = resolve_gemini_api_key()

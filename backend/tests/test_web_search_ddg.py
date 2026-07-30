@@ -80,3 +80,46 @@ async def test_genuinely_empty_is_not_a_rate_limit(monkeypatch):
     p_patch_client(monkeypatch, p_reply(200, "<html><body>nothing here</body></html>"))
     out = await WebSearchTool.search_ddg("zxcvqwer no hits", 5)
     assert out == ""
+
+
+P_LITE_RESULTS = """
+<table><tr><td><a href="https://example.org/lite" class="result-link">Lite Result</a></td></tr>
+<tr><td class="result-snippet">A snippet from the lite frontend.</td></tr></table>
+"""
+
+
+def p_patch_split(monkeypatch, html_reply: HttpReply, lite_reply: HttpReply):
+    """Let the two DDG frontends answer differently, which is the whole point of having both."""
+    async def p_html(url, **kw):
+        return html_reply
+
+    async def p_lite(url, **kw):
+        return lite_reply
+    monkeypatch.setattr(SD, "browser_request", p_html)
+    monkeypatch.setattr(SDL, "browser_request", p_lite)
+
+
+@pytest.mark.asyncio
+async def test_html_403_still_tries_lite(monkeypatch):
+    """Measured 7 times in one 44-query round: html escalates from 202 to 403, and the old
+    code raised on the status without ever asking the second frontend."""
+    p_patch_split(monkeypatch, p_reply(403, "blocked"), p_reply(200, P_LITE_RESULTS))
+    out = await WebSearchTool.search_ddg("topic", 5)
+    assert "example.org/lite" in out
+    assert "Lite Result" in out
+
+
+@pytest.mark.asyncio
+async def test_html_403_and_lite_challenged_is_the_bot_challenge(monkeypatch):
+    p_patch_split(monkeypatch, p_reply(403, "blocked"), p_reply(202, "challenge"))
+    with pytest.raises(DDGRateLimited):
+        await WebSearchTool.search_ddg("topic", 5)
+
+
+@pytest.mark.asyncio
+async def test_both_frontends_erroring_names_both(monkeypatch):
+    p_patch_split(monkeypatch, p_reply(403, "blocked"), p_reply(500, "boom"))
+    with pytest.raises(RuntimeError) as exc:
+        await WebSearchTool.search_ddg("topic", 5)
+    assert "403" in str(exc.value)
+    assert "lite" in str(exc.value).lower()
