@@ -23,18 +23,18 @@ from backend.apps.agents.tools.web import WebSearchTool, DDGRateLimited
 @pytest.fixture(autouse=True)
 def p_no_network(monkeypatch):
     # Default everything to "unavailable / no network"; each test opts paths in.
-    monkeypatch.setattr(W, "p_resolve_gemini_api_key", lambda: None)
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: None)
+    monkeypatch.setattr(W, "resolve_gemini_api_key", lambda: None)
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: None)
 
     async def p_no_subs():
         return set()
-    monkeypatch.setattr(W, "p_refresh_9r_connected", p_no_subs)
+    monkeypatch.setattr(W, "refresh_9r_connected", p_no_subs)
 
     async def p_empty(*a, **k):
         return {}
     # subscription helpers hit localhost:20128 otherwise
-    monkeypatch.setattr(W, "p_gemini_grounded_via_9router", p_empty)
-    monkeypatch.setattr(W, "p_openai_websearch_via_9router", p_empty)
+    monkeypatch.setattr(W, "gemini_grounded_via_9router", p_empty)
+    monkeypatch.setattr(W, "openai_websearch_via_9router", p_empty)
 
 
 def p_ddg_returns(monkeypatch, text):
@@ -55,7 +55,7 @@ async def test_ddg_is_tried_first_and_wins(monkeypatch):
     # grounded would raise if reached; prove it isn't
     async def p_boom(*a, **k):
         raise AssertionError("grounded should not be called when DDG has results")
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_boom)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
 
     t = time.monotonic()
     res = await search(SearchBody(query="foo"))
@@ -68,11 +68,11 @@ async def test_ddg_is_tried_first_and_wins(monkeypatch):
 @pytest.mark.asyncio
 async def test_ddg_throttled_falls_over_to_openai(monkeypatch):
     p_ddg_throttled(monkeypatch)
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: "okey")
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: "okey")
 
     async def p_openai(api_key, query):
         return {"text": "grounded answer", "chunks": [("Title", "https://u.example")]}
-    monkeypatch.setattr(W, "p_openai_websearch", p_openai)
+    monkeypatch.setattr(W, "openai_websearch", p_openai)
 
     res = await search(SearchBody(query="x"))
     assert res["backend"] == "openai_native"
@@ -84,12 +84,12 @@ async def test_ddg_throttled_falls_over_to_openai(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_hung_grounded_attempt_is_bounded(monkeypatch):
     p_ddg_throttled(monkeypatch)
-    monkeypatch.setattr(W, "P_GROUNDED_ATTEMPT_TIMEOUT", 0.3)
-    monkeypatch.setattr(W, "p_resolve_gemini_api_key", lambda: "gkey")
+    monkeypatch.setattr(W, "GROUNDED_TIER_SECONDS", 0.3)
+    monkeypatch.setattr(W, "resolve_gemini_api_key", lambda: "gkey")
 
     async def p_hangs(*a, **k):
         await asyncio.sleep(30)
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_hangs)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_hangs)
 
     t = time.monotonic()
     res = await search(SearchBody(query="x"))
@@ -102,15 +102,15 @@ async def test_a_hung_grounded_attempt_is_bounded(monkeypatch):
 @pytest.mark.asyncio
 async def test_primary_openai_reorders_grounded_tier(monkeypatch):
     p_ddg_throttled(monkeypatch)
-    monkeypatch.setattr(W, "p_resolve_gemini_api_key", lambda: "gkey")
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: "okey")
+    monkeypatch.setattr(W, "resolve_gemini_api_key", lambda: "gkey")
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: "okey")
 
     async def p_gem(*a, **k):
         return {"text": "GEM", "chunks": [("g", "https://gem.example")]}
     async def p_oai(api_key, query):
         return {"text": "OAI", "chunks": [("o", "https://oai.example")]}
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_gem)
-    monkeypatch.setattr(W, "p_openai_websearch", p_oai)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_gem)
+    monkeypatch.setattr(W, "openai_websearch", p_oai)
 
     res = await search(SearchBody(query="x", primary="openai"))
     # openai must be tried before gemini when it's the primary
@@ -132,11 +132,11 @@ async def test_everything_fails_is_honest_not_empty(monkeypatch):
 async def test_everything_fails_nudges_browser_not_retry(monkeypatch):
     # All-fail must hand the model the browser as an escape hatch, not a dead-end "wait and retry".
     p_ddg_throttled(monkeypatch)
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: "okey")  # configured but errors
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: "okey")  # configured but errors
 
     async def p_openai_boom(*a, **k):
         raise RuntimeError("openai down")
-    monkeypatch.setattr(W, "p_openai_websearch", p_openai_boom)
+    monkeypatch.setattr(W, "openai_websearch", p_openai_boom)
 
     res = await search(SearchBody(query="sony zv-e10 price", browser_ok=True))
     assert res["backend"] == "none"
@@ -148,11 +148,11 @@ async def test_everything_fails_nudges_browser_not_retry(monkeypatch):
 async def test_nudge_suppressed_when_browser_denied(monkeypatch):
     # A session without browser-delegation tools must never be told to call CreateBrowserAgent.
     p_ddg_throttled(monkeypatch)
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: "okey")
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: "okey")
 
     async def p_openai_boom(*a, **k):
         raise RuntimeError("openai down")
-    monkeypatch.setattr(W, "p_openai_websearch", p_openai_boom)
+    monkeypatch.setattr(W, "openai_websearch", p_openai_boom)
 
     res = await search(SearchBody(query="sony zv-e10 price"))
     assert res["backend"] == "none"
@@ -186,7 +186,7 @@ async def test_fetch_local_first_wins_and_is_fast(monkeypatch):
     p_local_returns(monkeypatch, big)
     async def p_boom(*a, **k):
         raise AssertionError("grounded fetch should not run when local has content")
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_boom)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
 
     t = time.monotonic()
     res = await fetch(FetchBody(url="https://x.example"))
@@ -198,10 +198,10 @@ async def test_fetch_local_first_wins_and_is_fast(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_thin_local_falls_to_grounded(monkeypatch):
     p_local_returns(monkeypatch, "Contents of https://spa.example:\n\n")  # JS wall, empty body
-    monkeypatch.setattr(W, "p_resolve_gemini_api_key", lambda: "gkey")
+    monkeypatch.setattr(W, "resolve_gemini_api_key", lambda: "gkey")
     async def p_gem(api_key, prompt, *, use_url_context):
         return {"text": "rendered page text from grounding", "chunks": []}
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_gem)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_gem)
 
     res = await fetch(FetchBody(url="https://spa.example"))
     assert res["backend"] == "gemini_native"
@@ -233,7 +233,7 @@ async def test_browser_search_tier_fires_when_ddg_throttled(monkeypatch):
 
     async def p_boom(*a, **k):
         raise AssertionError("grounded should not be reached once the browser tier answers")
-    monkeypatch.setattr(W, "p_gemini_grounded_call", p_boom)
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
 
     res = await search(SearchBody(query="q"))
     assert res["backend"] == "browser_ddg"
@@ -245,11 +245,11 @@ async def test_browser_search_skipped_when_no_bridge(monkeypatch):
     # DDG throttled, no browser bridge -> must fall THROUGH to grounded, not crash.
     p_ddg_throttled(monkeypatch)
     p_browser_bridge(monkeypatch, None)
-    monkeypatch.setattr(W, "p_resolve_openai_api_key", lambda: "okey")
+    monkeypatch.setattr(W, "resolve_openai_api_key", lambda: "okey")
 
     async def p_openai(api_key, query):
         return {"text": "grounded", "chunks": [("T", "https://u.example")]}
-    monkeypatch.setattr(W, "p_openai_websearch", p_openai)
+    monkeypatch.setattr(W, "openai_websearch", p_openai)
 
     res = await search(SearchBody(query="q"))
     assert res["backend"] == "openai_native"

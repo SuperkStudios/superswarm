@@ -87,7 +87,11 @@ def send_response(id_, result=None, error=None):
     sys.stdout.flush()
 
 
-def p_post(url: str, body: dict, timeout: float = 60.0) -> dict:
+# The backend bounds its own cascade at 60s and always answers within it (with an honest "here is why every backend failed" body). Waiting slightly longer than that means the useful answer wins; the old 45s cap aborted the call BEFORE the later tiers could even be reached, so search reliability came down to whether an early tier won the race.
+TOOL_TIMEOUT = 75.0
+
+
+def p_post(url: str, body: dict, timeout: float = TOOL_TIMEOUT) -> dict:
     payload = json.dumps(body).encode()
     headers = {"Content-Type": "application/json"}
     if BACKEND_AUTH:
@@ -118,7 +122,7 @@ def handle_tool_call(tool_name: str, arguments: dict) -> dict:
         body = {"query": query, "num_results": num, "browser_ok": BROWSER_OK}
         if PRIMARY_HINT:
             body["primary"] = PRIMARY_HINT
-        r = p_post(SEARCH_URL, body, timeout=45.0)
+        r = p_post(SEARCH_URL, body, timeout=TOOL_TIMEOUT)
         if "error" in r:
             return {"content": [{"type": "text", "text": f"Search failed: {r['error']}"}], "isError": True}
         results = r.get("results", "")
@@ -140,7 +144,7 @@ def handle_tool_call(tool_name: str, arguments: dict) -> dict:
             body["prompt"] = str(prompt)
         if PRIMARY_HINT:
             body["primary"] = PRIMARY_HINT
-        r = p_post(FETCH_URL, body, timeout=45.0)
+        r = p_post(FETCH_URL, body, timeout=TOOL_TIMEOUT)
         if "error" in r:
             return {"content": [{"type": "text", "text": f"Fetch failed: {r['error']}"}], "isError": True}
         content = r.get("content", "")
