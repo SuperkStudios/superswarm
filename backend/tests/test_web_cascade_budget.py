@@ -125,7 +125,7 @@ def test_search_tier_budgets_leave_room_for_the_grounded_tier():
 
     # A grounded native call needs ~30-42s, so the free rungs must leave it a usable slice.
     grounded_floor = 20.0
-    search_cheap = W.KEYLESS_TIER_SECONDS + W.BROWSER_TIER_SECONDS
+    search_cheap = 2 * W.KEYLESS_TIER_SECONDS + W.BROWSER_TIER_SECONDS
     assert W.SEARCH_BUDGET_SECONDS - search_cheap >= grounded_floor
     fetch_cheap = W.LOCAL_FETCH_TIER_SECONDS + W.BROWSER_TIER_SECONDS
     assert W.FETCH_BUDGET_SECONDS - fetch_cheap >= grounded_floor

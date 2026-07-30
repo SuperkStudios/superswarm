@@ -123,7 +123,8 @@ async function hiddenEvalWithCookies(url, cookieRecords, js) {
 // Google first (direct result URLs, best quality); DuckDuckGo in a real browser
 // second (immune to the httpx 202 throttle); Bing last (results are redirect-wrapped).
 const ENGINES = [
-  { name: 'google', url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}&num=10&hl=en`,
+  // udm=14 is Google's plain "Web" tab: ten blue links, no AI Overview and no answer widgets, so the a-h3 scrape gets real result URLs instead of whatever the SERP decided to render today.
+  { name: 'google', url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}&udm=14&num=10&hl=en`,
     scrape: `Array.from(document.querySelectorAll('a h3')).map(function(h){var a=h.closest('a');return a&&a.href?{t:h.innerText,u:a.href}:null;}).filter(function(x){return x&&x.u.indexOf('http')===0&&x.u.indexOf('google.')===-1;})` },
   { name: 'ddg', url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,
     scrape: `Array.from(document.querySelectorAll('a.result__a')).map(function(a){var m=a.href.match(/uddg=([^&]+)/);return {t:a.innerText,u:m?decodeURIComponent(m[1]):a.href};})` },

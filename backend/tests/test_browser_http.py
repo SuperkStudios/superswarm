@@ -9,8 +9,8 @@ queries. These pin the seam and the degrade path.
 import pytest
 
 import backend.apps.agents.tools.browser_http as BH
-import backend.apps.agents.tools.search_ddg as SD
-import backend.apps.agents.tools.search_ddg_lite as SDL
+import backend.apps.agents.tools.search.search_ddg as SD
+import backend.apps.agents.tools.search.search_ddg_lite as SDL
 from backend.apps.agents.tools.browser_http import BROWSER_HEADERS, HttpReply, browser_request
 
 

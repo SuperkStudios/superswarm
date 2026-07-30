@@ -144,6 +144,14 @@ async def search(body: SearchBody) -> Dict:
             return None
         return {"query": body.query, "results": text, "backend": "ddg"}
 
+    async def try_startpage() -> Optional[Dict]:
+        # Second independent engine (Google's index), so DuckDuckGo's bot challenge is no longer a single point of failure for keyless users.
+        from backend.apps.agents.tools.search.search_startpage import search_startpage
+        text = await search_startpage(body.query, body.num_results)
+        if not text:
+            return None
+        return {"query": body.query, "results": text, "backend": "startpage"}
+
     async def try_browser_search() -> Optional[Dict]:
         # Packaged-app tier: a real Chromium's fingerprint isn't subject to the headless-client challenge, and it can scrape Google/Bing directly. Skipped (None) when no Electron main bridge is connected.
         res = await p_browser_bridge("browser_search", {"query": body.query, "num_results": body.num_results})
@@ -188,6 +196,7 @@ async def search(body: SearchBody) -> Dict:
 
     tiers = [
         CascadeTier(name="ddg", run=try_keyless, budget=KEYLESS_TIER_SECONDS),
+        CascadeTier(name="startpage", run=try_startpage, budget=KEYLESS_TIER_SECONDS),
         CascadeTier(name="browser_search", run=try_browser_search, budget=BROWSER_TIER_SECONDS),
     ] + p_grounded_tiers("search", body.primary, {
         "gemini_native": try_gemini,

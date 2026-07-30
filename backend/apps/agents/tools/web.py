@@ -9,13 +9,13 @@ import httpx
 from typeguard import typechecked
 
 from backend.apps.agents.tools.base import BaseTool, ToolContext
-from backend.apps.agents.tools.search_ddg import (
+from backend.apps.agents.tools.search.search_ddg import (
     DDGRateLimited,
     HTTP_TIMEOUT,
     USER_AGENT,
     strip_html,
 )
-from backend.apps.agents.tools.search_ddg import search_ddg as run_ddg_search
+from backend.apps.agents.tools.search.search_ddg import search_ddg as run_ddg_search
 from backend.apps.agents.tools.ssrf_guard import SSRFBlocked, safe_fetch
 
 P_MAX_OUTPUT_BYTES = 250 * 1024  # ~250 KB covers ~95% of articles/wikis/docs.

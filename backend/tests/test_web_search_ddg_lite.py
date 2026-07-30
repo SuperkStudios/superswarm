@@ -14,11 +14,11 @@ import asyncio
 
 import pytest
 
-import backend.apps.agents.tools.search_ddg as SD
-import backend.apps.agents.tools.search_ddg_lite as SDL
+import backend.apps.agents.tools.search.search_ddg as SD
+import backend.apps.agents.tools.search.search_ddg_lite as SDL
 from backend.apps.agents.tools.browser_http import HttpReply
 from backend.apps.agents.tools.web import WebSearchTool, DDGRateLimited
-from backend.apps.agents.tools.search_ddg_lite import parse_lite_results
+from backend.apps.agents.tools.search.search_ddg_lite import parse_lite_results
 
 P_LITE_BODY = """
 <table>

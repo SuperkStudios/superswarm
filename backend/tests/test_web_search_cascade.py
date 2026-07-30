@@ -15,6 +15,7 @@ import time
 
 import pytest
 
+import backend.apps.agents.tools.search.search_startpage as SP
 import backend.apps.web.web as W
 from backend.apps.web.web import search, SearchBody
 from backend.apps.agents.tools.web import WebSearchTool, DDGRateLimited
@@ -35,6 +36,10 @@ def p_no_network(monkeypatch):
     # subscription helpers hit localhost:20128 otherwise
     monkeypatch.setattr(W, "gemini_grounded_via_9router", p_empty)
     monkeypatch.setattr(W, "openai_websearch_via_9router", p_empty)
+
+    async def p_startpage_closed(query, num):
+        return None
+    monkeypatch.setattr(SP, "search_startpage", p_startpage_closed)
 
 
 def p_ddg_returns(monkeypatch, text):
@@ -79,6 +84,28 @@ async def test_ddg_throttled_falls_over_to_openai(monkeypatch):
     assert "u.example" in res["results"]
     # DDG's throttle is recorded so the caller knows why we fell through
     assert any("ddg" in e for e in res.get("cascade_errors", []))
+
+
+def p_startpage_returns(monkeypatch, text):
+    async def p_f(query, num):
+        return text
+    monkeypatch.setattr(SP, "search_startpage", p_f)
+
+
+@pytest.mark.asyncio
+async def test_startpage_rescues_a_ddg_challenge(monkeypatch):
+    """Two independent engines: one operator's bot challenge must not close free search."""
+    p_ddg_throttled(monkeypatch)
+    p_startpage_returns(monkeypatch, "[1] Rescued\n    https://sp.example")
+
+    async def p_boom(*a, **k):
+        raise AssertionError("a paid backend must not run while a free engine still answers")
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
+
+    res = await search(SearchBody(query="x"))
+    assert res["backend"] == "startpage"
+    assert "sp.example" in res["results"]
+    assert any("ddg" in e for e in res["cascade_errors"])
 
 
 @pytest.mark.asyncio
