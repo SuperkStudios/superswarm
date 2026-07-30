@@ -263,12 +263,20 @@ async def fetch(body: FetchBody) -> Dict:
         body_text = page.text.split("\n\n", 1)[-1]
         if len(body_text.strip()) < 200:
             return None
+        # A challenge screen answers 200 and reads like prose, and it is exactly what our own Chromium on the user's own IP can get past, so never stop here for one.
+        from backend.apps.agents.tools.fetch.bot_wall import looks_like_bot_wall
+        if looks_like_bot_wall(body_text):
+            return None
         return {"url": body.url, "content": page.text, "backend": "local"}
 
     async def try_browser_fetch() -> Optional[Dict]:
         # Packaged-app tier: renders the page in a real offscreen Chromium and returns its visible text, so JS-only / SPA / soft-paywall pages that give httpx nothing actually resolve. Shares the user's browser cookies, so pages they're logged into fetch authed.
+        from backend.apps.agents.tools.fetch.bot_wall import looks_like_bot_wall
         res = await p_browser_bridge("browser_fetch", {"url": body.url})
         if not res or not res.get("text"):
+            return None
+        # Measured live: Cloudflare and PerimeterX beat even a real browser on some sites, and their challenge screen is not the page; the archive still has the real one.
+        if looks_like_bot_wall(res["text"]):
             return None
         return {"url": body.url, "content": f"Contents of {body.url}:\n\n{res['text']}", "backend": "browser"}
 
