@@ -75,15 +75,6 @@ ARCHIVE_TIER_SECONDS = 10.0       # the Wayback redirect path answered in 0.5-3s
 # --------------------------------------------------------------------------- Helpers ---------------------------------------------------------------------------
 
 
-@typechecked
-def p_join_text(parts: List[Dict[str, Any]]) -> str:
-    out: List[str] = []
-    for p in parts:
-        if isinstance(p, dict) and p.get("type") == "text":
-            out.append(str(p.get("text", "")))
-    return "\n".join(out)
-
-
 # Drive the packaged app's offscreen Chromium (main-process hidden window) for a fetch/search. Returns the bridge result dict, or None when no Electron main bridge is connected (dev/headless/backend-only) so the cascade just skips this tier. This is the real "browser reachable" gate, OPENSWARM_BROWSER_OK is effectively always "1" and not trustworthy for this.
 @typechecked
 async def p_browser_bridge(action: str, params: Dict) -> Optional[Dict]:
@@ -256,15 +247,17 @@ async def fetch(body: FetchBody) -> Dict:
         # Fast path: direct httpx + trafilatura, and it returns the page's ACTUAL text (the grounded fetchers summarize, which is slower and loses detail). Thin/errored reads (JS walls, paywalls, HTTP errors) fall through.
         nonlocal local_text
         from backend.apps.agents.tools.web import WebFetchTool
-        parts = await WebFetchTool().execute({"url": body.url, "prompt": body.prompt or ""}, None)
-        text = p_join_text(parts)
-        local_text = text
-        if text.startswith(("HTTP error", "Error fetching", "Refused to fetch")):
+        page = await WebFetchTool.fetch_page(body.url, body.prompt)
+        local_text = page.text
+        if page.kind == "error":
             return None
-        body_text = text.split("\n\n", 1)[-1] if "\n\n" in text else text
+        # A PNG or a scanned PDF has no text for ANY tier to find, so spending a paid fetcher on it buys nothing.
+        if page.kind in ("binary", "pdf_unreadable"):
+            return {"url": body.url, "content": page.text, "backend": "local"}
+        body_text = page.text.split("\n\n", 1)[-1]
         if len(body_text.strip()) < 200:
             return None
-        return {"url": body.url, "content": text, "backend": "local"}
+        return {"url": body.url, "content": page.text, "backend": "local"}
 
     async def try_browser_fetch() -> Optional[Dict]:
         # Packaged-app tier: renders the page in a real offscreen Chromium and returns its visible text, so JS-only / SPA / soft-paywall pages that give httpx nothing actually resolve. Shares the user's browser cookies, so pages they're logged into fetch authed.
