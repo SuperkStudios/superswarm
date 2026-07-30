@@ -1,7 +1,7 @@
 import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { addViewCard, clearTiledCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
+import { addViewCard, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayer from './TetherLayer';
 import DashboardCardLayer from './DashboardCardLayer';
@@ -170,6 +170,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // macOS full screen: one card owns the whole window, every piece of chrome steps aside; Esc exits.
   const dispatch = useAppDispatch();
   const fullscreenCardId = useAppSelector(selectFullscreenCardId);
+  const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
   // The singleton app windows (Workflows, Settings) carry their own fullscreen flag, not a tiledCard; their fill also hides the dock.
   const settingsFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
   const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen || settingsFullscreen;
@@ -268,6 +269,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       {!anyFullscreen && (
         <MinimizedStack
           browserCards={browserCards}
+          viewCards={viewCards}
+          outputs={outputs}
+          selectedIds={Array.from(selection.selectedIds.keys())}
           onRestore={(cardId, rect) => {
             canvas.actions.fitToCards([rect], 1.15, true);
             onHighlightCard?.(cardId);
@@ -285,6 +289,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           outputs={outputs}
           selectedIds={Array.from(selection.selectedIds.keys())}
           onFocusCard={(cardId, rect) => {
+            // A parked card sits off-canvas, so flying to its stored rect would land on empty space; unpark it first.
+            if (minimizedCards[cardId]) dispatch(toggleMinimizeCard({ cardId }));
             canvas.actions.fitToCards([rect], 1.15, true);
             onHighlightCard?.(cardId);
           }}

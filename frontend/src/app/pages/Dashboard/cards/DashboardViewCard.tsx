@@ -18,6 +18,7 @@ import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { requestAppSlot, releaseAppSlot, subscribeAppBudget } from '@/shared/appWebviewBudget';
 import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
@@ -223,7 +224,9 @@ const DashboardViewCard: React.FC<Props> = ({
   useEffect(() => {
     const evaluate = (): void => {
       let want: boolean;
-      if (previewDeferred) {
+      if (isMinimized) {
+        want = false; // parked in the rail as a still, so a live renderer behind it is pure waste
+      } else if (previewDeferred) {
         want = false; // reveal-parked: never boot until the first click clears the defer
       } else if (alwaysLive) {
         // Actively used (selected, interacting, agent-driven, tiled, fullscreen): pinned, never capped.
@@ -263,8 +266,8 @@ const DashboardViewCard: React.FC<Props> = ({
         previewLiveRef.current = true;
         setSuspendSnapshot(null);
         setPreviewLive(true);
-      } else if (previewDeferred) {
-        // Reveal-parked from birth: never booted, so no settle + no frame to capture, just stay light.
+      } else if (isMinimized || previewDeferred) {
+        // Parked (minimize already froze its own frame) or never booted: drop it now, no settle beat.
         if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
         previewLiveRef.current = false;
         setPreviewLive(false);
@@ -290,7 +293,7 @@ const DashboardViewCard: React.FC<Props> = ({
       window.removeEventListener('resize', evaluate);
       if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
     };
-  }, [alwaysLive, previewDeferred, cardX, cardY, cardWidth, cardHeight, getCanvasState, cardKey]);
+  }, [alwaysLive, previewDeferred, isMinimized, cardX, cardY, cardWidth, cardHeight, getCanvasState, cardKey]);
 
   // Free the cap slot on unmount (card deleted, dashboard switch) so a slot is never leaked.
   useEffect(() => () => releaseAppSlot(cardKey), [cardKey]);
@@ -568,7 +571,20 @@ const DashboardViewCard: React.FC<Props> = ({
     dispatch(recordClosedCard({ kind: 'view', id: cardKey }));
     void removeViewCardCleanly(cardKey, dispatch);
   };
-  const onMinimize = () => dispatch(toggleMinimizeCard({ cardId: cardKey }));
+  // Freeze the app's last frame first so the rail tile shows the real app, then park the card.
+  const onMinimize = useCallback(() => {
+    let parked = false;
+    const park = (): void => { if (parked) return; parked = true; dispatch(toggleMinimizeCard({ cardId: cardKey })); };
+    // capturePage can hang forever on a guest that stopped painting (Electron 42); the timer guarantees the park.
+    window.setTimeout(park, 250);
+    void (async () => {
+      try {
+        const snap = await previewRef.current?.capture?.();
+        if (snap) saveMinimizedShot(cardKey, snap);
+      } catch { /* no frame, the tile falls back to the app's stored thumbnail */ }
+      park();
+    })();
+  }, [dispatch, cardKey]);
   const onTile = (zone: string) => {
     if (zone === 'restore') dispatch(clearTiledCard(cardKey));
     else dispatch(setTiledCard({ cardId: cardKey, zone }));
@@ -628,6 +644,7 @@ const DashboardViewCard: React.FC<Props> = ({
       ref={dockRootRef}
       data-select-type="view-card"
       data-select-id={cardKey}
+      data-keepalive-hidden={isMinimized ? '1' : undefined}
       onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
         items: [
           { label: 'Full Screen', onClick: () => onTile('fullscreen') },
@@ -651,10 +668,13 @@ const DashboardViewCard: React.FC<Props> = ({
         // contain + willChange: own compositor layer so paint stays scoped (see AgentCard for full rationale).
         contain: 'layout style',
         willChange: 'transform',
-        left: tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX),
-        top: tiledStyle ? tiledStyle.top : (dragging ? cardY : displayY),
-        width: tiledStyle ? tiledStyle.width : (isMinimized ? 220 : displayW),
-        height: tiledStyle ? tiledStyle.height : (isMinimized ? 44 : displayH),
+        // Minimized apps live in the right-edge rail, so the card itself parks off-canvas at full size
+        // (same trick as browser cards) and restores to exactly the geometry it left.
+        pointerEvents: isMinimized ? 'none' : undefined,
+        left: isMinimized ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: isMinimized ? -100000 : (tiledStyle ? tiledStyle.top : (dragging ? cardY : displayY)),
+        width: tiledStyle ? tiledStyle.width : displayW,
+        height: tiledStyle ? tiledStyle.height : displayH,
         transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
         transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
         borderRadius: isFullscreen ? '12px' : `${c.radius.lg}px`,
@@ -750,7 +770,7 @@ const DashboardViewCard: React.FC<Props> = ({
         <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, mr: 0.25 }}>
           <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} noTileMenu={tileZone === 'fullscreen'} />
         </Box>
-        {!isMinimized && <GridViewRoundedIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />}
+        <GridViewRoundedIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />
         <Typography
           sx={{
             flex: 1,
@@ -770,7 +790,7 @@ const DashboardViewCard: React.FC<Props> = ({
           </Typography>
         )}
 
-        {showControls && !isMinimized && (
+        {showControls && (
           <>
             {hasWorkspace && (
               <Box
@@ -849,18 +869,16 @@ const DashboardViewCard: React.FC<Props> = ({
           </>
         )}
 
-        {!isMinimized && (
-          <Tooltip title={headerCollapsed ? 'Show toolbar' : 'Hide toolbar'} placement="top">
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); setHeaderPeek(false); setHeaderCollapsed((v) => !v); }}
-              onPointerDown={(e) => e.stopPropagation()}
-              sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
-            >
-              <KeyboardArrowUpRounded sx={{ fontSize: 18, transition: 'transform 0.15s', transform: headerCollapsed ? 'rotate(180deg)' : 'none' }} />
-            </IconButton>
-          </Tooltip>
-        )}
+        <Tooltip title={headerCollapsed ? 'Show toolbar' : 'Hide toolbar'} placement="top">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); setHeaderPeek(false); setHeaderCollapsed((v) => !v); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
+          >
+            <KeyboardArrowUpRounded sx={{ fontSize: 18, transition: 'transform 0.15s', transform: headerCollapsed ? 'rotate(180deg)' : 'none' }} />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Preview body */}
