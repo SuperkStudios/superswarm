@@ -13,8 +13,8 @@ from backend.apps.agents.tools.search.search_ddg import (
     DDGRateLimited,
     HTTP_TIMEOUT,
     USER_AGENT,
-    strip_html,
 )
+from backend.apps.agents.tools.fetch.page_text import body_to_text, html_to_text, looks_like_pdf
 from backend.apps.agents.tools.search.search_ddg import search_ddg as run_ddg_search
 from backend.apps.agents.tools.ssrf_guard import SSRFBlocked, safe_fetch
 
@@ -126,9 +126,11 @@ class WebSearchTool(BaseTool):
                 return [{"type": "text", "text": f"No search results found for: {query}"}]
             return [{"type": "text", "text": results}]
         except DDGRateLimited:
+            # "Wait and retry" was a dead end: the 202 is an anti-automation challenge on the client, not a cooldown, so an immediate retry gets the same answer.
             return [{"type": "text", "text": (
-                "DuckDuckGo is rate-limiting this network right now (HTTP 202). "
-                "Wait a bit and retry, or use a different search source."
+                "DuckDuckGo answered its bot challenge (HTTP 202) instead of results, on both "
+                "its html and lite frontends. Retrying the same query will not clear it; use "
+                "another search source."
             )}]
         except Exception as exc:
             return [{"type": "text", "text": f"Web search error: {exc}"}]
@@ -182,25 +184,14 @@ class WebFetchTool(BaseTool):
             return [{"type": "text", "text": f"Error fetching {url}: {exc}"}]
 
         content_type = resp.headers.get("content-type", "")
-        is_html = "html" in content_type or resp.text.strip().startswith("<!")
+        # A PDF's content-type often says html, so check the magic bytes before trusting the header.
+        is_pdf = looks_like_pdf(content_type, resp.content)
+        is_html = not is_pdf and ("html" in content_type or resp.text.strip().startswith("<!"))
 
         if is_html:
-            # Prefer trafilatura for main-content extraction; fall back to regex strip on apps/login walls/JS-heavy pages.
-            text: str | None = None
-            try:
-                import trafilatura  # type: ignore
-                text = trafilatura.extract(
-                    resp.text,
-                    include_comments=False,
-                    include_tables=True,
-                    favor_precision=True,
-                )
-            except Exception:
-                text = None
-            if not text:
-                text = strip_html(resp.text)
+            text = html_to_text(resp.text)
         else:
-            text = resp.text
+            text = body_to_text(content_type, resp.content, resp.text).text
 
         text = p_truncate(text)
 

@@ -18,6 +18,8 @@ httpx==0.28.1
 trafilatura==2.0.0
 # curl_cffi: Chrome TLS-fingerprint impersonation for the keyless search rungs. Measured 8/8 against DuckDuckGo where plain httpx scored 4/8 on the same queries; abi3 wheels for macos arm64/x64 and win_amd64. Guarded import, so a missing wheel degrades to httpx instead of breaking the backend.
 curl_cffi==0.15.0
+# pypdf: pull the text layer out of a fetched PDF. Pure python, no transitive deps; without it WebFetch posts raw %PDF binary into the model's context.
+pypdf==6.14.2
 # swarm-analytics: typed client for the product-analytics ingest; fire-and-forget so it never breaks the app.
 swarm-analytics==0.1.1
 # tzlocal: dev-mode fallback for resolving the user's IANA timezone when
