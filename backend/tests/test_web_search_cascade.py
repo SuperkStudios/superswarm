@@ -15,6 +15,7 @@ import time
 
 import pytest
 
+import backend.apps.agents.tools.fetch.wayback as WB
 import backend.apps.agents.tools.search.search_startpage as SP
 import backend.apps.web.web as W
 from backend.apps.web.web import search, SearchBody
@@ -40,6 +41,10 @@ def p_no_network(monkeypatch):
     async def p_startpage_closed(query, num):
         return None
     monkeypatch.setattr(SP, "search_startpage", p_startpage_closed)
+
+    async def p_no_snapshot(url):
+        return None
+    monkeypatch.setattr(WB, "fetch_wayback", p_no_snapshot)
 
 
 def p_ddg_returns(monkeypatch, text):
@@ -242,6 +247,24 @@ async def test_fetch_local_error_returned_as_last_resort(monkeypatch):
     res = await fetch(FetchBody(url="https://blocked.example"))
     assert res["backend"] == "local"
     assert "HTTP error 403" in res["content"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_falls_to_the_archive_when_the_live_page_is_gone(monkeypatch):
+    """A dead link is exactly what the archive is for; the real text beats a grounded summary of nothing."""
+    p_local_returns(monkeypatch, "HTTP error 404 fetching https://gone.example/post")
+
+    async def p_snapshot(url):
+        return "Archived copy of https://gone.example/post (Wayback Machine snapshot from 2026-05-08)\n\nThe original text."
+    monkeypatch.setattr(WB, "fetch_wayback", p_snapshot)
+
+    async def p_boom(*a, **k):
+        raise AssertionError("a paid fetcher must not run once the archive answered")
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
+
+    res = await fetch(FetchBody(url="https://gone.example/post"))
+    assert res["backend"] == "wayback"
+    assert "The original text." in res["content"]
 
 
 # --- packaged-browser tier: fires when DDG throttles, skipped when no bridge ---

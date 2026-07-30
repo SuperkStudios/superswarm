@@ -127,5 +127,5 @@ def test_search_tier_budgets_leave_room_for_the_grounded_tier():
     grounded_floor = 20.0
     search_cheap = 2 * W.KEYLESS_TIER_SECONDS + W.BROWSER_TIER_SECONDS
     assert W.SEARCH_BUDGET_SECONDS - search_cheap >= grounded_floor
-    fetch_cheap = W.LOCAL_FETCH_TIER_SECONDS + W.BROWSER_TIER_SECONDS
+    fetch_cheap = W.LOCAL_FETCH_TIER_SECONDS + W.BROWSER_TIER_SECONDS + W.ARCHIVE_TIER_SECONDS
     assert W.FETCH_BUDGET_SECONDS - fetch_cheap >= grounded_floor

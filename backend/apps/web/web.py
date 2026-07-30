@@ -69,6 +69,7 @@ KEYLESS_TIER_SECONDS = 8.0        # a search frontend answers in ~1s; >8s is a h
 BROWSER_TIER_SECONDS = 12.0       # the main-bridge send has its own per-action timeout
 GROUNDED_TIER_SECONDS = 45.0      # grounded native search legitimately takes 30-42s
 LOCAL_FETCH_TIER_SECONDS = 15.0   # normal pages return in <2s
+ARCHIVE_TIER_SECONDS = 10.0       # the Wayback redirect path answered in 0.5-3s
 
 
 # --------------------------------------------------------------------------- Helpers ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ async def p_browser_bridge(action: str, params: Dict) -> Optional[Dict]:
     return res
 
 
-# When every search backend fails, point the model at the in-product browser (always-on CreateBrowserAgent tool) instead of telling it to "wait and retry", which it can't do and just relays as a dead end. The real Chromium renders pages and isn't subject to the scrape throttle.
+# When every search backend fails, point the model at the in-product browser (always-on CreateBrowserAgent tool) instead of telling it to "wait and retry", which it can't do and just relays as a dead end. A real Chromium carries a real browser fingerprint, which is what the challenge is actually keyed on.
 @typechecked
 def p_browser_fallback_nudge(query: str) -> str:
     return (
@@ -272,6 +273,14 @@ async def fetch(body: FetchBody) -> Dict:
             return None
         return {"url": body.url, "content": f"Contents of {body.url}:\n\n{res['text']}", "backend": "browser"}
 
+    async def try_wayback() -> Optional[Dict]:
+        # A dead link or a hard bot wall is exactly what the archive is for, and it returns the page's REAL text where a grounded fetcher can only summarise a page it also can't read.
+        from backend.apps.agents.tools.fetch.wayback import fetch_wayback
+        text = await fetch_wayback(body.url)
+        if not text:
+            return None
+        return {"url": body.url, "content": text, "backend": "wayback"}
+
     async def try_gemini() -> Optional[Dict]:
         if not gemini_key:
             return None
@@ -313,6 +322,7 @@ async def fetch(body: FetchBody) -> Dict:
     tiers = [
         CascadeTier(name="local", run=try_local, budget=LOCAL_FETCH_TIER_SECONDS),
         CascadeTier(name="browser", run=try_browser_fetch, budget=BROWSER_TIER_SECONDS),
+        CascadeTier(name="wayback", run=try_wayback, budget=ARCHIVE_TIER_SECONDS),
     ] + p_grounded_tiers("fetch", body.primary, {
         "gemini_native": try_gemini,
         "gemini_subscription": try_gemini_subscription,
