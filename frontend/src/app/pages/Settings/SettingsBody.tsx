@@ -1,0 +1,194 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import Box from '@mui/material/Box';
+import Snackbar from '@mui/material/Snackbar';
+import Alert from '@mui/material/Alert';
+import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Typography from '@mui/material/Typography';
+import { X } from 'lucide-react';
+import { useAppDispatch, useAppSelector } from '@/shared/hooks';
+import { fetchModels } from '@/shared/state/modelsSlice';
+import { fetchModes } from '@/shared/state/modesSlice';
+import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import DirectoryBrowser from '@/app/components/editor/DirectoryBrowser';
+import { CommandsContent } from '@/app/pages/Commands/Commands';
+import AccountCard from './sections/subscription/AccountCard';
+import GeneralAgentDefaults from './sections/general/GeneralAgentDefaults';
+import GeneralInterface from './sections/general/GeneralInterface';
+import GeneralAdvanced from './sections/general/GeneralAdvanced';
+import DataPrivacySection from './sections/general/DataPrivacySection';
+import ModelsTab from './sections/models/ModelsTab';
+import UsageStats from './sections/usage/UsageStats';
+import SettingsRail, { railLabelFor } from './sections/SettingsRail';
+import { makeSettingsStyles } from './sections/settingsStyles';
+import { useSettingsForm } from './useSettingsForm';
+import { PROVIDER_COLORS, OPENSWARM_GRADIENT, useModelOptions } from './settingsModelOptions';
+
+// Skills/Tools moved here from the old sidebar Customization section; lazy since both pull heavy deps and Settings opens nearly every session.
+const SkillsTab = React.lazy(() => import('@/app/pages/Skills/Skills'));
+const ToolsTab = React.lazy(() => import('@/app/pages/Tools/Tools'));
+
+// Module-scope: remember the last open tab across closes (System Settings style).
+let lastOpenTab: string | null = null;
+
+const TAB_VALUES = ['account', 'general', 'appearance', 'privacy', 'advanced', 'models', 'skills', 'tools', 'commands', 'usage'] as const;
+type SettingsTab = typeof TAB_VALUES[number];
+const isValidTab = (t: string | null | undefined): t is SettingsTab =>
+  !!t && (TAB_VALUES as readonly string[]).includes(t);
+
+interface SettingsBodyProps {
+  /** The host is showing this body; gates the fetches, the live theme apply and the debounced save. */
+  active: boolean;
+  /** Tab a programmatic caller asked for (openSettingsModal('models'), search palette, dock). */
+  requestedTab: string | null;
+  onRequestClose: () => void;
+}
+
+// The settings UI itself: rail + section. Hosted by the modal (Settings.tsx) and by the on-canvas window (SettingsAppCard) with no forked copy between them.
+const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onRequestClose }) => {
+  const c = useClaudeTokens();
+  const dispatch = useAppDispatch();
+  const modes = useAppSelector((s) => s.modes.items);
+  const modesList = useMemo(() => Object.values(modes), [modes]);
+  const modelOptions = useModelOptions();
+  const { form, setForm, saveError, dismissSaveError, flushPendingSave } = useSettingsForm(active);
+
+  const [activeTab, setActiveTab] = useState<SettingsTab>(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [browseOpen, setBrowseOpen] = useState(false);
+
+  useEffect(() => {
+    dispatch(fetchModes());
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (active) dispatch(fetchModels());
+  }, [active, dispatch]);
+
+  // Switch to the requested tab (e.g. from the "Configure models" banner link); without one, restore the last open tab.
+  useEffect(() => {
+    if (isValidTab(requestedTab)) setActiveTab(requestedTab);
+    else if (active) setActiveTab(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, requestedTab]);
+
+  useEffect(() => {
+    lastOpenTab = activeTab;
+  }, [activeTab]);
+
+  const handleRequestClose = (): void => {
+    flushPendingSave();
+    onRequestClose();
+  };
+
+  const styles = makeSettingsStyles(c);
+
+  return (
+    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden', bgcolor: c.bg.page }}>
+      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
+
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 1.75, pb: 0.75, flexShrink: 0 }}>
+        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
+          {railLabelFor(activeTab)}
+        </Typography>
+        <IconButton onClick={handleRequestClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
+          <X size={18} />
+        </IconButton>
+      </Box>
+
+      <Box sx={{
+        px: 3,
+        py: 0,
+        flex: 1,
+        minHeight: 0,
+        overflowY: 'auto',
+        '&::-webkit-scrollbar': { width: 6 },
+        '&::-webkit-scrollbar-track': { background: 'transparent' },
+        '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 3, '&:hover': { background: c.border.strong } },
+        scrollbarWidth: 'thin',
+        scrollbarColor: `${c.border.medium} transparent`,
+      }}>
+      {activeTab === 'account' ? (
+        <Box sx={{ pt: 1.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <AccountCard />
+        </Box>
+      ) : activeTab === 'general' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralAgentDefaults
+            form={form}
+            setForm={setForm}
+            styles={styles}
+            setBrowseOpen={setBrowseOpen}
+            modelOptions={modelOptions}
+            modesList={modesList}
+            providerColors={PROVIDER_COLORS}
+            openswarmGradient={OPENSWARM_GRADIENT}
+          />
+        </Box>
+      ) : activeTab === 'appearance' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralInterface form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'privacy' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <DataPrivacySection styles={styles} />
+        </Box>
+      ) : activeTab === 'advanced' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <GeneralAdvanced form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'models' ? (
+        <ModelsTab
+          form={form}
+          setForm={setForm}
+          showApiKey={showApiKey}
+          setShowApiKey={setShowApiKey}
+          styles={styles}
+        />
+      ) : activeTab === 'usage' ? (
+      <Box sx={{ display: 'flex', flexDirection: 'column', pt: 2.5, pb: 1, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+        <UsageStats />
+      </Box>
+      ) : activeTab === 'skills' ? (
+      <Box sx={{ height: '100%', mx: -3, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+        <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress size={24} /></Box>}>
+          <SkillsTab />
+        </React.Suspense>
+      </Box>
+      ) : activeTab === 'tools' ? (
+      <Box sx={{ height: '100%', mx: -3, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+        <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress size={24} /></Box>}>
+          <ToolsTab />
+        </React.Suspense>
+      </Box>
+      ) : (
+      <Box sx={{ pt: 2.5, pb: 1, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+        <CommandsContent />
+      </Box>
+      )}
+      </Box>
+      </Box>
+
+      <DirectoryBrowser
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        onSelect={(item) => setForm({ ...form, default_folder: item.path })}
+        initialPath={form.default_folder ?? ''}
+      />
+
+      <Snackbar
+        open={saveError}
+        autoHideDuration={4000}
+        onClose={dismissSaveError}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={dismissSaveError} severity="error" sx={{ bgcolor: c.bg.surface, color: c.text.primary, border: `1px solid ${c.status.error}` }}>
+          Couldn't save that change. Try again in a moment.
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+};
+
+export default SettingsBody;

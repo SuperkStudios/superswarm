@@ -18,6 +18,7 @@ import {
   clearPendingFocusViewCardId,
   clearPendingFocusWorkflowId,
   clearPendingFocusWorkflowsHub,
+  clearPendingFocusSettingsCard,
   type ViewCardPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import { fetchOutputs, type Output } from '@/shared/state/outputsSlice';
@@ -77,6 +78,7 @@ export function useDashboardLifecycle({
   const pendingFocusViewCardId = useAppSelector((state) => state.dashboardLayout.pendingFocusViewCardId);
   const pendingFocusWorkflowId = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowId);
   const pendingFocusWorkflowsHub = useAppSelector((state) => state.dashboardLayout.pendingFocusWorkflowsHub);
+  const pendingFocusSettingsCard = useAppSelector((state) => state.dashboardLayout.pendingFocusSettingsCard);
 
   // Once per app launch: if scheduled fires elapsed while we were closed, fetch them. The slice flips its toast flag on fulfilled, so a bottom-left nudge shows instead of a card popping unrequested; the user opens the card from it.
   useEffect(() => {
@@ -269,6 +271,25 @@ export function useDashboardLifecycle({
     const fallback = setTimeout(fit, 300);
     return () => clearTimeout(fallback);
   }, [isActive, pendingFocusWorkflowsHub, layoutInitialized, dispatch, canvasActions]);
+
+  // Same for the Settings window: the dock can open it off-screen, so glide to it or the click looks dead.
+  useEffect(() => {
+    if (!isActive) return;
+    if (!pendingFocusSettingsCard || !layoutInitialized) return;
+    dispatch(clearPendingFocusSettingsCard());
+    const fit = () => {
+      const card = store.getState().dashboardLayout.settingsCard;
+      if (!card) return;
+      canvasActions.fitToCards(
+        [{ x: card.x, y: card.y, width: card.width, height: card.height }],
+        1.1,
+        true,
+      );
+    };
+    requestAnimationFrame(() => requestAnimationFrame(fit));
+    const fallback = setTimeout(fit, 300);
+    return () => clearTimeout(fallback);
+  }, [isActive, pendingFocusSettingsCard, layoutInitialized, dispatch, canvasActions]);
 
   useEffect(() => {
     if (!layoutInitialized || restoredExpandedRef.current) return;

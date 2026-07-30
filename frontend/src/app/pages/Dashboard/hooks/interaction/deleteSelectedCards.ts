@@ -1,5 +1,5 @@
 import { closeSession } from '@/shared/state/agentsSlice';
-import { removeWorkflowCard, closeWorkflowsHub, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
+import { removeWorkflowCard, closeWorkflowsHub, closeSettingsCard, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
 import { closeWorkflowCard } from '@/shared/state/workflowsSlice';
 import { removeBrowserCardsCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
@@ -26,6 +26,8 @@ export function deleteSelectedCards(selectedIds: Map<string, CardType>, dispatch
       dispatch(closeWorkflowCard(id));
     } else if (type === 'workflows-hub') {
       dispatch(closeWorkflowsHub());
+    } else if (type === 'settings') {
+      dispatch(closeSettingsCard());
     }
   }
   // Tear webview-backed cards down ONE AT A TIME (each quiesces / CDP-detaches its GPU surface

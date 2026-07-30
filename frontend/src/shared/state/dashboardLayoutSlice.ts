@@ -24,6 +24,9 @@ export const DEFAULT_WORKFLOW_CARD_H = 520;
 // Open at the same default footprint as a browser/view card so it lands at a comfortable size automatically.
 export const DEFAULT_WORKFLOWS_HUB_W = DEFAULT_BROWSER_CARD_W;
 export const DEFAULT_WORKFLOWS_HUB_H = DEFAULT_BROWSER_CARD_H;
+export const DEFAULT_SETTINGS_CARD_W = 900;
+export const DEFAULT_SETTINGS_CARD_H = 640;
+export const SETTINGS_CARD_ID = 'settings';
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;
 // Gap between the Workflows window and the cards it spawns (run monitor, that monitor's browser). Keeps the hub -> monitor -> browser row evenly spaced.
@@ -31,7 +34,7 @@ export const WORKFLOW_CARD_GAP = 140;
 const GRID_ORIGIN = { x: 40, y: 100 };
 const GRID_COLS_FALLBACK = 4;
 
-export type CardType = 'agent' | 'view' | 'browser' | 'workflow' | 'workflows-hub' | 'workflows-monitor';
+export type CardType = 'agent' | 'view' | 'browser' | 'workflow' | 'workflows-hub' | 'workflows-monitor' | 'settings';
 
 export interface CardPosition {
   session_id: string;
@@ -167,6 +170,10 @@ export interface DashboardLayoutState {
   workflowsMonitorCard: WorkflowsHubPosition | null;
   /** A run attached to a workflow's chat as a removable context chip; its transcript rides along each send until removed. */
   workflowsRunContext: WorkflowsRunContext | null;
+  /** Settings as an on-canvas window (singleton). Ephemeral, not persisted: a fresh boot opens on a clean canvas. */
+  settingsCard: WorkflowsHubPosition | null;
+  /** Transient: signals Dashboard to pan/zoom to the Settings window on open. */
+  pendingFocusSettingsCard: boolean;
 }
 
 export interface WorkflowsRunContext {
@@ -206,6 +213,8 @@ const initialState: DashboardLayoutState = {
   workflowsMonitorRunId: null,
   workflowsMonitorCard: null,
   workflowsRunContext: null,
+  settingsCard: null,
+  pendingFocusSettingsCard: false,
 };
 
 interface LayoutPayload {
@@ -324,6 +333,9 @@ function collectOccupiedRects(
   }
   if (state.workflowsHub) {
     rects.push({ x: state.workflowsHub.x, y: state.workflowsHub.y, w: state.workflowsHub.width, h: state.workflowsHub.height });
+  }
+  if (state.settingsCard) {
+    rects.push({ x: state.settingsCard.x, y: state.settingsCard.y, w: state.settingsCard.width, h: state.settingsCard.height });
   }
   return rects;
 }
@@ -650,11 +662,13 @@ const dashboardLayoutSlice = createSlice({
       for (const c of Object.values(state.workflowCards)) tally(c.zOrder);
       if (state.workflowsHub) tally(state.workflowsHub.zOrder);
       if (state.workflowsMonitorCard) tally(state.workflowsMonitorCard.zOrder);
+      if (state.settingsCard) tally(state.settingsCard.zOrder);
       if (type === 'agent') currentZ = state.cards[id]?.zOrder ?? 0;
       else if (type === 'view') currentZ = state.viewCards[id]?.zOrder ?? 0;
       else if (type === 'workflow') currentZ = state.workflowCards[id]?.zOrder ?? 0;
       else if (type === 'workflows-hub') currentZ = state.workflowsHub?.zOrder ?? 0;
       else if (type === 'workflows-monitor') currentZ = state.workflowsMonitorCard?.zOrder ?? 0;
+      else if (type === 'settings') currentZ = state.settingsCard?.zOrder ?? 0;
       else currentZ = state.browserCards[id]?.zOrder ?? 0;
       if (currentZ >= maxZ) return;  // Already on top: no-op.
 
@@ -672,6 +686,8 @@ const dashboardLayoutSlice = createSlice({
         if (state.workflowsHub) state.workflowsHub.zOrder = z;
       } else if (type === 'workflows-monitor') {
         if (state.workflowsMonitorCard) state.workflowsMonitorCard.zOrder = z;
+      } else if (type === 'settings') {
+        if (state.settingsCard) state.settingsCard.zOrder = z;
       } else {
         const card = state.browserCards[id];
         if (card) card.zOrder = z;
@@ -735,7 +751,8 @@ const dashboardLayoutSlice = createSlice({
       const wCards = Object.values(state.workflowCards);
       const hub = state.workflowsHub;
       const mon = state.workflowsMonitorCard;
-      const total = agentCards.length + viewCards.length + bCards.length + wCards.length + (hub ? 1 : 0) + (mon ? 1 : 0);
+      const settings = state.settingsCard;
+      const total = agentCards.length + viewCards.length + bCards.length + wCards.length + (hub ? 1 : 0) + (mon ? 1 : 0) + (settings ? 1 : 0);
       if (total === 0) return;
 
       const allItems = [
@@ -745,6 +762,7 @@ const dashboardLayoutSlice = createSlice({
         ...wCards.map((c) => ({ kind: 'workflow' as const, id: c.workflow_id, x: c.x, y: c.y, storedW: c.width, storedH: c.height })),
         ...(hub ? [{ kind: 'workflows-hub' as const, id: 'workflows-hub', x: hub.x, y: hub.y, storedW: hub.width, storedH: hub.height }] : []),
         ...(mon ? [{ kind: 'workflows-monitor' as const, id: 'workflows-monitor', x: mon.x, y: mon.y, storedW: mon.width, storedH: mon.height }] : []),
+        ...(settings ? [{ kind: 'settings' as const, id: SETTINGS_CARD_ID, x: settings.x, y: settings.y, storedW: settings.width, storedH: settings.height }] : []),
       ];
       allItems.sort((a, b) => a.y - b.y || a.x - b.x);
 
@@ -776,6 +794,8 @@ const dashboardLayoutSlice = createSlice({
           if (state.workflowsHub) { state.workflowsHub.x = pos.x; state.workflowsHub.y = pos.y; }
         } else if (item.kind === 'workflows-monitor') {
           if (state.workflowsMonitorCard) { state.workflowsMonitorCard.x = pos.x; state.workflowsMonitorCard.y = pos.y; }
+        } else if (item.kind === 'settings') {
+          if (state.settingsCard) { state.settingsCard.x = pos.x; state.settingsCard.y = pos.y; }
         } else {
           const card = state.browserCards[item.id];
           if (card) { card.x = pos.x; card.y = pos.y; }
@@ -1208,6 +1228,52 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsHub.height = Math.max(420, action.payload.height);
     },
 
+    // Settings is an on-canvas window like the Workflows app, not a modal: opening it creates or raises that card and pans to it.
+    openSettingsCard(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
+      if (state.settingsCard) {
+        state.settingsCard.zOrder = state.nextZOrder++;
+        state.pendingFocusSettingsCard = true;
+        return;
+      }
+      const rects = collectOccupiedRects(state, action.payload?.expandedSessionIds);
+      const pos = findOpenGridCell(rects, DEFAULT_SETTINGS_CARD_W, DEFAULT_SETTINGS_CARD_H);
+      state.settingsCard = {
+        x: pos.x,
+        y: pos.y,
+        width: DEFAULT_SETTINGS_CARD_W,
+        height: DEFAULT_SETTINGS_CARD_H,
+        zOrder: state.nextZOrder++,
+      };
+      state.pendingFocusSettingsCard = true;
+    },
+
+    closeSettingsCard(state) {
+      state.settingsCard = null;
+      state.pendingFocusSettingsCard = false;
+    },
+
+    clearPendingFocusSettingsCard(state) {
+      state.pendingFocusSettingsCard = false;
+    },
+
+    toggleSettingsCardFullscreen(state) {
+      if (!state.settingsCard) return;
+      state.settingsCard.fullscreen = !state.settingsCard.fullscreen;
+      state.settingsCard.zOrder = state.nextZOrder++;
+    },
+
+    setSettingsCardPosition(state, action: PayloadAction<{ x: number; y: number }>) {
+      if (!state.settingsCard) return;
+      state.settingsCard.x = action.payload.x;
+      state.settingsCard.y = action.payload.y;
+    },
+
+    setSettingsCardSize(state, action: PayloadAction<{ width: number; height: number }>) {
+      if (!state.settingsCard) return;
+      state.settingsCard.width = Math.max(640, action.payload.width);
+      state.settingsCard.height = Math.max(460, action.payload.height);
+    },
+
     pasteBrowserCard(
       state,
       action: PayloadAction<{
@@ -1449,6 +1515,11 @@ const dashboardLayoutSlice = createSlice({
             state.workflowsHub.x += dx;
             state.workflowsHub.y += dy;
           }
+        } else if (item.type === 'settings') {
+          if (state.settingsCard) {
+            state.settingsCard.x += dx;
+            state.settingsCard.y += dy;
+          }
         } else {
           const card = state.browserCards[item.id];
           if (card) {
@@ -1594,6 +1665,8 @@ const dashboardLayoutSlice = createSlice({
       state.browserCards = keptBrowsers;
       state.workflowCards = {};
       state.workflowsHub = null;
+      state.settingsCard = null;
+      state.pendingFocusSettingsCard = false;
       state.closedCardPositions = {};
       state.glowingBrowserCards = {};
       state.glowingAgentCards = {};
@@ -1790,6 +1863,12 @@ export const {
   setWorkflowsHubPosition,
   setWorkflowsHubSize,
   clearPendingFocusWorkflowsHub,
+  openSettingsCard,
+  closeSettingsCard,
+  clearPendingFocusSettingsCard,
+  toggleSettingsCardFullscreen,
+  setSettingsCardPosition,
+  setSettingsCardSize,
   recordClosedCard,
   restoreClosedCard,
   popClosedCard,

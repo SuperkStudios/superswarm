@@ -25,6 +25,10 @@ export function getCardRect(id: string, type: CardType):
     const hub = layoutState.workflowsHub;
     if (!hub) return undefined;
     return { x: hub.x, y: hub.y, width: hub.width, height: hub.height };
+  } else if (type === 'settings') {
+    const sc = layoutState.settingsCard;
+    if (!sc) return undefined;
+    return { x: sc.x, y: sc.y, width: sc.width, height: sc.height };
   }
   return undefined;
 }

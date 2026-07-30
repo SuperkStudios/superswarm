@@ -3,8 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import AgentCard from '../cards/AgentCard';
 import DashboardViewCard from '../cards/DashboardViewCard';
 import BrowserCard from '../cards/BrowserCard';
-import WorkflowsAppCard from '@/app/pages/Workflows/app/WorkflowsAppCard';
-import RunMonitor from '@/app/pages/Workflows/app/RunMonitor';
+import DashboardWindowCards from './DashboardWindowCards';
 import {
   EXPANDED_CARD_MIN_H,
   DEFAULT_CARD_W,
@@ -15,8 +14,6 @@ import {
   type WorkflowCardPosition,
   type WorkflowsHubPosition,
 } from '@/shared/state/dashboardLayoutSlice';
-import { useAppSelector, useAppDispatch } from '@/shared/hooks';
-import { closeWorkflowMonitor } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 import type { CardType, useDashboardSelection } from '../hooks/state/useDashboardSelection';
 
@@ -88,14 +85,6 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
   onBranch,
   onMeasuredHeight,
 }) => {
-  const dispatch = useAppDispatch();
-  const monitorCard = useAppSelector((s) => s.dashboardLayout.workflowsMonitorCard);
-  const monitorWorkflowId = useAppSelector((s) => s.dashboardLayout.workflowsMonitorId);
-  const monitorWorkflow = useAppSelector((s) => (monitorWorkflowId ? s.workflows.items[monitorWorkflowId] : undefined));
-  // The monitor's workflow vanished (trashed/deleted) while open: tear the card + its tether down instead of leaving an orange line pointing at nothing.
-  React.useEffect(() => {
-    if (monitorCard && !monitorWorkflow) dispatch(closeWorkflowMonitor());
-  }, [monitorCard, monitorWorkflow, dispatch]);
   return (
     <>
       <AnimatePresence>
@@ -233,38 +222,18 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
           onBringToFront={onBringToFront}
         />
       ))}
-      {workflowsHub && (
-        <WorkflowsAppCard
-          cardX={workflowsHub.x}
-          cardY={workflowsHub.y}
-          cardWidth={workflowsHub.width}
-          cardHeight={workflowsHub.height}
-          cardZOrder={workflowsHub.zOrder ?? 0}
-          getCanvasState={getCanvasState}
-          isSelected={selection.isSelected('workflows-hub')}
-          isHighlighted={highlightedCardId === 'workflows-hub'}
-          multiDragDelta={selection.isSelected('workflows-hub') ? multiDragDelta : null}
-          onCardSelect={onCardSelect}
-          onDragStart={onDragStart}
-          onDragMove={onDragMove}
-          onDragEnd={onDragEnd}
-          onBringToFront={onBringToFront}
-        />
-      )}
-      {monitorCard && monitorWorkflow && (
-        <RunMonitor
-          workflow={monitorWorkflow}
-          cardX={monitorCard.x}
-          cardY={monitorCard.y}
-          cardWidth={monitorCard.width}
-          cardHeight={monitorCard.height}
-          cardZOrder={monitorCard.zOrder ?? 0}
-          getCanvasState={getCanvasState}
-          onDragStart={onDragStart}
-          onDragMove={onDragMove}
-          onDragEnd={onDragEnd}
-        />
-      )}
+      <DashboardWindowCards
+        workflowsHub={workflowsHub}
+        selection={selection}
+        highlightedCardId={highlightedCardId}
+        multiDragDelta={multiDragDelta}
+        getCanvasState={getCanvasState}
+        onCardSelect={onCardSelect}
+        onDragStart={onDragStart}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+        onBringToFront={onBringToFront}
+      />
       {/* Marquee selection rectangle */}
       {selection.marquee && (
         <div

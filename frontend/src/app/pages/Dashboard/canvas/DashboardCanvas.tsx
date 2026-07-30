@@ -170,8 +170,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // macOS full screen: one card owns the whole window, every piece of chrome steps aside; Esc exits.
   const dispatch = useAppDispatch();
   const fullscreenCardId = useAppSelector(selectFullscreenCardId);
-  // The Workflows window has its own fullscreen flag (not a tiledCard); its fill also hides the dock.
-  const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen;
+  // The singleton app windows (Workflows, Settings) carry their own fullscreen flag, not a tiledCard; their fill also hides the dock.
+  const settingsFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
+  const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen || settingsFullscreen;
   const [headerRevealed, setHeaderRevealed] = React.useState(false);
   const [appsWindowOpen, setAppsWindowOpen] = React.useState(false);
   useEffect(() => {
