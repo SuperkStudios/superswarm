@@ -1,14 +1,17 @@
 import { getWebview, findWebviewByDomain, hasDomReady, markDomReady, isPendingLoad, wakePendingLoad, clearPendingLoad, type BrowserWebview } from './browserRegistry';
+import { shouldSelfHealClick } from './selfHealClick';
+import { FP_EXPR, clickEffect } from './clickEffect';
 import { store } from './state/store';
 import { resumeBrowserCard } from './state/dashboardLayoutSlice';
 import { dashboardWs } from './ws/WebSocketManager';
 import { resolveInput } from './resolveUrl';
 import { rankAndCapInteractives, type RankItem } from './interactiveRanking';
 import { shouldStopWaiting, SETTLE_POLL_MS, settleProbeJs } from './browserSettle';
+import { unwrapCdpEval } from './cdpEval';
 
 let initialized = false;
 
-export type BrowserAction = 'screenshot' | 'get_text' | 'get_console' | 'navigate' | 'click' | 'type' | 'evaluate' | 'get_elements' | 'scroll' | 'wait' | 'press_key' | 'list_interactives' | 'click_index' | 'click_point' | 'batch' | 'detect_webmcp' | 'list_routes' | 'replay_route' | 'click_by_name';
+export type BrowserAction = 'screenshot' | 'get_text' | 'get_console' | 'navigate' | 'click' | 'type' | 'evaluate' | 'get_elements' | 'scroll' | 'wait' | 'press_key' | 'list_interactives' | 'click_index' | 'click_point' | 'batch' | 'detect_webmcp' | 'list_routes' | 'replay_route' | 'click_by_name' | 'find_composer';
 
 export interface BrowserActivity {
   action: BrowserAction;
@@ -193,7 +196,40 @@ async function countSafeRoutes(wv: BrowserWebview): Promise<number> {
 const STUCK_EVAL_GRACE_MS = 2500;
 const STUCK_EVAL_LIMIT_MS = 9000;
 
+// Run `code` in the guest page. In Electron we prefer CDP Runtime.evaluate: it runs in the
+// browser process, so it is NOT suspended while the page is still loading, the way
+// webContents.executeJavaScript is (that suspend, on a page whose trackers never let it "stop
+// loading", is the 15s command wedge). When the CDP bridge isn't there (dev Chrome, or a forced
+// A/B via window.__OSW_CDP_EVAL__ = false) we fall back to the executeJavaScript path unchanged,
+// so behavior never regresses where CDP can't run. Both paths keep the same contract: return the
+// value, throw on a page-side error, mark dom-ready on success.
 async function evalInPage(wv: BrowserWebview, code: string): Promise<any> {
+  const cdpBridge = (window as any).openswarm?.sendCdpCommand;
+  if (cdpBridge && (window as any).__OSW_CDP_EVAL__ !== false) {
+    let cdp: any;
+    try {
+      cdp = await sendCdp(wv, 'Runtime.evaluate',
+        { expression: code, returnByValue: true, awaitPromise: true });
+    } catch {
+      // CDP INFRA failure (the debugger can't attach because DevTools or a remote-debugging
+      // port already holds this webContents, or the bridge errored). Never worse than today:
+      // fall through to the executeJavaScript path. A real PAGE exception is NOT an infra
+      // failure, it rides exceptionDetails below, so it still surfaces as a throw.
+      cdp = undefined;
+    }
+    if (cdp !== undefined) {
+      const value = unwrapCdpEval(cdp);   // throws on a real page-side exception
+      markDomReady(wv);
+      return value;
+    }
+  }
+  return await evalViaExecuteJs(wv, code);
+}
+
+// The original webContents.executeJavaScript path, kept as the dev-Chrome / bridge-absent
+// fallback: it suspends until the page stops loading, so a grace/limit race cancels stragglers
+// with wv.stop() once the document is ready and flushes the queue.
+async function evalViaExecuteJs(wv: BrowserWebview, code: string): Promise<any> {
   const run = wv.executeJavaScript(code).then((v) => {
     markDomReady(wv);
     return { done: true as const, value: v };
@@ -276,8 +312,73 @@ async function handleNavigate(wv: BrowserWebview, params: Record<string, any>): 
   } finally {
     removeReady();
   }
+  // A navigate that lands on a raw JSON/API document (Instagram's topsearch, any /api/... GET)
+  // paints an unreadable wall in the card and reads as a crash to the user. Hand the data to the
+  // agent as the result instead, and quietly get the card off the wall, so a person never sees
+  // raw JSON where a page should be.
+  const data = await readDataDocument(wv);
+  if (data) {
+    recoverCardOffDataWall(wv, url);
+    return {
+      text: `Fetched ${data.contentType} data from ${url} (this URL is a raw API endpoint, not a page):\n${data.body}`,
+      url: wv.getURL(),
+      data_document: true,
+    };
+  }
   // Route-count is sampled on the next READ (handleGetText), not here: at navigate-return the SPA's XHRs haven't fired yet, so this would always be ~0.
   return { text: `Navigated to ${url}`, url };
+}
+
+// Chromium renders any JSON (or JSON-shaped text) response with its built-in viewer, so a navigate
+// to an API endpoint leaves the card showing a wall of raw data. contentType is the reliable tell;
+// re-fetch same-origin (the just-loaded GET, idempotent) to hand the agent the exact bytes.
+// Exported so BrowserCard can reuse the exact same detection for the card's own initial load.
+export async function readDataDocument(wv: BrowserWebview): Promise<{ contentType: string; body: string } | null> {
+  const code = `(async () => {
+    const ct = String(document.contentType || '').toLowerCase();
+    const isJson = ct.startsWith('application/json');
+    const maybePlain = ct.startsWith('text/plain');
+    if (!isJson && !maybePlain) return null;
+    try {
+      const r = await fetch(location.href, { credentials: 'include', signal: AbortSignal.timeout(2500) });
+      const body = await r.text();
+      if (maybePlain && !isJson) { try { JSON.parse(body.trim()); } catch (e) { return null; } }
+      return { contentType: ct, body: body.slice(0, 15000) };
+    } catch (e) { return null; }
+  })()`;
+  try {
+    const res = await evalInPage(wv, code);
+    if (res && !res.error && typeof res.body === 'string') return res;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// Get the card off a raw-data wall: step back to the real page the agent came from, or, if it opened
+// straight onto the data URL, fall back to the site homepage. Fire-and-forget, the agent already has
+// the data; this is purely so a human sees a page instead of JSON. Exported for BrowserCard's own-load path.
+export function recoverCardOffDataWall(wv: BrowserWebview, dataUrl: string): void {
+  let origin = '';
+  try { origin = new URL(dataUrl).origin; } catch { /* keep '' */ }
+  try {
+    if (wv.canGoBack()) {
+      wv.goBack();
+      // A card that opened STRAIGHT onto the data URL has only the webview's blank initial entry
+      // behind it, so goBack lands on about:blank. Detect that and fall back to the site homepage
+      // so the card shows a real page rather than a blank one.
+      window.setTimeout(() => {
+        try {
+          const u = wv.getURL();
+          if ((!u || u === 'about:blank') && origin) void wv.loadURL(origin).catch(() => {});
+        } catch { /* leave as-is */ }
+      }, 400);
+      return;
+    }
+    if (origin) void wv.loadURL(origin).catch(() => {});
+  } catch {
+    /* leave the card as-is if recovery fails; the data still reached the agent */
+  }
 }
 
 async function handleClick(wv: BrowserWebview, params: Record<string, any>): Promise<Record<string, any>> {
@@ -315,6 +416,9 @@ async function handleType(wv: BrowserWebview, params: Record<string, any>): Prom
   if (text == null) return { error: 'text parameter is required' };
   const safeSelector = JSON.stringify(selector);
   const safeText = JSON.stringify(text);
+  // Try the cheap in-page fill first, and read it back: an editor that rejects synthetic
+  // execCommand insertText (Reddit's Lexical, strict React contenteditables) leaves the box
+  // empty, and we only learn that by checking the value, not by assuming the call worked.
   const code = `(async ()=>{
     const el = document.querySelector(${safeSelector});
     if (!el) return { error: 'Element not found: ' + ${safeSelector} };
@@ -328,12 +432,261 @@ async function handleType(wv: BrowserWebview, params: Record<string, any>): Prom
       bubbles: true, cancelable: true, inputType: 'insertText', data: ${safeText},
     }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-    return {
-      text: 'Typed into: ' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''),
-    };
+    const now = (el.value != null ? el.value : (el.textContent || ''));
+    return { text: 'Typed into: ' + el.tagName.toLowerCase() + (el.id ? '#' + el.id : ''),
+             committed: now.includes(${safeText}) };
   })()`;
   const result = await evalInPage(wv, code);
+  // Real-keystroke fallback when the synthetic fill did not commit (same lever the finder uses).
+  if (result && !result.error && result.committed === false) {
+    const ok = await keystrokeFill(wv, selector, text);
+    result.text = ok ? `Typed into ${selector} via keystrokes` : `Type may not have committed into ${selector}`;
+    result.committed = ok;
+  }
   return result;
+}
+
+// Find the page's composer STRUCTURALLY, not by accessible name: the biggest editable
+// region (contenteditable / textarea / text input) that is a real writing surface, not a
+// search box. Ranks by editable-richness + proximity to a Send/Post/Reply control + size,
+// so it picks the comment box out of a page that also has a search field. Marks the winner
+// with data-osw-composer so a follow-up type/click can target it by a stable selector.
+// With {fill}, it also types + reads back in the SAME in-page context (the only reliable
+// commit-check for a React-controlled contenteditable, whose value never reaches the AX tree).
+// With {reveal:true}, when no composer is painted yet it takes ONE reversible reveal action
+// (click a compose-trigger, open the first list item, or scroll) and rescans, up to a small
+// bound. Reveal actions are same-document only: SPA route changes (pushState) keep this JS
+// context alive, so X/LinkedIn/Reddit/YouTube stay drivable in one call; a full navigation
+// just cuts the await short and the backend re-perceives. Reveal NEVER clicks an irreversible
+// control (send/submit/pay/delete...): it only opens a surface, it never commits one.
+async function handleFindComposer(wv: BrowserWebview, params: Record<string, any>): Promise<Record<string, any>> {
+  const fill = params.fill != null ? String(params.fill) : null;
+  const safeFill = JSON.stringify(fill);
+  const reveal = params.reveal === true ? 'true' : 'false';
+  const code = `(async () => {
+    const SUBMIT = /\\b(send|post|reply|comment|tweet|publish|share|message)\\b/i;
+    const SEARCH = /search|find\\b|filter|query|lookup|explore|jump to/i;
+    // Reversible compose openers: reveal a writing surface, never commit one.
+    const OPENER = /\\b(start a post|start a thread|create( a)?( new)? (post|thread)|new post|new thread|add a comment|write a comment|leave a comment|post a comment|write a review|create a review|new message|new chat|send a message|compose|reply|comment|tweet|create|write)\\b/i;
+    // Never clickable by reveal, even if the label also looks like an opener.
+    const HARDBLOCK = /\\b(send|submit|pay|buy|purchase|checkout|order|delete|remove|unfollow|unsubscribe|log ?out|sign ?out|report|block|confirm|deactivate|save)\\b/i;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const vis = (el) => {
+      const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
+      return r.width >= 80 && r.height >= 16 && s.visibility !== 'hidden'
+        && s.display !== 'none' && s.opacity !== '0';
+    };
+    // Pierce shadow DOM: Reddit (shreddit), Telegram, WhatsApp, Slack build their composer
+    // inside web-component shadow roots that a light-DOM querySelectorAll can't see. Collect
+    // only the SELECTOR matches (a few hundred at most), never every node: a heavy SPA like X
+    // has 10k+ nodes and the composer sits late in document order, so an all-node walk with a
+    // node cap truncates before ever reaching it (the regression that hid X's own composer).
+    const deepMatch = (root, sel, out, depth) => {
+      if (depth > 8 || out.length > 400) return out;
+      let hits; try { hits = root.querySelectorAll(sel); } catch (e) { hits = []; }
+      for (const el of hits) out.push(el);
+      let all; try { all = root.querySelectorAll('*'); } catch (e) { return out; }
+      for (const el of all) { if (el.shadowRoot) deepMatch(el.shadowRoot, sel, out, depth + 1); }
+      return out;
+    };
+    const EDIT = 'textarea, [contenteditable="true"], [role="textbox"], input[type="text"]';
+    const labelOf = (el) => ((el.getAttribute('aria-label')||'') + ' ' + (el.getAttribute('placeholder')||'')
+      + ' ' + (el.getAttribute('data-placeholder')||'') + ' ' + (el.getAttribute('name')||'')).trim();
+
+    const findBest = () => {
+      const all = deepMatch(document, EDIT, [], 0);
+      let best = null, bestScore = 0, bestNear = false;
+      for (const el of all) {
+        if (!vis(el) || el.readOnly || el.disabled) continue;
+        const label = labelOf(el);
+        if (el.type === 'search' || SEARCH.test(label)) continue;
+        const rich = el.tagName === 'TEXTAREA' || el.isContentEditable || el.getAttribute('role') === 'textbox';
+        const area = el.closest('form, [role="dialog"], [role="group"], section, main, [role="main"]') || document.body;
+        let near = false;
+        for (const b of area.querySelectorAll('button, [role="button"], input[type="submit"]')) {
+          const bt = ((b.textContent||'') + ' ' + (b.getAttribute('aria-label')||'')).trim();
+          if (bt.length < 40 && SUBMIT.test(bt)) { near = true; break; }
+        }
+        if (!rich && !near) continue;                     // a bare form input near nothing is not a composer
+        const r = el.getBoundingClientRect();
+        const score = (el.isContentEditable ? 2 : 0) + (el.tagName === 'TEXTAREA' ? 2 : 0)
+          + (near ? 3 : 0) + Math.min((r.width * r.height) / 40000, 3) + (SUBMIT.test(label) ? 1 : 0);
+        if (score > bestScore) { bestScore = score; best = el; bestNear = near; }
+      }
+      return (best && bestScore >= 2) ? { el: best, score: bestScore, near: bestNear } : null;
+    };
+
+    const pollFind = async (ms) => {
+      const t0 = Date.now(); let h = findBest();
+      while (!h && Date.now() - t0 < ms) { await sleep(140); h = findBest(); }
+      return h;
+    };
+
+    // The reveal actions, tried in yield order. Each returns true if it clicked/scrolled.
+    // Match id-based placeholders too (YouTube's #placeholder-area "Add a comment...") not just
+    // class-based ones, so a lazy comment box becomes a clickable trigger once it scrolls in.
+    const TRIGGER_SEL = 'button, [role="button"], a[href], summary, [tabindex], [id*="placeholder" i], [class*="placeholder" i]';
+    // inViewOnly confines the pick to what is CURRENTLY on screen: during the scroll phase a
+    // header "Create"/"Reply" (scrolled off the top, so r.top<0) would otherwise outscore the
+    // comment box that just scrolled into view, and clicking it opens/navigates the wrong thing.
+    const clickTrigger = (inViewOnly) => {
+      const all = deepMatch(document, TRIGGER_SEL, [], 0);
+      let best = null, bestScore = -1;
+      for (const el of all) {
+        if (!vis(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (inViewOnly && (r.bottom < 0 || r.top > window.innerHeight)) continue;
+        const txt = ((el.textContent||'') + ' ' + (el.getAttribute('aria-label')||'') + ' ' + (el.getAttribute('placeholder')||'')).trim();
+        if (txt.length > 60 || !OPENER.test(txt) || HARDBLOCK.test(txt)) continue;
+        // Short-labelled wins; higher-on-page when scanning the whole page, viewport-center when scrolling.
+        const posScore = inViewOnly
+          ? Math.max(0, 300 - Math.abs(r.top - window.innerHeight / 2)) / 100
+          : Math.max(0, 600 - r.top) / 100;
+        const score = (60 - txt.length) + posScore;
+        if (score > bestScore) { bestScore = score; best = el; }
+      }
+      if (!best) return false;
+      best.scrollIntoView({ block: 'center', behavior: 'instant' });
+      best.click();
+      return true;
+    };
+    const openFirstItem = () => {
+      // Chat/message lists (X DM [data-testid=conversation], WhatsApp/Telegram [role=grid]
+      // rows, conversation links) plus generic feeds. Pierce shadow DOM so web-component chat
+      // lists are reachable. Take the first visible list-like item and open it.
+      const ITEM_SEL = '[data-testid="conversation"], [role="listitem"], [role="row"], [role="article"], article, li a[href], a[role="link"], a[href*="/messages/"], a[href*="/chat/"]';
+      const items = deepMatch(document, ITEM_SEL, [], 0);
+      for (const it of items) {
+        if (!vis(it)) continue;
+        const r = it.getBoundingClientRect();
+        if (r.top < 40 || r.top > window.innerHeight || r.height > window.innerHeight * 0.6) continue;   // skip headers / offscreen / the whole pane
+        const target = it.matches('a[href], [role="link"]') ? it : (it.querySelector('a[href], [role="link"], [role="button"]') || it);
+        target.scrollIntoView({ block: 'center', behavior: 'instant' });
+        target.click();
+        return true;
+      }
+      return false;
+    };
+    let hit = findBest();
+    const acts = [];
+    if (!hit && ${reveal}) {
+      // Self-imposed budget. The tiers below sum to ~24s of worst case but the command that
+      // carries them is killed at its own timeout, which threw away ALL the work and returned
+      // nothing (measured: linkedin died mid-scroll 2 of 3 runs, so retop/open-first could never
+      // run). Each tier now only STARTS if the budget can still pay for it, and polls are clipped
+      // to what is left, so the routine always returns its own best answer instead of being shot.
+      const DEADLINE = Date.now() + 21000;
+      const left = () => DEADLINE - Date.now();
+      const budget = (want) => Math.max(0, Math.min(want, left()));
+      // 1. A compose opener visible up top (Gmail "Compose", LinkedIn "Start a post"). Patient
+      //    poll: LinkedIn code-splits its share modal, and under a heavy session the editor
+      //    chunk lands past 2.5s (measured: the 2.5s poll missed ~half the time; poll exits the
+      //    moment the editable appears, so the patience costs nothing on the happy path).
+      try { if (clickTrigger(false)) { acts.push('trigger'); hit = await pollFind(budget(6000)); } } catch (e) { /* keep going */ }
+      // 2. Progressive scroll for a below-fold / lazy composer: YouTube comments hydrate on
+      //    scroll and start as a placeholder that only becomes editable once clicked, so scroll
+      //    a step, re-scan, and re-click the trigger on whatever just entered the viewport, up to
+      //    a small bound, stopping at page bottom. This is what a human does to reach comments.
+      if (!hit) {
+        const sc = document.scrollingElement || document.documentElement;
+        let scrolled = false;
+        // Reserve time for the retop + open-first tiers below, so the ladder can't eat the budget.
+        for (let step = 0; step < 6 && !hit && left() > 7000; step++) {
+          const before = sc.scrollTop;
+          sc.scrollBy(0, Math.round(window.innerHeight * 0.9));
+          scrolled = true;
+          await sleep(500);
+          hit = findBest();
+          if (!hit) { try { if (clickTrigger(true)) hit = await pollFind(budget(1400)); } catch (e) { /* keep going */ } }
+          if (sc.scrollTop === before) break;
+        }
+        if (scrolled) acts.push('scroll');
+      }
+      // 3. Back to the top opener: the scroll ladder ends at page bottom with the top compose
+      //    entry off-screen; a modal that opened slowly (or needed a second click) is only
+      //    winnable by returning and retrying once.
+      if (!hit && left() > 2500) {
+        try {
+          (document.scrollingElement || document.documentElement).scrollTo(0, 0);
+          await sleep(400);
+          if (clickTrigger(false)) { acts.push('retop'); hit = await pollFind(budget(4000)); }
+        } catch (e) { /* keep going */ }
+      }
+      // 4. Last resort: open the first list item (X DMs / chat lists). Navigational, so it runs
+      //    only after trigger+scroll fail, which stops it from yanking YouTube to another video.
+      if (!hit && left() > 1200) { let did = false; try { did = openFirstItem(); } catch (e) { did = false; } if (did) { acts.push('open-first'); hit = await pollFind(budget(2000)); } }
+    }
+    if (!hit) return { found: false, reveals: acts };
+
+    const fillEl = (el) => {
+      el.scrollIntoView({ block: 'center', behavior: 'instant' }); el.focus();
+      if (el.select) el.select();
+      document.execCommand('selectAll', false); document.execCommand('delete', false);
+      document.execCommand('insertText', false, ${safeFill});
+      el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: ${safeFill} }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      const now = (el.value != null ? el.value : (el.textContent || ''));
+      return now.includes(${safeFill});
+    };
+
+    let best = hit.el;
+    best.setAttribute('data-osw-composer', '1');
+    let filled = false;
+    if (${safeFill} != null) {
+      filled = fillEl(best);
+      // Activation-click fallback: YouTube (and many comment widgets) render a placeholder
+      // that only spawns the real contenteditable once clicked. If the fill didn't commit,
+      // click the found element, let the real editor mount, rescan, and fill THAT.
+      if (!filled) {
+        try { best.click(); } catch (e) { /* click may be intercepted */ }
+        const re = await pollFind(1500);
+        if (re) {
+          best.removeAttribute('data-osw-composer');
+          best = re.el; hit = re; best.setAttribute('data-osw-composer', '1');
+          filled = fillEl(best);
+          acts.push('activate');
+        }
+      }
+    }
+    return { found: true, selector: '[data-osw-composer="1"]', tag: best.tagName.toLowerCase(),
+      role: best.isContentEditable ? 'contenteditable' : (best.getAttribute('role') || best.tagName.toLowerCase()),
+      score: Math.round(hit.score * 10) / 10, nearSubmit: hit.near, filled, reveals: acts };
+  })()`;
+  const result = await evalInPage(wv, code);
+  // Real-keystroke fill fallback: some editors (Reddit's Lexical, strict React contenteditables)
+  // manage their own state through beforeinput and ignore execCommand insertText, so the in-page
+  // fill reads back empty. Retype the SAME text as OS-level key events (isTrusted, the way a human
+  // types), which those editors DO honor, then re-read to confirm. Only fires when the cheap
+  // in-page fill already failed, so the fast path is untouched.
+  if (fill != null && result && result.found && !result.filled && result.selector) {
+    const ok = await keystrokeFill(wv, String(result.selector), fill);
+    result.filled = ok;
+    result.fillMode = ok ? 'keystroke' : 'keystroke-failed';
+  }
+  return result;
+}
+
+// Type `text` into the element at `selector` as real OS-level key events (Electron
+// sendInputEvent 'char'), for editors that reject synthetic execCommand insertText. Focuses +
+// clears in-page first, types each char natively, then reads the value back in-page to verify.
+async function keystrokeFill(wv: BrowserWebview, selector: string, text: string): Promise<boolean> {
+  const safeSel = JSON.stringify(selector);
+  await evalInPage(wv, `(() => { const el = document.querySelector(${safeSel});
+    if (!el) return false; el.scrollIntoView({ block: 'center', behavior: 'instant' }); el.focus();
+    if (el.select) el.select(); document.execCommand('selectAll', false); document.execCommand('delete', false);
+    return true; })()`);
+  for (const ch of text) {
+    wv.sendInputEvent({ type: 'char', keyCode: ch });
+  }
+  // Read back from the marked element OR the active element: editors like Reddit's swap the
+  // node on activation, so the original selector can go stale even though the keystrokes landed
+  // in whatever now holds focus. Checking both survives that re-render.
+  const readBack = `(() => {
+    const check = (el) => { if (!el) return false;
+      el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+      const now = (el.value != null ? el.value : (el.textContent || '')); return now.includes(${JSON.stringify(text)}); };
+    return check(document.querySelector(${safeSel})) || check(document.activeElement); })()`;
+  return Boolean(await evalInPage(wv, readBack));
 }
 
 // Electron sendInputEvent expects names like 'Up', 'Enter', 'Space', not 'ArrowUp'/' '/'Esc'.
@@ -405,6 +758,8 @@ async function handlePressKey(wv: BrowserWebview, params: Record<string, any>): 
   }
   // Legacy focus-dependent fallback (exotic keys or CDP unavailable): keeps every key that worked before working.
   const keyCode = KEY_NAME_MAP[rawKey] || rawKey;
+  await evalInPage(wv, 'document.body && document.body.focus && document.body.focus(); true');
+  // Native OS-level key events have isTrusted=true, so hostile sites' keyboard handlers respect them.
   wv.sendInputEvent({ type: 'keyDown', keyCode });
   wv.sendInputEvent({ type: 'char', keyCode });
   wv.sendInputEvent({ type: 'keyUp', keyCode });
@@ -436,16 +791,21 @@ async function handleClickPoint(wv: BrowserWebview, params: Record<string, any>)
   } catch { /* use the element box as a fallback */ }
   const x = (cx / 100) * vw;
   const y = (cy / 100) * vh;
+  // hoverOnly: real mouse move, no press. Hover-revealed controls (reddit's post kebab only
+  // materializes on tile hover) need this; a click there would navigate into the post.
+  const hoverOnly = params.hoverOnly === true;
   try {
     await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
-    await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: 1 });
-    if (holdMs > 0) await new Promise((r) => setTimeout(r, holdMs));
-    await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: 1 });
+    if (!hoverOnly) {
+      await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount: 1 });
+      if (holdMs > 0) await new Promise((r) => setTimeout(r, holdMs));
+      await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount: 1 });
+    }
   } catch (err: any) {
     return { error: `Click point failed: ${err?.message || String(err)}` };
   }
   return {
-    text: `Clicked at (${Math.round(x)}, ${Math.round(y)})${holdMs ? ` held ${holdMs}ms` : ''}.`,
+    text: `${hoverOnly ? 'Hovered' : 'Clicked'} at (${Math.round(x)}, ${Math.round(y)})${holdMs && !hoverOnly ? ` held ${holdMs}ms` : ''}.`,
     clickX: cx, clickY: cy, url: wv.getURL(),
   };
 }
@@ -794,7 +1154,9 @@ async function clickBackendNode(
   const ly = (content[1] + content[5]) / 2;
 
   // Hit-test before dispatching: a sticky banner or header twin can cover the element's center, and a blind coordinate click lands on the overlay instead (the "Reactivate Premium" misfire). If covered, click the chosen node itself.
+  // This is also the ground-truth "did my hand land where I aimed" signal: when the element at the click point is NOT the intended node, a naive coordinate click hits the WRONG element (the failure a page-change metric can't see, because the wrong element also changes the page). We surface what was actually hit so the wrong-target RATE is measurable.
   let covered = false;
+  let hitDesc = '';
   let targetObjectId: string | undefined;
   try {
     const t = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
@@ -803,13 +1165,20 @@ async function clickBackendNode(
       const rel = await sendCdp(wv, 'Runtime.callFunctionOn', {
         objectId: targetObjectId,
         functionDeclaration:
-          'function(x, y) { const r = this.getRootNode(); const h = (r.elementFromPoint ? r : document).elementFromPoint(x, y); return h ? (this === h || this.contains(h)) : true; }',
+          'function(x, y) { const r = this.getRootNode(); const h = (r.elementFromPoint ? r : document).elementFromPoint(x, y);'
+          + ' const landed = h ? (this === h || this.contains(h) || h.contains(this)) : true;'
+          + ' const d = h ? (h.tagName.toLowerCase() + (h.getAttribute("aria-label") ? "[" + h.getAttribute("aria-label").slice(0,30) + "]" : (h.textContent ? "[" + h.textContent.trim().slice(0,30) + "]" : ""))) : "none";'
+          + ' return { landed: landed, hit: d }; }',
         arguments: [{ value: lx }, { value: ly }],
         returnByValue: true,
       }, sessionId);
-      covered = rel?.result?.value === false;
+      const hv = rel?.result?.value as { landed?: boolean; hit?: string } | undefined;
+      covered = hv?.landed === false;
+      hitDesc = hv?.hit || '';
     }
   } catch { /* hit-test is best-effort; fall through to the coordinate click */ }
+  // Attach the aim signal to every click result (near-zero cost, already computed): landed=false means the intended element was not under the click point (occluded / stale box / moved), i.e. a wrong-target click.
+  const p_aim = { clickLanded: !covered, clickHit: hitDesc };
 
   let rx = lx, ry = ly;
   if (sessionId) {
@@ -828,7 +1197,7 @@ async function clickBackendNode(
         functionDeclaration:
           'function() { if (this.click) { this.click(); } else { this.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); } }',
       }, sessionId);
-      return { text: `Clicked ${label} via its element (another element covers its screen position).`, ...ripple };
+      return { text: `Clicked ${label} via its element (another element covers its screen position).`, ...ripple, ...p_aim };
     } catch (err: any) {
       return { error: `${label} is covered by another element and could not be clicked (${err?.message || String(err)}). Scroll, or pick a different element.` };
     }
@@ -843,7 +1212,26 @@ async function clickBackendNode(
   return {
     text: `Clicked ${label} at (${Math.round(rx)}, ${Math.round(ry)})`,
     ...ripple,
+    ...p_aim,
   };
+}
+
+// Wrap a click so we can measure whether it actually did anything, covering EVERY
+// exit of clickBackendNode (coordinate, covered-element JS click, ...), which is why
+// it lives out here and not in the one coordinate branch. Metric only, flag-gated.
+async function measureClickEffect(
+  wv: BrowserWebview, run: () => Promise<Record<string, any>>,
+): Promise<Record<string, any>> {
+  let before = '';
+  try { before = String(await wv.executeJavaScript(FP_EXPR)); } catch { /* unreadable */ }
+  const result = await run();
+  if (!result.error) {
+    await new Promise((r) => setTimeout(r, 400));
+    let after = '';
+    try { after = String(await wv.executeJavaScript(FP_EXPR)); } catch { /* unreadable */ }
+    result.clickEffect = clickEffect(before, after);
+  }
+  return result;
 }
 
 // Drop list rows the user literally cannot click: zero-size nodes and ones whose center hits a DIFFERENT element (modal backdrop, sticky header, cookie banner). Ground truth via elementFromPoint, the same predicate the click path trusts. Offscreen-but-scrollable elements are kept; the page-wide list is deliberately wider than the viewport. Chunked with a hard budget so a heavy page degrades to an unfiltered list, never a stall.
@@ -904,7 +1292,7 @@ async function handleListInteractives(wv: BrowserWebview, params: Record<string,
 
   // Dedupe twins, rank what a human acts on first (and the current goal highest), cap the long tail.
   const goal = typeof params?.goal === 'string' ? params.goal : '';
-  const { shown: ranked, truncated } = rankAndCapInteractives(candidates, { goal });
+  const { shown: ranked, truncated } = rankAndCapInteractives(candidates, { goal, docOrder: params?.docOrder !== false });
   const { kept: shown, dropped: covered } = await dropCoveredElements(wv, ranked);
 
   // The previous look's cache feeds two things: * markers for brand-new elements, and STABLE indices so the same element keeps the same number across looks (the model can act on a remembered index without re-reading the whole list, browser-use's stable-hash trick on our node ids).
@@ -1022,8 +1410,24 @@ async function handleClickIndex(wv: BrowserWebview, params: Record<string, any>)
     };
   }
 
-  const result = await clickBackendNode(wv, backendNodeId, sessionId, `index ${idx}`,
-    { role, text: typeof params.text === 'string' ? params.text : undefined });
+  const wantsText = typeof params.text === 'string' && params.text.length > 0;
+  const doClick = () => clickBackendNode(wv, backendNodeId as number, sessionId, `index ${idx}`,
+    { role, text: wantsText ? params.text : undefined });
+  // Effect metric on plain clicks only (a fill verifies via readback); covers every clickBackendNode exit.
+  const result = (params.effectProbe === true && !wantsText)
+    ? await measureClickEffect(wv, doClick)
+    : await doClick();
+  // Self-healing escalation: a cached index goes stale the instant the page mutates, which is HALF of all runs' tool-errors. An explicit clickBackendNode error PROVES the click never landed (so re-trying the same target can't double-act), so before we hand a ~3s re-strategize turn back to the model, resolve the SAME element fresh from the full DOM by its name+role, the exact rung the model would have climbed to itself. Plain clicks only (a text-fill has its own readback path); gated so an A/B can turn it off.
+  if (shouldSelfHealClick(!!result.error, wantsText, name, params.selfheal)) {
+    const healed = await handleClickByName(wv, { name: name as string, role: role || '' });
+    if (!healed.error) {
+      console.log(`[selfheal] index ${idx} stale -> recovered via name "${String(name).slice(0, 40)}"`);
+      healed.clickedRole = role || '';
+      healed.clickedName = name || '';
+      healed.selfHealed = 'by-name';
+      return healed;
+    }
+  }
   // Surface what was clicked so the agent loop can record a stable, replayable click-by-name step (indices are ephemeral; names aren't).
   if (!result.error) {
     result.clickedRole = role || '';
@@ -1106,6 +1510,11 @@ async function handleBatch(wv: BrowserWebview, params: Record<string, any>): Pro
     }
 
     const urlBefore = wv.getURL();
+    // Carry the self-heal + click-effect toggles into click sub-actions (most clicks are batched, so gating only the top-level click_index misses them).
+    if (subType === 'click_index') {
+      if (params.selfheal !== undefined && subParams.selfheal === undefined) subParams.selfheal = params.selfheal;
+      if (params.effectProbe && subParams.effectProbe === undefined) subParams.effectProbe = true;
+    }
     let subResult: Record<string, any>;
     try {
       subResult = await BATCH_DISPATCH[subType](wv, subParams);
@@ -1360,8 +1769,12 @@ async function handleDetectWebMCP(wv: BrowserWebview): Promise<Record<string, an
   }
 }
 
-// Tier 2: the safe GET routes captured for the current site, so the agent can fetch data directly instead of re-scraping the UI. Only same-origin GET/HEAD routes are listed; those are all that replay_route will run.
-async function handleListRoutes(wv: BrowserWebview): Promise<Record<string, any>> {
+// Tier 2: the API routes captured for the current site, so the agent can act directly instead of
+// re-scraping/clicking the UI. Default lists the safe GET/HEAD routes (all replay_route will run).
+// With { writes: true } it lists the MUTATING routes (POST/PUT/PATCH/DELETE) the site's own UI
+// fired, for BrowserApiWrite's general 'route' path; the write itself is same-origin + captured +
+// session-borrowed + flag-gated in the backend, this only SURFACES the endpoint shape.
+async function handleListRoutes(wv: BrowserWebview, params?: Record<string, any>): Promise<Record<string, any>> {
   const bridge = (window as any).openswarm?.cdpRoutesGet as
     | ((id: number, origin?: string) => Promise<any[]>) | undefined;
   if (!bridge) return { error: 'Route capture not available, restart the app.' };
@@ -1369,6 +1782,21 @@ async function handleListRoutes(wv: BrowserWebview): Promise<Record<string, any>
   try { origin = new URL(wv.getURL()).origin; } catch {}
   let routes: any[] = [];
   try { routes = (await bridge(wv.getWebContentsId(), origin)) || []; } catch {}
+
+  if (params?.writes) {
+    const writes = routes.filter((r) => r && r.safe === false);
+    if (!writes.length) {
+      return { text: 'No write (POST/PUT/PATCH/DELETE) API routes captured for this site yet. Do the write once through the UI so it gets recorded, then the route path can replay it.', url: wv.getURL() };
+    }
+    const wlines = writes.slice(0, 40).map((r) => `${r.method} ${r.template}  body-shape: ${JSON.stringify(r.bodyShape)} (seen ${r.hits}x)`);
+    return {
+      text: `Write endpoints this site's UI uses (for BrowserApiWrite action='route'). Pass the `
+        + `method + url + a body matching the shape, with your content in the text field:\n${wlines.join('\n')}`,
+      routes: writes.slice(0, 40),
+      url: wv.getURL(),
+    };
+  }
+
   const safe = routes.filter((r) => r && r.safe);
   if (!safe.length) {
     return { text: 'No replayable (GET) API routes captured for this site yet. Use the page first so they get recorded, then try again.', url: wv.getURL() };
@@ -1510,6 +1938,22 @@ async function handleSessionCookies(params: Record<string, any>): Promise<Record
   }
 }
 
+// Load the user's own existing sign-in for a site into the browser partition, so an agent stuck at
+// a login wall can carry on as them instead of interrupting to ask for a password. Like the cookie
+// bridge above this needs no webview: it writes straight to the main-process cookie store.
+async function handleImportSession(params: Record<string, any>): Promise<Record<string, any>> {
+  const bridge = (window as any).openswarm?.setPartitionCookies as
+    | ((domain: string, cookies: Record<string, any>[]) => Promise<{ ok: boolean; set: number; error?: string }>)
+    | undefined;
+  if (!bridge) return { ok: false, set: 0, error: 'Session import unavailable (desktop app only)' };
+  const cookies = Array.isArray(params.cookies) ? params.cookies : [];
+  try {
+    return await bridge(String(params.domain || ''), cookies);
+  } catch (err: any) {
+    return { ok: false, set: 0, error: `Session import failed: ${err?.message || String(err)}` };
+  }
+}
+
 // Drive a session-borrow site's own already-open card: resolve the webview by its live domain
 // (no browser_id, like the cookie bridge), then run a small navigate/evaluate step sequence.
 // The shims use this for writes on sites that sign every HTTP request (TikTok).
@@ -1560,6 +2004,11 @@ async function runBrowserCommand(
     dashboardWs.send('browser:result', { request_id, ...result });
     return;
   }
+  if (action === 'import_session') {
+    const result = await handleImportSession(params);
+    dashboardWs.send('browser:result', { request_id, ...result });
+    return;
+  }
   const wv = await awaitWebview(browser_id, tab_id || undefined, action);
   if (!wv) {
     dashboardWs.send('browser:result', {
@@ -1599,6 +2048,9 @@ async function runBrowserCommand(
         break;
       case 'type':
         result = await handleType(wv, params);
+        break;
+      case 'find_composer':
+        result = await handleFindComposer(wv, params);
         break;
       case 'evaluate':
         result = await handleEvaluate(wv, params);
@@ -1645,7 +2097,7 @@ async function runBrowserCommand(
         result = await handleDetectWebMCP(wv);
         break;
       case 'list_routes':
-        result = await handleListRoutes(wv);
+        result = await handleListRoutes(wv, params);
         break;
       case 'click_by_name':
         result = await handleClickByName(wv, params);

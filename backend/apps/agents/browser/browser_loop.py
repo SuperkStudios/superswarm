@@ -219,7 +219,7 @@ def stagnation_exhausted(streak: int) -> bool:
 # State-changing tools: a task that needed to DO something must land one of these.
 P_PRODUCTIVE_TOOLS = {
     "BrowserClick", "BrowserClickIndex", "BrowserType", "BrowserNavigate",
-    "BrowserPressKey", "BrowserScroll", "BrowserBatch",
+    "BrowserPressKey", "BrowserScroll", "BrowserBatch", "BrowserActVerified",
 }
 # Read/extract tools: a look-only task's evidence is that a read returned content.
 P_READ_TOOLS = {
@@ -263,7 +263,7 @@ def recoverable_tool_error(err: str) -> bool:
 # Actions that DIRTY the page so replay-from-here is no longer equivalent to a clean dispatch. Navigation and reads don't dirty anything (they just get us to the page), so the deferred replay re-check is allowed after only those.
 P_REPLAY_DIRTYING_TOOLS = {
     "BrowserType", "BrowserClick", "BrowserClickIndex",
-    "BrowserPressKey", "BrowserScroll", "BrowserBatch",
+    "BrowserPressKey", "BrowserScroll", "BrowserBatch", "BrowserActVerified",
 }
 
 
@@ -286,6 +286,16 @@ P_ACTION_ASK_RE = re.compile(
     r"sign ?in|upload|download|book|order|buy|add|create|delete|message|dm|text)\b",
     re.I,
 )
+
+P_DELETE_INTENT_RE = re.compile(
+    r"\b(delete|remove|take ?down|unsend|retract|unpost|discard|trash)\b", re.I)
+
+
+def is_removal_task(task: str) -> bool:
+    """A delete/remove ask. The send-script must stand down on these: a removal task is also
+    task_is_send (the classifier keys on the verb), so without this the composer fill would
+    TYPE the target text and POST it (measured live: delete tasks re-posted the marker)."""
+    return bool(P_DELETE_INTENT_RE.search(task or ""))
 
 
 def deliverable_is_informational(summary: str, task: str = "") -> bool:

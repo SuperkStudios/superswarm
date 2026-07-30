@@ -17,6 +17,8 @@ BROWSER_CMD_TIMEOUTS = {
     "perform_action": 35.0, # session-borrow shims pack navigate + wait + scrape into ONE command, so it needs more than navigate alone
     "browser_fetch": 32.0,  # offscreen window: load + settle + DOM read on an arbitrary (maybe slow/JS-heavy) page
     "browser_search": 45.0, # tries up to 3 engines sequentially, each a full load + settle
+    "find_composer": 30.0,  # packs trigger + scroll-ladder + retop + open-first into ONE command; on the 15s default the last two tiers were unreachable and heavy pages died mid-ladder (measured: linkedin timed out 2 of 3 runs). The in-page routine self-caps well under this.
+    "import_session": 40.0,  # applies the borrowed cookies AND lets a hidden window sit through the site's bot challenge so the card inherits the clearance; warmBorrowedSession.js self-caps at 15+2.5+5s, and this must outlast that or the warm is killed mid-challenge and we throw away the whole point of it (same trap as find_composer).
 }
 BROWSER_CMD_REBROADCAST_S = 3.0
 # A CPU-starved renderer can briefly drop its WS (a missed heartbeat) and the frontend auto-reconnects a beat later; bridge that gap instead of hard-failing a live run into it. Short enough that a genuinely-closed window still fails quickly (and no LLM turns are ever burned waiting); long enough to ride out a reconnect even on a loaded machine.

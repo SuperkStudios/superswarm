@@ -30,16 +30,31 @@ class Resp:
         self.usage = type("U", (), {"input_tokens": 1, "output_tokens": 1})()
 
 
+class FakeStream:
+    # mirrors anthropic's messages.stream(): async CM whose get_final_message() returns the turn
+    def __init__(self, resp): self.resp = resp
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def get_final_message(self): return self.resp
+
+
 class FakeLLM:
     def __init__(self, scripted):
         self.scripted = scripted; self.turn = 0; self.calls = []
         self.messages = self
 
-    async def create(self, **kw):
+    def p_next(self, kw):
         self.calls.append(kw)
         i = min(self.turn, len(self.scripted) - 1)
         self.turn += 1
         return self.scripted[i]
+
+    async def create(self, **kw):
+        return self.p_next(kw)
+
+    def stream(self, **kw):
+        # the loop now streams; return an async-CM yielding the scripted turn
+        return FakeStream(self.p_next(kw))
 
 
 class FakeAux:
@@ -63,6 +78,17 @@ def p_rp(goal, mem="Share dialog is a cross-origin iframe; use the index list.")
 DOC_URL = "https://docs.google.com/document/d/abc/edit"
 
 
+def p_run_settled(**kw):
+    """run_browser_agent then drain the backgrounded learning task; the distill
+    no longer blocks the reply path, so tests asserting its effects must settle it."""
+    async def p_go():
+        r = await BA.run_browser_agent(**kw)
+        if BA.learn_tasks:
+            await asyncio.gather(*list(BA.learn_tasks), return_exceptions=True)
+        return r
+    return asyncio.run(p_go())
+
+
 def p_install(monkeypatch, primary, aux):
     # local imports inside run_browser_agent resolve from these source modules
     import backend.apps.settings.settings as settings_mod
@@ -71,10 +97,11 @@ def p_install(monkeypatch, primary, aux):
     import backend.apps.agents.agent_manager as am_mod
 
     monkeypatch.setattr(settings_mod, "load_settings", lambda: {"fake": True}, raising=True)
-    monkeypatch.setattr(reg_mod, "find_builtin_model", lambda m: object(), raising=True)
+    # a dict (not object()) so get_api_type's (entry or {}).get("api") works like the real registry rows
+    monkeypatch.setattr(reg_mod, "find_builtin_model", lambda m: {"api": "anthropic"}, raising=True)
     monkeypatch.setattr(reg_mod, "resolve_model_id_for_sdk", lambda m, s: "primary-x", raising=True)
 
-    async def p_aux_resolve(s, preferred_tier="haiku"):
+    async def p_aux_resolve(s, preferred_tier="haiku", primary_api=None):
         return ("aux-x", None)
     monkeypatch.setattr(reg_mod, "resolve_aux_model", p_aux_resolve, raising=True)
 
@@ -222,10 +249,15 @@ def test_confirmed_send_ends_the_run_instead_of_stalling(monkeypatch):
     # the send ran and the run ended FAST (the stall guard stopped it), well before consuming all 8 scripted stall turns
     assert any(c["action"] == "click_index" and c["params"].get("index") == 99 for c in sent)
     assert primary.turn <= 4, f"run stalled {primary.turn} turns after a confirmed send"
-    # structured success + a clean human summary, never the internal tag
-    assert result.get("done") is True
+    # A clean human summary, never the internal tag. NOT `done is True`: this run only ever saw the
+    # click register, and no composer receipt ever arrived, so it has no evidence the message
+    # landed. Reporting success here is the exact live failure measured on X 2026-07-28 ("your
+    # message went through and it's showing" while nothing had posted). The stall guard's job is to
+    # stop the spinning, not to bless the outcome, so what is asserted here is that it ENDED, and
+    # ended honestly. See test_browser_send_honesty.py.
     assert "OUTCOME" not in result["summary"]
     assert result["summary"].strip()
+    assert result.get("done") is False, "an unverified send must not report success"
 
 
 def test_done_tool_delivers_a_clean_human_summary(monkeypatch):
@@ -938,9 +970,9 @@ def test_playbook_distills_on_success_survives_restart_and_seeds_next_run(monkey
     ])
     pbaux = PBAux()
     p_install(monkeypatch, primary1, pbaux)
-    asyncio.run(BA.run_browser_agent(
+    p_run_settled(
         task="find design engineers", browser_id="b1", model="sonnet", initial_url=DOC_URL,
-    ))
+    )
     assert pbaux.calls >= 1, "a substantive success must trigger the distill aux call"
     assert PB.get_playbook("docs.google.com"), "playbook recorded for the host"
 
@@ -995,7 +1027,7 @@ def test_ambient_memory_signals_fire_calmly(monkeypatch):
     # Run 1: nothing learned yet -> NO recall line, but it learns -> closing line.
     p_install(monkeypatch, p_run(), PBAux())
     monkeypatch.setattr(BA.ws_manager, "send_to_session", p_cap, raising=False)
-    asyncio.run(BA.run_browser_agent(task="find engineers", browser_id="b1", model="sonnet", initial_url=DOC_URL))
+    p_run_settled(task="find engineers", browser_id="b1", model="sonnet", initial_url=DOC_URL)
     joined1 = " ".join(msgs)
     assert "Picking up what I learned" not in joined1, "no recall on the first-ever visit"
     assert "so I'm faster here next time" in joined1, "closing 'learned' line after first success"
@@ -1036,8 +1068,8 @@ def test_playbook_not_learned_from_a_ghost_completion(monkeypatch):
     asyncio.run(BA.run_browser_agent(
         task="do the thing", browser_id="b1", model="sonnet", initial_url=DOC_URL,
     ))
-    # the only aux call allowed here is the stuck-adjudication; the playbook distill must NOT have stored anything for a dishonest run
-    assert PB.get_playbook("docs.google.com") == []
+    # the only aux call allowed here is the stuck-adjudication; the playbook distill must NOT have LEARNED anything for a dishonest run (load = learned-only; get_playbook would also return the shipped seed for this host)
+    assert PB.load("docs.google.com") == []
 
 
 def test_batch_replay_runs_a_read_loop_for_all_values(monkeypatch):
@@ -1322,12 +1354,13 @@ def test_post_action_state_truncates_long_lists(monkeypatch):
     from backend.apps.agents.browser import browser_agent as ba
     calls = []
     monkeypatch.setattr(ba.browser_wait, "smart_wait", p_fake_settle(calls))
-    long_list = "\n".join(f'[{i}]<button "b{i}">' for i in range(60))
+    # cap is 60 (matches the frontend list cap); truncation only kicks in past that
+    long_list = "\n".join(f'[{i}]<button "b{i}">' for i in range(80))
     out = asyncio.run(ba.post_action_state(
         "BrowserType", {"selector": "#q", "text": "hi"}, {"text": "Typed"},
         "b1", "", p_fake_exec(calls, long_list), "",
     ))
-    assert "(+25 more rows" in out and '[34]<button "b34">' in out and '[35]' not in out
+    assert "(+20 more rows" in out and '[59]<button "b59">' in out and '[60]' not in out
 
 
 def test_post_action_state_hung_settle_attaches_nothing(monkeypatch):
@@ -1486,6 +1519,32 @@ def test_composer_fill_detection():
     assert not is_composer_fill("BrowserScroll", {})
 
 
+def test_compose_send_confirmation_model_voice_with_safe_fallback():
+    # The done line is model-written (aux), but validated: a clean sentence is used as-is; tool-ish
+    # / JSON / URL output is rejected so the caller falls back to a template (never leaks machinery).
+    import asyncio
+    from backend.apps.agents.browser.browser_agent import compose_send_confirmation
+
+    class Blk2:
+        def __init__(self, text): self.type = "text"; self.text = text
+    class Resp2:
+        def __init__(self, text): self.content = [Blk2(text)]
+    class Aux:
+        def __init__(self, text): self.txt = text; self.messages = self
+        async def create(self, **kw): return Resp2(self.txt)
+
+    def run(a): return asyncio.run(a)
+    # clean natural sentence -> used verbatim
+    assert run(compose_send_confirmation(Aux("Done, I messaged Tyler and said hi."), "m", "say hi", "hi")) \
+        == "Done, I messaged Tyler and said hi."
+    # tool-ish / JSON / url -> rejected (empty) so caller templates
+    assert run(compose_send_confirmation(Aux("Try BrowserClickIndex then list."), "m", "t", "hi")) == ""
+    assert run(compose_send_confirmation(Aux('{"done": true}'), "m", "t", "hi")) == ""
+    # no aux / no payload -> empty (fail-open)
+    assert run(compose_send_confirmation(None, "m", "t", "hi")) == ""
+    assert run(compose_send_confirmation(Aux("Done!"), "m", "t", "")) == ""
+
+
 def test_send_index_handoff_points_only_at_a_real_send_button():
     # after a composer fill we hand the model the Send button's index so it clicks it directly instead of hunting; must never mistake an upsell/profile link for it
     from backend.apps.agents.browser.browser_agent import send_index_in_state
@@ -1494,6 +1553,39 @@ def test_send_index_handoff_points_only_at_a_real_send_button():
     assert send_index_in_state('[12]<button "Send InMail credit">') is None
     assert send_index_in_state('[5]<button "Send a message to Maya">') is None
     assert send_index_in_state("") is None
+
+
+def test_send_submit_matcher_broad_but_hint_matcher_tight():
+    # SCOPING: the send-script's submit finder must know Post/Reply/Tweet/etc so the fast path
+    # COMPLETES on the giants; the ALWAYS-ON model hint must STAY tight so it never mislabels a
+    # stray feed 'Reply'/'Share'/'Comment' button as the Send button after an unrelated fill.
+    from backend.apps.agents.browser.browser_agent import send_index_in_state, send_submit_index_in_state
+    # broad (send-script) finds the popular composers' submit buttons
+    assert send_submit_index_in_state('[3]<textbox "Post your reply">\n[8]<button "Reply">') == (8, "Reply")
+    assert send_submit_index_in_state('[2]<textbox "What is happening?">\n[9]<button "Post">') == (9, "Post")
+    assert send_submit_index_in_state('[4]<button "Tweet">') == (4, "Tweet")
+    # exact + button-only keeps its own safety
+    assert send_submit_index_in_state('[5]<button "Post a job">') is None
+    assert send_submit_index_in_state('[6]<menuitem "Share">') is None
+    # TIGHT hint matcher: Send family only, and NOT the common feed buttons (the regression guard)
+    assert send_index_in_state('[44]<button "Send">') == (44, "Send")
+    assert send_index_in_state('[8]<button "Reply">') is None
+    assert send_index_in_state('[9]<button "Post">') is None
+    assert send_index_in_state('[7]<button "Comment">') is None
+    assert send_index_in_state('[3]<button "Share">') is None
+
+
+def test_send_submit_scoped_below_composer():
+    # X ships its sidebar compose OPENER as button "Post" ABOVE the composer; picking it posts
+    # nothing (live 0/2). after_index scopes the scan to buttons BELOW the filled composer.
+    from backend.apps.agents.browser.browser_agent import send_submit_index_in_state
+    x_home = '[25]<button "Post">\n[35]<textbox "Post text" value="check two">\n[58]<button "Post">'
+    assert send_submit_index_in_state(x_home, 35) == (58, "Post")
+    # no submit below the composer = None (falls to by-name, never the opener above)
+    opener_only = '[25]<button "Post">\n[35]<textbox "Post text" value="check two">'
+    assert send_submit_index_in_state(opener_only, 35) is None
+    # unscoped callers keep the old first-match behavior
+    assert send_submit_index_in_state(x_home) == (25, "Post")
 
 
 def test_strip_lone_surrogates():
@@ -1524,7 +1616,7 @@ def test_transient_429_retries_then_succeeds(monkeypatch):
             super().__init__(scripted)
             self.failures = failures
 
-        async def create(self, **kw):
+        def stream(self, **kw):
             if self.failures > 0:
                 self.failures -= 1
                 self.calls.append(kw)
@@ -1532,7 +1624,7 @@ def test_transient_429_retries_then_succeeds(monkeypatch):
                     "Error code: 429 - {'type': 'error', 'error': {'type': 'free_pool_busy', "
                     "'message': \"OpenSwarm's free pool is busy right now.\"}}"
                 )
-            return await super().create(**kw)
+            return super().stream(**kw)
 
     primary = FlakyLLM([Resp([Blk("text", "All done.")], stop_reason="end_turn")], failures=2)
     aux = FakeAux()
@@ -1546,7 +1638,7 @@ def test_free_trial_exhausted_gets_friendly_summary(monkeypatch):
     BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
 
     class DeadLLM(FakeLLM):
-        async def create(self, **kw):
+        def stream(self, **kw):
             raise Exception(
                 "Error code: 402 - {'type': 'error', 'error': {'type': 'free_trial_exhausted', "
                 "'message': \"You've used all your free runs.\"}}"
@@ -1566,7 +1658,7 @@ def test_capacity_budget_exhausted_gets_friendly_summary(monkeypatch):
     monkeypatch.setattr(EC, "CAPACITY_BACKOFFS", [0], raising=True)
 
     class Busy429LLM(FakeLLM):
-        async def create(self, **kw):
+        def stream(self, **kw):
             raise Exception(
                 "Error code: 429 - {'type': 'error', 'error': {'type': 'free_pool_busy', "
                 "'message': \"OpenSwarm's free pool is busy right now.\"}}"
@@ -1578,3 +1670,212 @@ def test_capacity_budget_exhausted_gets_friendly_summary(monkeypatch):
     result = asyncio.run(BA.run_browser_agent(task="check the page", browser_id="b1", model="sonnet"))
     assert "at capacity right now" in result["summary"]
     assert "free_pool_busy" not in result["summary"]
+def test_loop_tier_pin_flag_overrides_model_failsafe(monkeypatch):
+    # V7: OPENSWARM_BROWSER_LOOP_TIER pins the loop to a fast-capable tier (provider-agnostic),
+    # default off inherits the parent model, and a resolver failure falls back to the inherited id.
+    import backend.apps.settings.credentials as cred_mod
+    import backend.apps.agents.providers.registry as reg_mod
+    BH.BROWSER_HISTORY.clear()
+    primary = FakeLLM([Resp([Blk("text", "done")], stop_reason="end_turn")] * 5)
+    p_install(monkeypatch, primary, FakeAux())
+
+    async def p_tier_resolve(s, preferred_tier="haiku", primary_api=None):
+        return (f"pinned-{preferred_tier}", None)
+    monkeypatch.setattr(reg_mod, "resolve_aux_model", p_tier_resolve, raising=True)
+    # same client whatever the id, so the loop runs and we can read which model it used
+    monkeypatch.setattr(cred_mod, "get_anthropic_client_for_model", lambda s, m: primary, raising=True)
+
+    # default OFF: inherit the parent's resolved id
+    monkeypatch.delenv("OPENSWARM_BROWSER_LOOP_TIER", raising=False)
+    asyncio.run(BA.run_browser_agent(task="t", browser_id="b1", model="opus", initial_url=None))
+    assert primary.calls[-1]["model"] == "primary-x"
+
+    # flag ON: pin to the fast-capable tier
+    primary.turn = 0
+    monkeypatch.setenv("OPENSWARM_BROWSER_LOOP_TIER", "sonnet")
+    asyncio.run(BA.run_browser_agent(task="t", browser_id="b2", model="opus", initial_url=None))
+    assert primary.calls[-1]["model"] == "pinned-sonnet"
+
+    # fail-safe: resolver raises -> keep the inherited id, never break the run
+    async def p_boom(s, preferred_tier="haiku", primary_api=None):
+        raise RuntimeError("no provider")
+    monkeypatch.setattr(reg_mod, "resolve_aux_model", p_boom, raising=True)
+    primary.turn = 0
+    asyncio.run(BA.run_browser_agent(task="t", browser_id="b3", model="opus", initial_url=None))
+    assert primary.calls[-1]["model"] == "primary-x"
+
+
+def test_act_verified_refuses_irreversible_and_runs_reversible(monkeypatch):
+    # BrowserActVerified: an irreversible-smelling target is REFUSED in code (the
+    # solo-send rule holds), and a reversible step actually executes through the
+    # verified path (resolve-late -> click_index) with an honest per-step verdict.
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    primary = FakeLLM([
+        Resp([p_rp("send it via the plan tool"),
+              p_tu("BrowserActVerified", steps=[{"action": "click", "target": "Send message"}])]),
+        Resp([p_rp("ok, do a reversible step"),
+              p_tu("BrowserActVerified", steps=[{"action": "click", "target": "Search", "role": "button"}])]),
+        Resp([Blk("text", "done exploring")], stop_reason="end_turn"),
+    ])
+    aux = FakeAux()
+    sent = p_install(monkeypatch, primary, aux)
+
+    asyncio.run(BA.run_browser_agent(task="use the search", browser_id="b1", model="sonnet"))
+
+    all_msgs = json.dumps([c["messages"] for c in primary.calls])
+    # 1) the irreversible target never executed; the model got the refusal + guidance
+    assert "REFUSED" in all_msgs and "SOLO click" in all_msgs
+    # 2) the reversible step resolved "Search" against the live list and clicked index 1
+    assert any(c["action"] == "click_index" and c["params"].get("index") == 1 for c in sent)
+    # 3) honest verdict fed back (static fake page = no observable change; never a fake OK)
+    assert "FAILED" in all_msgs or "OK (verified)" in all_msgs
+
+
+def test_warm_send_prefix_replay_marries_send_script_zero_llm_turns(monkeypatch):
+    # THE WARM-WRITE PATH (B): a learned send-gated skill replays its navigation
+    # prefix mechanically, then hands the post-prefix state to the verified
+    # send-script tail (fill -> verify -> send -> receipt). The model is NEVER
+    # called: a warm write is replay + code, end to end.
+    monkeypatch.setenv("OSW_SEND_SCRIPT", "1")
+    monkeypatch.setenv("OSW_REPLAY_SENDTAIL", "1")
+    import backend.apps.agents.browser.browser_skills as SK
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear(); SK.SKILLS.clear()
+
+    TASK = "go to tyler chen's linkedin and text him '[test] warm hi w1'"
+    HOST = "www.linkedin.com"
+    THREAD = "https://www.linkedin.com/messaging/thread/2-abc/"
+    sig = SK.compute_sig(TASK)
+    SK.SKILLS[f"{HOST}|{sig}"] = {
+        "host": HOST, "task_sig": sig, "recorded_at": 0, "replays": 0,
+        "persisted": False, "rev": 1, "state": SK.PROBATION, "fails": 0,
+        "composed_of": [],
+        "steps": [
+            {"tool": "BrowserNavigate", "params": {"url": THREAD}},
+            {"tool": "BrowserClickByName", "params": {"name": "Send"}},  # send-gated tail
+        ],
+    }
+
+    primary = FakeLLM([Resp([Blk("text", "should never be called")], stop_reason="end_turn")])
+    aux = FakeAux()
+    sent = p_install(monkeypatch, primary, aux)
+
+    COMPOSER = '[2]<textbox "Write a message">'
+    COMMITTED = '[2]<textbox "Write a message" value="[test] warm hi w1">\n[14]<button "Send">'
+    CLEARED = '[2]<textbox "Write a message">\n[9]<button "Attach">'
+    seq = {"n": 0}
+    states = [COMPOSER, COMMITTED, CLEARED, CLEARED]
+
+    async def p_cmd(request_id, action, browser_id, params, tab_id=""):
+        sent.append({"action": action, "params": params})
+        if action == "list_interactives":
+            s = states[min(seq["n"], len(states) - 1)]; seq["n"] += 1
+            return {"text": s, "url": THREAD}
+        if action == "navigate":
+            return {"text": "Navigated", "url": THREAD}
+        if action == "click_index":
+            return {"text": "Clicked", "url": THREAD, "clickedRole": "button", "clickedName": "Send"}
+        if action == "evaluate":
+            return {"text": json.dumps({"ready": True, "quiet": 9999, "elems": 100, "found": True}), "url": THREAD}
+        return {"text": "ok", "url": THREAD}
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", p_cmd, raising=False)
+
+    result = asyncio.run(BA.run_browser_agent(
+        task=TASK, browser_id="b1", model="sonnet", initial_url=THREAD,
+    ))
+    # prefix replayed (navigate dispatched), script filled + sent, receipt passed
+    assert any(c["action"] == "navigate" for c in sent)
+    assert any(c["action"] == "click_index" and c["params"].get("text") for c in sent), "script fill ran"
+    assert result.get("done") is True
+    assert "sent" in str(result.get("summary", "")).lower()
+    # the whole warm write took ZERO model turns
+    assert primary.calls == [], f"model was called {len(primary.calls)}x; warm write should be replay+code only"
+
+
+def test_autosend_finishes_the_send_after_the_model_fills(monkeypatch):
+    # B (mid-loop takeover): on an UN-quoted send ("say hi"), the model opens the composer and TYPES
+    # the message; the code then finishes the send (find Send + click + two-sided receipt), so the
+    # model never spends a turn hunting the stale-indexed Send button. Uses what the model typed.
+    monkeypatch.setenv("OSW_SEND_SCRIPT", "1")   # autosend rides with the send-script family
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    URL = "https://www.linkedin.com/messaging/thread/2-abc/"
+    COMMITTED = '[2]<textbox "Write a message" value="hi">\n[14]<button "Send">'
+    CLEARED = '[2]<textbox "Write a message">\n[9]<button "Attach">'
+    st = {"filled": False, "sent": False}
+
+    async def p_cmd(request_id, action, browser_id, params, tab_id=""):
+        sent.append({"action": action, "params": params})
+        if action == "click_index":
+            if params.get("text"):
+                st["filled"] = True
+                return {"text": "Clicked", "url": URL}
+            st["sent"] = True
+            return {"text": "Clicked", "url": URL, "clickedRole": "button", "clickedName": "Send"}
+        if action == "click_by_name":
+            st["sent"] = True
+            return {"text": "Clicked", "url": URL, "clickedRole": "button", "clickedName": "Send"}
+        if action == "list_interactives":
+            return {"text": CLEARED if st["sent"] else (COMMITTED if st["filled"] else COMMITTED), "url": URL}
+        if action == "evaluate":
+            return {"text": json.dumps({"ready": True, "quiet": 9999, "elems": 100, "found": True}), "url": URL}
+        return {"text": "ok", "url": URL}
+
+    primary = FakeLLM([
+        Resp([p_rp("type the message"), p_tu("BrowserClickIndex", index=2, text="hi", expect="hi")]),
+        Resp([Blk("text", "fallback, should not be reached")], stop_reason="end_turn"),
+    ])
+    aux = FakeAux()
+    sent = p_install(monkeypatch, primary, aux)
+    monkeypatch.setattr(BA.ws_manager, "send_browser_command", p_cmd, raising=False)
+
+    result = asyncio.run(BA.run_browser_agent(
+        task="say hi to tyler chen on linkedin", browser_id="b1", model="sonnet", initial_url=URL))
+    # the CODE clicked Send (index 14), which the model never scripted (it only filled index 2)
+    assert any(c["action"] == "click_index" and c["params"].get("index") == 14 for c in sent), "code did the send"
+    assert result.get("done") is True
+    assert "sent" in str(result.get("summary", "")).lower()
+    # the model was called ONCE (the fill turn); autosend ended the run, no second send turn
+    assert len(primary.calls) == 1, f"model called {len(primary.calls)}x; the send should cost zero model turns"
+
+
+def test_login_wall_pauses_and_remembers_the_site(monkeypatch, tmp_path):
+    """Landing on a login wall auto-fires the RequestHumanIntervention pause with sign-in wording,
+    and once the user resolves it (Done), the domain is remembered so future runs skip re-prompting."""
+    from backend.apps.agents.browser import browser_login_handoff as H
+    monkeypatch.setattr(H, "P_STORE_PATH", str(tmp_path / "auth.json"))
+
+    approvals = []
+
+    async def p_fake_approval(session, tool_name, tool_input):
+        approvals.append((tool_name, tool_input))
+        return {"behavior": "allow"}
+    monkeypatch.setattr(BA, "p_request_browser_approval", p_fake_approval)
+
+    primary = FakeLLM([
+        Resp([p_rp("open the login page"), p_tu("BrowserNavigate", url="https://acme.example/login")]),
+        Resp([p_tu("Done", message="all set")]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    p_run_settled(task="log into acme and open my dashboard", browser_id="b1", model="sonnet")
+
+    assert any(t == "RequestHumanIntervention" and "sign in" in ti["problem"].lower()
+               for t, ti in approvals), approvals
+    assert H.is_authenticated("acme.example")
+
+
+def test_login_wall_skip_does_not_remember(monkeypatch, tmp_path):
+    """Skipping the sign-in (deny) leaves the site UNremembered and lets the run continue."""
+    from backend.apps.agents.browser import browser_login_handoff as H
+    monkeypatch.setattr(H, "P_STORE_PATH", str(tmp_path / "auth.json"))
+
+    async def p_deny(session, tool_name, tool_input):
+        return {"behavior": "deny", "message": "Skipped by user"}
+    monkeypatch.setattr(BA, "p_request_browser_approval", p_deny)
+
+    primary = FakeLLM([
+        Resp([p_rp("open the login page"), p_tu("BrowserNavigate", url="https://acme.example/login")]),
+        Resp([p_tu("Done", message="ok")]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    p_run_settled(task="log into acme", browser_id="b1", model="sonnet")
+
+    assert not H.is_authenticated("acme.example")

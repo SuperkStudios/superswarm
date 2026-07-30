@@ -93,6 +93,8 @@ contextBridge.exposeInMainWorld('openswarm', {
   harvestUsage: (provider) => ipcRenderer.invoke('harvest-usage', provider),
   // Suspend/resume state capsule: stages a resumed webview's sessionStorage snapshot in main (keyed by webContents id, short TTL) so the guest preload can sync-take it at document-start. Fire-and-forget; main validates the sender.
   setSessionCapsule: (wcId, capsule) => ipcRenderer.send('browser-capsule-set', wcId, capsule),
+  // Loads the user's own existing sign-in for a site INTO the browser partition so a blocked agent can continue as them. Writes only, never reads back; main re-checks every cookie belongs to the domain asked for.
+  setPartitionCookies: (domain, cookies) => ipcRenderer.invoke('set-partition-cookies', domain, cookies),
   sendCdpCommand: (wcId, method, params, sessionId) => ipcRenderer.invoke('send-cdp-command', wcId, method, params, sessionId),
   cdpDetachClean: (wcId) => ipcRenderer.invoke('cdp-detach-clean', wcId),
   cdpCacheSet: (wcId, indexMap) => ipcRenderer.invoke('cdp-cache-set', wcId, indexMap),

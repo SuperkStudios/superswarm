@@ -44,6 +44,7 @@ from backend.apps.agents.browser.browser_loop import (
     completion_is_honest,
     deliverable_is_informational,
     interstitial_dismiss_target,
+    is_removal_task,
     recoverable_tool_error,
     replay_recheck_is_safe,
     stagnation_exhausted,
@@ -67,6 +68,12 @@ P_WRAPUP_NUDGE = (
 from backend.apps.agents.browser import browser_batch_replay
 from backend.apps.agents.browser import browser_extract
 from backend.apps.agents.browser import browser_metrics
+from backend.apps.agents.browser import browser_send_script
+from backend.apps.agents.browser import browser_send_parse
+from backend.apps.agents.browser import browser_login_handoff
+from backend.apps.agents.browser import browser_session_import
+from backend.apps.agents.browser import browser_delivery_check
+from backend.apps.agents.browser import browser_submit_click
 from backend.apps.agents.browser import browser_playbook
 from backend.apps.agents.browser import browser_save
 from backend.apps.agents.browser import browser_meta_playbook
@@ -81,7 +88,6 @@ from backend.apps.agents.browser.browser_schema import (
     APP_VISIBLE_TOOLS,
     BROWSER_TOOLS_SCHEMA,
     MAX_TURNS,
-    MODEL_MAP,
     SYSTEM_PROMPT,
 )
 from backend.apps.agents.core.models import AgentSession, ApprovalRequest, Message
@@ -125,6 +131,11 @@ def app_bridge_expression(tool_name: str, tool_input: dict) -> str:
 P_BRIDGE_READY_WAIT_MS = 8000
 P_BRIDGE_POLL_INTERVAL_MS = 400
 p_bridge_known_absent: set[str] = set()
+
+# Sites whose sign-in we already borrowed into the partition. Only SUCCESSFUL borrows are recorded,
+# so a site the user signs into later still gets picked up without a restart; the re-probe that
+# costs is a keychain-free row count, so re-asking is cheap.
+signin_borrowed: set[str] = set()
 
 
 def parse_bridge_result(result: dict) -> object:
@@ -249,16 +260,58 @@ def p_summarize_action(tool_name: str, tool_input: dict) -> str:
     return p_summ_step(stype, ti) if stype else ""
 
 
+async def borrow_signin_before_nav(url: str, browser_id: str) -> None:
+    """Load the user's own sign-in for a site BEFORE its first page load, so the very first request
+    already carries it.
+
+    Borrowing only at a detected wall was too late in two ways: a task the model answers in one turn
+    calls Done, which breaks the loop before the handoff block ever runs, so short tasks never got it
+    at all; and even a long task had to render a logged-out page, notice, and throw it away. Doing it
+    at the door costs the user nothing and skips both. Silent and best-effort; the wall handoff is
+    still there as the backstop when this finds nothing."""
+    from backend.apps.settings.settings import load_settings
+
+    try:
+        if not browser_session_import.is_enabled(load_settings()):
+            return
+        domain = browser_session_import.site_domain(url)
+        if not domain or domain in signin_borrowed:
+            return
+        if not browser_session_import.has_importable_session(domain):
+            return
+        signin_borrowed.add(domain)
+        await browser_session_import.import_signin(domain, browser_id)
+    except Exception as exc:
+        logger.info(f"[session-import] pre-nav borrow skipped: {type(exc).__name__}")
+
+
 async def execute_browser_tool(
     tool_name: str, tool_input: dict, browser_id: str, tab_id: str = "",
 ) -> dict:
     """Execute a browser tool via ws_manager directly (no MCP/HTTP round-trip)."""
+    if tool_name == "BrowserNavigate":
+        await borrow_signin_before_nav(str((tool_input or {}).get("url") or ""), browser_id)
     # One greppable line naming the actual buttons/keys/selectors this call drives,
     # so a run reads as "key:ArrowRight x5" rather than an opaque tool name. Fires
     # for action tools only (reads stay quiet) and ungated so web runs get it too.
     p_action = p_summarize_action(tool_name, tool_input)
     if p_action:
         logger.info(f"[browser-action] {tool_name}: {p_action}  -> {browser_id}")
+
+    # BrowserDeleteItem: a model-invoked remove, translated to one BrowserEvaluate that runs the
+    # site's own delete flow scoped to the named item, then verifies it's gone (App-bridge pattern).
+    if tool_name == "BrowserDeleteItem":
+        from backend.apps.agents.browser import browser_delete_script
+        p_target = str((tool_input or {}).get("target_text") or "")
+        if len(p_target) < browser_delete_script.MIN_TARGET_CHARS:
+            return {"error": "target_text too short; give a longer distinctive snippet of the item's own text"}
+        p_parsed = await browser_delete_script.run_delete(p_target, browser_id, tab_id, execute_browser_tool)
+        logger.info(f"[browser-deleteitem] target={p_target[:40]!r} removed={p_parsed['removed']} stage={p_parsed['stage']}")
+        if p_parsed["removed"]:
+            return {"text": f'Removed the item containing "{p_target[:60]}" (verified gone).', "removed": True}
+        return {"text": (f'Did NOT remove it (stage={p_parsed["stage"]}): {p_parsed["msg"]}. If the item '
+                         "is not on this page, navigate to where it lives (e.g. your profile) and retry."),
+                "removed": False}
 
     # App bridge tools translate to a single BrowserEvaluate against the app's
     # window.OPENSWARM_APP, so they need no frontend command-handler changes.
@@ -299,11 +352,56 @@ async def execute_browser_tool(
         return {"error": f"Unknown browser tool: {tool_name}"}
 
     params = {k: v for k, v in tool_input.items()}
+    # Self-healing click toggle + click-effect metric. Threaded for solo clicks AND batches (most clicks are batched, so gating on click_index alone misses them). handleBatch propagates these into its click_index sub-actions.
+    if action in ("click_index", "batch"):
+        params["selfheal"] = os.environ.get("OSW_SELFHEAL_CLICK", "1") != "0"
+        if os.environ.get("OSW_CLICK_EFFECT_PROBE") == "1":
+            params["effectProbe"] = True
+    # Document-order interactives display (default on); OSW_DOC_ORDER=0 = legacy rank-order, for the A/B off-arm.
+    if action == "list_interactives":
+        params["docOrder"] = os.environ.get("OSW_DOC_ORDER", "1") != "0"
     request_id = uuid4().hex
     result = await ws_manager.send_browser_command(
         request_id, action, browser_id, params, tab_id=tab_id,
     )
+    if os.environ.get("OSW_DEBUG_LIST") == "1" and action == "list_interactives" and isinstance(result, dict):
+        logger.info(f"[debug-list] {str(result.get('text') or '')[:2400]}")
+    # Click telemetry lives at the top level for a solo click and inside `results[]` for a batched one; scan both.
+    p_click_parts = [result] if isinstance(result, dict) else []
+    if isinstance(result, dict) and isinstance(result.get("results"), list):
+        p_click_parts += [r for r in result["results"] if isinstance(r, dict)]
+    p_target_probe = os.environ.get("OSW_CLICK_EFFECT_PROBE") == "1"
+    for p_cr in p_click_parts:
+        if p_cr.get("selfHealed"):
+            logger.info(f"[browser-selfheal] recovered a stale-index click via {p_cr['selfHealed']} -> {browser_id}")
+        if p_cr.get("clickEffect"):
+            logger.info(f"[click-effect] {p_cr['clickEffect']} -> {browser_id}")
+        # The wrong-target signal a page-change metric misses: landed=False means the click point was NOT on the intended element (occluded/stale/moved).
+        if p_target_probe and "clickLanded" in p_cr:
+            logger.info(f"[click-target] landed={p_cr['clickLanded']} hit={str(p_cr.get('clickHit'))[:40]!r} -> {browser_id}")
     return result
+
+
+async def p_learn_write_recipe(execute_tool, browser_id: str, tab_id: str, current_url: str, payload: str) -> None:
+    """After a receipt-VERIFIED DOM write, distill the site's own write route into a replayable
+    recipe so the NEXT write on this host can skip the DOM (the repeated-write tier). Inline +
+    bounded (the card is still alive here; a fire-and-forget task would race the finish teardown)
+    and fully fail-open: no routes / no payload leaf / any error just means no recipe learned, and
+    the DOM path stays the default. Gated OFF until soaked (OSW_WRITE_RECIPES=1)."""
+    if os.environ.get("OSW_WRITE_RECIPES", "0") == "0":
+        return
+    try:
+        from backend.apps.agents.browser import browser_write_recipes, browser_skills
+        host = browser_skills.host_of(current_url or "")
+        if not host or len(payload or "") < 4:
+            return
+        listed = await asyncio.wait_for(
+            execute_tool("BrowserListRoutes", {"writes": True}, browser_id, tab_id), timeout=4.0)
+        routes = listed.get("routes") if isinstance(listed, dict) else None
+        if routes and browser_write_recipes.learn_recipe(host, payload, routes):
+            logger.info(f"[write-recipe] learned a replayable {host} write from a verified DOM send")
+    except Exception:
+        pass
 
 
 def p_extract_domain(url: str) -> str | None:
@@ -321,6 +419,57 @@ def p_extract_domain(url: str) -> str | None:
         return host
     except Exception:
         return None
+
+
+def p_api_write_result(res) -> dict:
+    """Shape a registry WriteResult into a loop result: a truthful receipt on success (with
+    send_confirmed set by the caller), or an `error` on a miss so the model does the write via the
+    UI and the run never distills it as a false success."""
+    if res.ok:
+        return {"ok": True, "text": (
+            f"Done via the {res.domain} API in {res.latency_ms}ms. Receipt: {res.receipt}. "
+            "The write landed, that receipt is your proof; you're finished with this step."
+        )}
+    return {"error": f"API write not used ({res.error}). Do this action through the UI instead."}
+
+
+async def run_api_write(tool_input: dict, current_url: str, browser_id: str = "", tab_id: str = "") -> dict:
+    """Route a BrowserApiWrite to the API-first write tier: a deterministic built-in adapter
+    (Reddit) when one exists, else the GENERAL capture-replay tier (action='route': replay a
+    mutating route the site's own UI fired, verified same-origin + captured, behind OSW_ROUTE_WRITE).
+    Never raises: a missing adapter / disarmed tier / site-reject is a typed miss, so the model
+    falls back to the UI path, never a crash and never a false claim of success."""
+    from urllib.parse import urlparse
+    from backend.apps.agents.browser import route_write, site_write_registry
+    action = str((tool_input or {}).get("action") or "").strip()
+    if not action:
+        return {"error": "BrowserApiWrite needs an 'action' (comment, reply, post, edit, delete, or route)."}
+    domain = p_extract_domain(current_url or "")
+    if not domain:
+        return {"error": "Can't tell what site you're on yet; navigate to the site first, then do the write through the UI or retry."}
+
+    if action == "route":
+        # General tier: replay a captured mutating route. The captured set is fetched live from the
+        # page (the safety wall: only a route the UI actually fired can be replayed), and the replay
+        # itself is same-origin + flag-gated + session-borrowed in route_write.
+        method = str(tool_input.get("method") or "POST").strip()
+        url = str(tool_input.get("url") or "").strip()
+        body = tool_input.get("body") if isinstance(tool_input.get("body"), dict) else {}
+        if not url:
+            return {"error": "BrowserApiWrite route needs the 'url' of a captured write endpoint (see BrowserListRoutes)."}
+        try:
+            origin = f"{urlparse(current_url).scheme}://{urlparse(current_url).netloc}"
+        except Exception:
+            return {"error": "Can't resolve the current site's origin; do the write through the UI."}
+        listed = await execute_browser_tool("BrowserListRoutes", {"writes": True}, browser_id, tab_id)
+        captured = [route_write.CapturedRoute(method=str(r.get("method", "")), template=str(r.get("template", "")))
+                    for r in (listed.get("routes") or []) if isinstance(r, dict) and r.get("template")]
+        res = await site_write_registry.api_route_write(origin, method, url, body, captured)
+        return p_api_write_result(res)
+
+    params = {k: v for k, v in (tool_input or {}).items() if k not in ("action", "expect")}
+    res = await site_write_registry.api_write(domain, action, params)
+    return p_api_write_result(res)
 
 
 def strip_lone_surrogates(s: str) -> str:
@@ -356,14 +505,18 @@ P_AUTO_STATE_TOOLS = {
     "BrowserNavigate", "BrowserClick", "BrowserClickIndex", "BrowserClickByName",
     "BrowserType", "BrowserPressKey", "BrowserScroll", "BrowserBatch",
 }
-P_AUTO_STATE_MAX_LINES = 35
+# Matches the frontend's DEFAULT_INTERACTIVE_CAP (interactiveRanking.ts): a shorter cap here silently hid rows 36-60 that an explicit BrowserListInteractives would show, forcing the model to re-list the very elements it just acted on. Delta compression keeps the common attach small, so the worst case (a full 60-row attach) is bounded and rare.
+P_AUTO_STATE_MAX_LINES = 60
 P_AUTO_SETTLE_CAPS_MS = {"BrowserNavigate": 2500, "BrowserBatch": 1500}
 
-# URL shapes that mean "a list of candidates to pick from" (auto candidate scan)
-RESULTS_URL_RE = re.compile(
-    r"[?&](q|query|keywords|search|search_query|find|term)=|/search\b|/results\b", re.I,
-)
+# RESULTS_URL_RE moved to browser_prestage (its READY overrule uses it too); re-exported here for the scan sites.
+from backend.apps.agents.browser.browser_prestage import RESULTS_URL_RE
 P_AUTO_SCAN_MAX_PER_RUN = 2
+# The candidate scan is a fast HINT, not the critical path. Cap the aux input to the top of the
+# page (matches are first) and bail quickly, so a big page can't turn the scan into dead idle time
+# (a real 8s stall was measured on LinkedIn search). Head slice + short timeout = finishes-or-skips.
+P_SCAN_TEXT_CAP = 8000
+P_SCAN_TIMEOUT_S = 4.0
 
 
 def p_batch_ends_with_read(tool_input: dict) -> bool:
@@ -406,15 +559,209 @@ def delta_state(text: str, seen_lines: set[str]) -> str:
 # A button row whose name is exactly a Send control (not "Send InMail credit" or "Send a message to X"); used to hand the model the Send button after it types, so it never burns turns hunting a button that's right there.
 P_SEND_ROW_RE = re.compile(r'\[(\d+)\]\*?<\s*button\s+"([^"]*)"', re.I)
 
+# TIGHT set for the ALWAYS-ON model hint (post_action_state). Kept to the unambiguous "Send" family
+# on purpose: this hint fires after ANY text fill, so a broad match ("Reply"/"Share"/"Comment"/
+# "Post") would mislabel a stray feed button as the Send button after an unrelated search fill.
+P_HINT_SEND_LABELS = frozenset({"send", "send now", "send message"})
+# BROAD submit vocabulary for the SEND-SCRIPT only (flag-gated + receipt-gated): lets the fast
+# send-path COMPLETE on X/IG/FB/Threads/YouTube. Safe ONLY there because the send-script re-verifies
+# the composer cleared the exact payload, so an opener-vs-submit mismatch fails safe, never a false
+# send. button-only (P_SEND_ROW_RE) + exact match keeps "Post" from matching "Post a job" etc.
+# Defined in browser_submit_click so the container-scoped JS tier shares the exact same set.
+P_SEND_LABELS = browser_submit_click.SEND_LABELS
+
 
 def send_index_in_state(state_text: str):
-    """(index, name) of a real Send button in an interactives list, or None.
-    Strict exact match so it never grabs an upsell or a profile 'Send a message' link."""
+    """(index, name) of a real Send button for the ALWAYS-ON model hint, or None. TIGHT exact match
+    (Send family only) so it never mislabels a common feed 'Reply'/'Share'/'Comment' button."""
     for line in (state_text or "").splitlines():
         m = P_SEND_ROW_RE.search(line)
-        if m and m.group(2).strip().lower() in ("send", "send now", "send message"):
+        if m and browser_submit_click.clean_button_name(m.group(2)) in P_HINT_SEND_LABELS:
             return int(m.group(1)), m.group(2)
     return None
+
+
+def send_submit_index_in_state(state_text: str, after_index: int = -1):
+    """(index, name) of a submit button across the popular composers (Post/Reply/Tweet/...), for the
+    receipt-gated SEND-SCRIPT only. Broader than the hint matcher; safe because the send-script
+    verifies the composer cleared afterward, so a wrong match aborts, never sends. `after_index`
+    scopes the scan to buttons BELOW the filled composer: every real submit follows its editor in
+    the listing, while a compose OPENER (X's sidebar "Post") sits above it, and clicking the opener
+    posts nothing (measured live: 0/2 X deliveries the day X shipped its opener as a button)."""
+    for line in (state_text or "").splitlines():
+        m = P_SEND_ROW_RE.search(line)
+        if m and browser_submit_click.clean_button_name(m.group(2)) in P_SEND_LABELS and int(m.group(1)) > after_index:
+            return int(m.group(1)), m.group(2)
+    return None
+
+
+# Tokens that mean the aux wrote machinery, not a user sentence: reject and fall back to a template.
+P_NOT_A_REPLY = ("browser", "clickindex", "composer", "textbox", "```", "{", "index", "http")
+
+
+async def compose_send_confirmation(aux_client, aux_model, task: str, payload: str) -> str:
+    """The final 'done' line in the model's OWN voice, via one cheap aux call, so it isn't a
+    hardcoded template. The SEND already happened in code; this only writes the words. Fail-open:
+    returns '' on any error OR if the output doesn't read like a plain user sentence (tool names,
+    JSON, a URL), so the caller falls back to a simple template. Aux tier = cheap + fast; a
+    one-sentence confirmation needs no frontier model, and it never re-does the mechanical work."""
+    if not aux_client or not aux_model or not payload:
+        return ""
+    prompt = (
+        "You just finished a task for the user by controlling their web browser, and it SUCCEEDED.\n"
+        f"The user asked: {task[:280]}\n"
+        f"What you sent: \"{payload[:280]}\"\n"
+        "Reply with ONE short, warm, first-person sentence confirming it's done, the way a helpful "
+        'friend would (e.g. "Done, I messaged Tyler and said hi."). No technical words, no quotes '
+        "wrapping the whole sentence, no preamble, just the sentence."
+    )
+    try:
+        resp = await aux_client.messages.create(
+            model=aux_model, max_tokens=80,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip().strip('"').strip()
+    except Exception:
+        return ""
+    low = text.lower()
+    if not text or len(text) > 220 or any(t in low for t in P_NOT_A_REPLY):
+        return ""
+    return text
+
+
+async def compose_partial_result(aux_client, aux_model, task: str, action_log: list) -> str:
+    """What the run actually reached, in the model's OWN voice, when the loop is cut off before it
+    can answer. The stock "that's as far as I could get" tells the user nothing about what WAS
+    found, which is often most of what they asked for. Fail-open like the others; must not invent
+    an outcome, so it is fed only the pages and actions that really happened."""
+    if not aux_client or not aux_model:
+        return ""
+    steps = [f"{e.get('tool', '?')} {str(e.get('input', ''))[:70]}" for e in (action_log or [])[-12:]]
+    if not steps:
+        return ""
+    prompt = (
+        "You were controlling the user's web browser and ran out of turns before you could give a "
+        "final answer. Here is what you actually did, most recent last:\n"
+        + "\n".join(steps)
+        + f"\n\nThe user asked: {task[:280]}\n"
+        "Reply with ONE or TWO short first-person sentences saying how far you got and what you "
+        "did or did not manage to find. Do NOT invent any result you cannot see above. If you got "
+        "nowhere useful, say that plainly. No technical words, no tool names, no preamble."
+    )
+    try:
+        resp = await aux_client.messages.create(
+            model=aux_model, max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip().strip('"').strip()
+    except Exception:
+        return ""
+    low = text.lower()
+    if not text or len(text) > 320 or any(t in low for t in P_NOT_A_REPLY):
+        return ""
+    return text
+
+
+async def compose_removal_confirmation(aux_client, aux_model, task: str, target: str) -> str:
+    """The 'I deleted it' line in the model's OWN voice. The removal is already verified gone in
+    code before this runs, so this only chooses words. Same fail-open contract as the others."""
+    if not aux_client or not aux_model or not target:
+        return ""
+    prompt = (
+        "You just finished a task for the user by controlling their web browser: you DELETED an "
+        "item for them, and you confirmed it is gone from the page.\n"
+        f"The user asked: {task[:280]}\n"
+        f"The item you removed contained: \"{target[:200]}\"\n"
+        "Reply with ONE short, plain first-person sentence confirming it's deleted, the way a "
+        "helpful friend would. No technical words, no preamble, just the sentence."
+    )
+    try:
+        resp = await aux_client.messages.create(
+            model=aux_model, max_tokens=80,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip().strip('"').strip()
+    except Exception:
+        return ""
+    low = text.lower()
+    if not text or len(text) > 220 or any(t in low for t in P_NOT_A_REPLY):
+        return ""
+    return text
+
+
+async def compose_unverified_send(aux_client, aux_model, task: str, payload: str, url: str) -> str:
+    """The 'I clicked send but never saw it confirm' line in the model's OWN voice.
+
+    Weaker than compose_delivery_warning by design: there the composer cleared, so we know the thing
+    was submitted and only its survival is in doubt. Here we never got the clear at all, so the only
+    thing we know is that a click ran. Same fail-open contract, and it must never claim success."""
+    if not aux_client or not aux_model or not payload:
+        return ""
+    from urllib.parse import urlparse
+    host = urlparse(url or "").hostname or "the site"
+    if host.startswith("www."):
+        host = host[4:]
+    prompt = (
+        "You tried to post or send something for the user by controlling their web browser. You "
+        "typed it and clicked send, but you never saw the confirmation you rely on: the compose box "
+        f"did not clear, so you do NOT know whether {host} accepted it. This is NOT a success.\n"
+        f"The user asked: {task[:280]}\n"
+        f"What you typed: \"{payload[:280]}\"\n"
+        "Reply with ONE or TWO short first-person sentences that say plainly you could not confirm "
+        "it posted, tell them to check, and mention you did not try again so they don't end up with "
+        "a duplicate. Never say it went through, was sent, or is showing. No technical words, no "
+        "preamble, just the sentences."
+    )
+    try:
+        resp = await aux_client.messages.create(
+            model=aux_model, max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip().strip('"').strip()
+    except Exception:
+        return ""
+    low = text.lower()
+    if not text or len(text) > 320 or any(t in low for t in P_NOT_A_REPLY):
+        return ""
+    # A composed line that still claims delivery is worse than the template, so refuse it.
+    if any(p in low for p in ("went through", "was sent", "i sent", "it's showing", "is showing", "posted it")):
+        return ""
+    return text
+
+
+async def compose_delivery_warning(aux_client, aux_model, task: str, payload: str, url: str) -> str:
+    """The 'I sent it but couldn't confirm it stayed live' line in the model's OWN voice, via one
+    cheap aux call, for a ghost-drop host where the composer cleared but the post did NOT persist.
+    Same fail-open contract as compose_send_confirmation: '' on any error or a non-sentence output,
+    so the caller falls back to the plain honest template. Never claims success."""
+    if not aux_client or not aux_model or not payload:
+        return ""
+    from urllib.parse import urlparse
+    host = urlparse(url or "").hostname or "the site"
+    if host.startswith("www."):
+        host = host[4:]
+    prompt = (
+        "You tried to post something for the user by controlling their web browser. You submitted "
+        "it and the compose box cleared, BUT when you re-checked the page the post did NOT stay up: "
+        f"{host} appears to have silently dropped it. This is NOT a confirmed success.\n"
+        f"The user asked: {task[:280]}\n"
+        f"What you tried to post: \"{payload[:200]}\"\n"
+        "Reply with ONE or TWO short, honest, first-person sentences: you submitted it but could NOT "
+        "confirm it actually went live, so they should check their posts. Warm and plain, no "
+        "technical words, no false reassurance that it worked."
+    )
+    try:
+        resp = await aux_client.messages.create(
+            model=aux_model, max_tokens=120,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(getattr(b, "text", "") for b in (resp.content or [])).strip().strip('"').strip()
+    except Exception:
+        return ""
+    low = text.lower()
+    if not text or len(text) > 400 or any(t in low for t in P_NOT_A_REPLY):
+        return ""
+    return text
 
 
 def is_composer_fill(tool_name: str, tool_input: dict) -> bool:
@@ -429,6 +776,50 @@ def is_composer_fill(tool_name: str, tool_input: dict) -> bool:
             p = a.get("params") or {}
             if a.get("type") in ("type", "click_index") and str(p.get("text") or "").strip():
                 return True
+    return False
+
+
+def fill_text_of(tool_name: str, tool_input: dict) -> str:
+    """The text a composer-fill action typed, '' when it isn't one."""
+    ti = tool_input or {}
+    if tool_name in ("BrowserClickIndex", "BrowserType"):
+        return str(ti.get("text") or "").strip()
+    if tool_name == "BrowserBatch":
+        for a in (ti.get("actions") or []):
+            p = a.get("params") or {}
+            if a.get("type") in ("type", "click_index") and str(p.get("text") or "").strip():
+                return str(p.get("text")).strip()
+    return ""
+
+
+def fill_index_of(tool_name: str, tool_input: dict) -> int:
+    """The listing index a composer-fill action typed into, -1 when unknown. Mirrors fill_text_of."""
+    ti = tool_input or {}
+    if tool_name in ("BrowserClickIndex", "BrowserType"):
+        try:
+            return int(ti.get("index", -1))
+        except (TypeError, ValueError):
+            return -1
+    if tool_name == "BrowserBatch":
+        for a in (ti.get("actions") or []):
+            p = a.get("params") or {}
+            if a.get("type") in ("type", "click_index") and str(p.get("text") or "").strip():
+                try:
+                    return int(p.get("index", -1))
+                except (TypeError, ValueError):
+                    return -1
+    return -1
+
+
+def payload_in_textbox(state_text: str, payload: str) -> bool:
+    """True if any listed textbox VALUE carries the typed payload (fill committed).
+    Matches on a prefix because long payloads truncate in the list."""
+    probe = (payload or "")[:24]
+    if not probe:
+        return False
+    for line in (state_text or "").splitlines():
+        if "<textbox" in line and probe in line:
+            return True
     return False
 
 
@@ -455,8 +846,8 @@ async def post_action_state(
     lst = None
     p_send_si = None
     if p_composer_fill:
-        # The Send button lazy-renders a beat LATER than the text commits (measured: not in the AX tree even at 2.5s, worse under load), and a single re-list races that and loses, the old handoff never fired (send-ready=0 across 10 A/B legs). So POLL the actual interactives list for a REAL Send button and stop the instant it appears; this checks for the exact thing we hand over, not just 'Send' text.
-        p_deadline = time.monotonic() + 6.0
+        # The Send button lazy-renders a beat LATER than the text commits (measured: not in the AX tree even at 2.5s, worse under load), and a single re-list races that and loses, the old handoff never fired (send-ready=0 across 10 A/B legs). So POLL the actual interactives list for a REAL Send button and stop the instant it appears; this checks for the exact thing we hand over, not just 'Send' text. Deadline cut 6s->2.4s: recent sends ran the FULL 6s and still found nothing (send_button_found=False 3/3), so the long tail bought pure wall time; two polls catch the lazy-render case, the model finds Send itself past that.
+        p_deadline = time.monotonic() + 2.4
         while True:
             try:
                 p_l = await asyncio.wait_for(
@@ -482,6 +873,16 @@ async def post_action_state(
         return ""
     state = lst["text"] if seen_lines is None else delta_state(lst["text"], seen_lines)
     out = f"\n\n{PAGE_STATE_MARKER}\n{p_truncate_state(state)}"
+    # Fold the page's READABLE TEXT in alongside the clickable elements (flag-gated). The model perceives nearly every page TWICE, once via list_interactives and once via GetText (measured: ~52% of all tool calls are perception, half of that redundant list+text pairs). Attaching a trimmed text excerpt here means after any action it already has BOTH views, so it never spends a separate GetText turn. A cheap code-side read (ms) trades for a ~4s model turn.
+    if os.environ.get("OSW_FOLD_TEXT", "0") == "1":
+        try:
+            p_gt = await asyncio.wait_for(
+                wait_exec("BrowserGetText", {}, browser_id, tab_id), timeout=5.0)
+            p_txt = str(p_gt.get("text") or "") if isinstance(p_gt, dict) and "error" not in p_gt else ""
+            if p_txt:
+                out += f"\n\n[Page text (you have this already, no need to GetText):]\n{p_txt[:1800]}"
+        except Exception:
+            pass
     # Hand the Send button's index over so the model clicks it directly instead of scanning the list or hunting via CSS/JS/screenshots (the polled list above is what makes Send actually present to point at, the two work together).
     if p_send_si:
         out = (f"\n\n[send-ready] Your message is typed and the Send button is index "
@@ -531,6 +932,45 @@ async def p_request_browser_approval(
     return decision
 
 
+async def try_borrow_signin(domain: str, browser_id: str, tab_id: str, url: str) -> bool:
+    """Sign in by borrowing the session the user's everyday browser already holds, rather than
+    interrupting them to type a password we would rather never see.
+
+    True only when the partition genuinely carries their session now, so a False always falls back
+    to the pause that existed before this did. Off unless the user opted in.
+
+    Swallows everything: this is a convenience bolted onto the critical path, and the worst it may
+    ever cost is the pause we were going to show anyway. Cancellation still propagates (it is a
+    BaseException), so a stopped run still stops."""
+    from backend.apps.settings.settings import load_settings
+
+    try:
+        if not browser_session_import.is_enabled(load_settings()):
+            return False
+        # Already borrowed at the door and STILL standing at a wall, so the session did not take.
+        # Re-importing the same values would change nothing; this one needs a human.
+        if domain in signin_borrowed:
+            return False
+        if not browser_session_import.has_importable_session(domain):
+            return False
+        signin_borrowed.add(domain)
+        result = await browser_session_import.import_signin(domain, browser_id)
+        if not result.ok:
+            return False
+        # A borrowed session only takes on the next load, so send the page back through the door.
+        if url:
+            await execute_browser_tool("BrowserNavigate", {"url": url}, browser_id, tab_id)
+    except Exception as exc:
+        logger.info(f"[session-import] borrow skipped for {domain}: {type(exc).__name__}")
+        return False
+    logger.info(f"[session-import] continued on {domain} without interrupting the user")
+    return True
+
+
+# Background learning tasks (playbook distill) held by strong ref; asyncio only weak-refs tasks, and a GC'd task dies silently mid-distill.
+learn_tasks: set[asyncio.Task] = set()
+
+
 async def run_browser_agent(
     task: str,
     browser_id: str,
@@ -541,6 +981,7 @@ async def run_browser_agent(
     initial_url: str | None = None,
     parent_session_id: str | None = None,
     app_mode: bool = False,
+    user_prompt: str = "",
 ) -> dict:
     """Run a browser sub-agent loop for a single browser card.
 
@@ -593,8 +1034,16 @@ async def run_browser_agent(
         whole point of front-loading). Best-effort; never raises."""
         recs = []
         try:
-            li = await execute_browser_tool("BrowserListInteractives", {}, browser_id, tab_id)
-            gt = await execute_browser_tool("BrowserGetText", {}, browser_id, tab_id)
+            # The two front-load reads are independent, so fire them together: the AX-tree list (slow, occlusion-filtered) and the text read overlap instead of adding up. return_exceptions keeps it best-effort, one read failing no longer discards the other.
+            li, gt = await asyncio.gather(
+                execute_browser_tool("BrowserListInteractives", {}, browser_id, tab_id),
+                execute_browser_tool("BrowserGetText", {}, browser_id, tab_id),
+                return_exceptions=True,
+            )
+            if not isinstance(li, dict):
+                li = {}
+            if not isinstance(gt, dict):
+                gt = {}
             url = li.get("url") or gt.get("url") or label_url or ""
             parts = []
             if li.get("text") and "error" not in li:
@@ -636,6 +1085,7 @@ async def run_browser_agent(
     from backend.apps.settings.credentials import get_anthropic_client_for_model
     from backend.apps.agents.providers.registry import (
         find_builtin_model,
+        get_api_type,
         resolve_model_id_for_sdk,
         resolve_aux_model,
     )
@@ -644,9 +1094,9 @@ async def run_browser_agent(
     if find_builtin_model(model) is not None:
         api_model = resolve_model_id_for_sdk(model, browser_settings)
     else:
-        # Unknown model string; fall back to whatever aux model is available
+        # Unknown model string (custom provider, unrecognized id): fall back to a CAPABLE aux tier, not the cheapest. Browser work is multi-step agentic, and the cheap tier is far weaker at it (OSWorld: Haiku 4.5 50.7% vs Sonnet 4.6 72.5%), so a sonnet-class fallback is worth the cost. resolve_aux_model is provider-agnostic (picks the sonnet tier of whatever the user has connected).
         try:
-            api_model, _ = await resolve_aux_model(browser_settings, preferred_tier="haiku")
+            api_model, _ = await resolve_aux_model(browser_settings, preferred_tier="sonnet")
         except ValueError:
             # Nothing connected at all; surface a clear error so the caller (parent agent) sees it in the tool result instead of crashing on a 400 from 9Router.
             session.status = "error"
@@ -672,8 +1122,99 @@ async def run_browser_agent(
                 "action_log": [],
                 "final_screenshot": None,
             }
+    # A/B lever (flag-gated, default OFF, and it should STAY off, see below). The idea was to pin the loop to a cheap tier since mechanical browsing "rarely needs frontier reasoning". Two measurements killed it: (1) latency, n=10 live cc/ lanes 2026-07-15, opus-4-6 ~= sonnet-4-6 (~2.3s, the old "Opus->Sonnet 2x" is stale), only Haiku is ~2x/turn faster (1.2s); BUT (2) accuracy, OSWorld computer-use benchmark, Haiku 4.5 = 50.7% vs Sonnet 4.6 = 72.5% (~22pp worse). Per-turn speed is the WRONG metric: a cheap tier fails / needs more recovery turns on multi-step browser tasks, so a 2x-faster turn nets SLOWER + less reliable. Same cliff for non-Claude users (gpt-mini/gemini-flash are weaker than their frontier siblings too), so downgrading the tier hurts everyone. The real cold-start lever is FEWER TURNS on the user's OWN chosen model (plan-dispatch, batching), which preserves accuracy AND is provider-agnostic. Kept as a flag (fail-open to the inherited model) only for explicit experiments; not a default.
+    p_loop_tier = os.environ.get("OPENSWARM_BROWSER_LOOP_TIER", "").strip().lower()
+    if p_loop_tier in ("haiku", "sonnet"):
+        try:
+            p_pinned, _ = await resolve_aux_model(
+                browser_settings, preferred_tier=p_loop_tier, primary_api=get_api_type(model))
+            if p_pinned and p_pinned != api_model:
+                logger.info(f"[browser-agent {session_id}] loop-tier pin: {api_model} -> {p_pinned} (tier={p_loop_tier})")
+                api_model = p_pinned
+        except Exception as e:
+            logger.info(f"[browser-agent {session_id}] loop-tier pin skipped ({e}); inheriting {api_model}")
     # Route the client based on the resolved model id, not just connection_mode. Without this, a pinned-route value like "sonnet-cc" resolves to "cc/claude-sonnet-4-6" but the old get_anthropic_client() still returned an OpenSwarm-proxy client (because connection_mode was openswarm-pro), which then rejected the cc/ prefix and surfaced as a misleading "OpenSwarm servers are busy" error.
     client = get_anthropic_client_for_model(browser_settings, api_model)
+
+    # Skill key, derived EARLY so both the prestage-skip below and the replay lookup share it. Prefer the USER's original request over the orchestrator's reformulation (reformulations vary run-to-run and silently break exact-key replay); multi-quoted messages fall back to the differentiated task.
+    skill_key_task = task
+    if parent_session_id:
+        try:
+            p_psess = agent_manager.get_session(parent_session_id)
+            if p_psess:
+                for p_m in reversed(p_psess.messages):
+                    if p_m.role == "user" and isinstance(p_m.content, str) and p_m.content.strip():
+                        p_orig = p_m.content.strip()
+                        if len(browser_skills.template_task(p_orig)[1]) <= 1:
+                            skill_key_task = p_orig
+                        break
+        except Exception:
+            pass
+    # A learned skill's replayed prefix does the same navigation prestage would aux-drive (~8-12s): when one exists for this host+task, skip prestage and let the replay own the nav.
+    # Removal tasks never replay a skill (see the record gate): a delete is a destructive one-shot,
+    # not a replayable nav prefix, so a stale delete-"skill" of scrolls must not hijack it.
+    p_task_is_removal = is_removal_task(skill_key_task)
+    # Computed here (pure, task-only) so the skill gate, prestage, and every dispatch tier below
+    # share one verdict. `task` here is prompt + an aux-written routing brief (compose_task), and
+    # the brief's prose can read informational and wrongly disarm a real send (facebook: the brief
+    # tripped the info-ask gate while the user's own "start a post" is plainly an action). The
+    # user's words are authoritative, so a send stands if EITHER the composed task OR the raw
+    # prompt says action.
+    task_is_send = not (deliverable_is_informational("", task)
+                        and deliverable_is_informational("", user_prompt or task))
+    p_early_host = browser_skills.host_of(initial_url or current_url or next(iter(re.findall(r"https?://\S+", task)), ""))
+    p_skip_prestage_for_skill = browser_skills.replay_owns_nav(
+        p_early_host, bool(browser_skills.find_skill(p_early_host, skill_key_task)),
+        p_task_is_removal, task_is_send)
+    if p_skip_prestage_for_skill:
+        logger.info(f"[browser-skills] skill exists for {p_early_host}; skipping prestage (replay owns the nav)")
+
+    from backend.apps.agents.browser import browser_prestage
+    from backend.apps.agents.browser import browser_plan_dispatch
+    if (browser_prestage.prestage_enabled() and not app_mode and not cancel_event.is_set()
+            and not p_skip_prestage_for_skill):
+        try:
+            p_ps_block, p_ps_url, p_ps_recs = await asyncio.wait_for(
+                browser_prestage.run_prestage(
+                    task, browser_id, tab_id, current_url, browser_settings,
+                    get_api_type(model), execute_browser_tool,
+                    perceive_only=(not task_is_send and browser_plan_dispatch.plan_dispatch_enabled()),
+                    task_is_send=task_is_send,
+                ),
+                timeout=browser_prestage.TOTAL_TIMEOUT_S + 10,
+            )
+            if p_ps_block:
+                preloaded_perception = p_ps_block
+                current_url = p_ps_url or current_url
+                preloaded_reads.extend(p_ps_recs)
+        except Exception as e:
+            logger.info(f"[browser-prestage] outer skip ({e})")
+
+    # Early dead-card catch: a wedged or unmounted webview perceives as nothing (no url, no
+    # elements) even after prestage's warmup. Left alone the model burns a whole run piling up
+    # card_gone_streak before the late gate evicts it (measured ~70s of ghosting). One confirming
+    # probe here separates a genuinely dead card from a merely slow one; a dead one is evicted +
+    # recovered at the top of the loop instead, turning the wasted run into a ~10s honest bail.
+    p_card_dead_early = False
+    # Gate on the empty perception BLOCK, not current_url: prestage falls current_url back to
+    # start_url when the live perceive is empty, so a dead card still reports a url (measured).
+    # An empty block means the perceive got no live elements/text (dead OR merely thin); the
+    # confirming probe below is what separates the two.
+    if (browser_prestage.prestage_enabled() and not app_mode and not p_skip_prestage_for_skill
+            and not cancel_event.is_set() and not preloaded_perception
+            and os.environ.get("OSW_DEADCARD_EVICT", "1") != "0"):
+        try:
+            p_dead_probe = await asyncio.wait_for(
+                execute_browser_tool("BrowserGetText", {}, browser_id, tab_id), timeout=6.0)
+            p_card_dead_early = not (isinstance(p_dead_probe, dict)
+                                     and (str(p_dead_probe.get("url") or "")
+                                          or str(p_dead_probe.get("text") or "")))
+        except Exception:
+            p_card_dead_early = True
+        if p_card_dead_early:
+            logger.warning(
+                f"[browser-agent {session_id}] card {browser_id} perceives dead after prestage "
+                "(no url/elements, confirming probe empty); evicting + recovering early")
 
     # Resume prior conversation on this browser if we have one cached. This lets the sub-agent skip the "take a screenshot to figure out where I am" cycle every time the parent issues a new task. Defensively validate the cache; if it's somehow corrupted (orphaned tool_use_ids), drop it and start fresh rather than crash on the next API call.
     prior_messages = browser_history.BROWSER_HISTORY.get(browser_id) or []
@@ -751,6 +1292,7 @@ async def run_browser_agent(
     loop_trigger_count = 0
     card_gone_streak = 0  # consecutive "card is gone" results -> fail fast, don't spin
     route_hinted_hosts: set[str] = set()  # surface the fast network tier once per host
+    p_login_prompted: set[str] = set()  # login-once handoff: at most one sign-in pause per domain per run
 
     # Stagnation state: busy-but-stuck detection (no URL change + failures across a run of actions), distinct from the exact-repeat loop above.
     stagnation_streak = 0
@@ -765,7 +1307,10 @@ async def run_browser_agent(
         if not p_aux_state["resolved"]:
             p_aux_state["resolved"] = True
             try:
-                aux_model, _ = await resolve_aux_model(browser_settings, preferred_tier="haiku")
+                # primary_api unlocks the registry's family-match + API-key branches; without it an OpenAI/Google key-only user gets a raise here and auto-scan + playbook learning silently die.
+                aux_model, _ = await resolve_aux_model(
+                    browser_settings, preferred_tier="haiku", primary_api=get_api_type(model),
+                )
                 p_aux_state["model"] = aux_model
                 p_aux_state["client"] = get_anthropic_client_for_model(browser_settings, aux_model)
             except Exception as e:
@@ -793,15 +1338,21 @@ async def run_browser_agent(
                 if not isinstance(page, dict) or page.get("error") or not page.get("text"):
                     return ""
                 aux_client, aux_model = await p_get_aux_client()
+                # Cap the aux input to the top of the page: results pages put the matches first, and
+                # feeding a huge LinkedIn/Amazon page to the aux was blowing the whole time budget so
+                # the scan timed out with NOTHING (measured: 8001ms idle, empty). A head slice lets
+                # the aux actually FINISH fast (useful hint) instead of stalling.
                 return await browser_extract.extract_structured(
-                    aux_client, aux_model, str(page["text"]),
+                    aux_client, aux_model, str(page["text"])[:P_SCAN_TEXT_CAP],
                     "These are search results. Identify which result(s) match this task: "
                     f"{scan_for[:400]}\nFor each plausible candidate give its exact displayed name, "
                     "the distinguishing details shown (role, company, location, etc), and why it "
                     "does or does not match. If none clearly match, say so in `best`.",
                     {"candidates": [{"name": "", "details": "", "match": ""}], "best": ""},
                 )
-            out = await asyncio.wait_for(p_inner(), timeout=8.0)
+            # Bail fast: a scan that can't produce a hint quickly is worse than none (the model reads
+            # the page itself next turn anyway), so don't sit idle on it. 8s -> P_SCAN_TIMEOUT_S.
+            out = await asyncio.wait_for(p_inner(), timeout=P_SCAN_TIMEOUT_S)
         except Exception:
             out = ""
         return out or "", int((time.time() - p_t0) * 1000)
@@ -846,7 +1397,10 @@ async def run_browser_agent(
         "type": "text", "text": run_system_prompt,
         "cache_control": {"type": "ephemeral"},
     }]
+    from backend.apps.agents.browser import browser_delete_script
     p_cached_tools = [dict(t) for t in (APP_VISIBLE_TOOLS if app_mode else browser_schema.MODEL_VISIBLE_TOOLS)]
+    if not browser_delete_script.delete_tool_enabled():
+        p_cached_tools = [t for t in p_cached_tools if t["name"] != "BrowserDeleteItem"]
     if p_cached_tools:
         p_cached_tools[-1] = {**p_cached_tools[-1], "cache_control": {"type": "ephemeral"}}
 
@@ -857,8 +1411,8 @@ async def run_browser_agent(
         "message": user_msg.model_dump(mode="json"),
     })
 
-    # Perceived value, zero clicks: one calm line so the user FEELS the agent is picking up where it left off, not figuring the site out cold again. Only when strategy was actually seeded, so it's honest, never noise.
-    if pb_seeded and p_pb_host:
+    # Perceived value, zero clicks: one calm line so the user FEELS the agent is picking up where it left off. It claims "from a previous visit", so it must fire ONLY on a genuinely LEARNED playbook, never a shipped SEED (else a first-ever visit to any seeded popular site would lie about a visit that never happened). Seeds still inject their head-start into the prompt above; they just don't trigger this line.
+    if p_pb_host and browser_playbook.load(p_pb_host):
         session.memory_recalled = True  # drives the subtle "Remembered" card chip
         p_where = "this app" if app_mode else p_pb_host
         p_recall_msg = Message(role="assistant",
@@ -886,20 +1440,7 @@ async def run_browser_agent(
             return None
         return task.result()
 
-    # Skill key: prefer the USER's original request over the orchestrator's reformulation. The reformulation varies run-to-run ("click the search box" vs "find the search box") and that variance silently breaks exact-key replay (measured: two issuances of one request produced two skills). The user's words are stable across repeats. Guard: if the message carries multiple quoted values, several same-host sub-tasks could collide on one key, so fall back to the (differentiated) delegated task; the verify gate backs this up if a key is ever too loose.
-    skill_key_task = task
-    if parent_session_id:
-        try:
-            p_psess = agent_manager.get_session(parent_session_id)
-            if p_psess:
-                for p_m in reversed(p_psess.messages):
-                    if p_m.role == "user" and isinstance(p_m.content, str) and p_m.content.strip():
-                        p_orig = p_m.content.strip()
-                        if len(browser_skills.template_task(p_orig)[1]) <= 1:
-                            skill_key_task = p_orig
-                        break
-        except Exception:
-            pass
+    # (skill_key_task derived earlier, above the prestage gate, so the skip check and this lookup share one key)
 
     # --- Fast path: replay a previously-learned skill with NO LLM round-trips. This is what gets a REPEAT task from ~50s (full agent loop) down to ~1s, i.e. faster than a human. Robust by construction: clicks re-resolve by (role,name), every step is verified, and ANY miss aborts to the full LLM agent below (which re-records), so a changed page can never ghost-succeed.
     replay_attempted = False
@@ -917,6 +1458,7 @@ async def run_browser_agent(
         allow_prefix, a send-gated skill replays its safe navigation prefix
         mechanically and hands the live agent just the irreversible tail."""
         nonlocal final_screenshot, last_seen_url, replay_attempted, replay_prefix_note
+        nonlocal preloaded_perception, current_url
         if not host:
             return None
 
@@ -954,6 +1496,11 @@ async def run_browser_agent(
                 logger.info(f"[browser-skills] skill on {host} not replayed: {why}; running the full agent so the send is confirmed")
                 return None
             prefix = steps[:unsafe_i]
+            # Marriage mode: the send-script owns the composer (it polls for the lazy overlay + fills + sends). Replaying a recorded composer-textbox click races that render and misses (v903/v906), so truncate the prefix to NAV + opener only and let the script take it from the navigated page. Keep >=1 step or there's nothing to replay.
+            if os.environ.get("OSW_REPLAY_SENDTAIL", "0") == "1":
+                p_nav_prefix = [s for s in prefix if not browser_skills.step_touches_composer(s)]
+                if p_nav_prefix:
+                    prefix = p_nav_prefix
             logger.info(
                 f"[browser-skills] PREFIX replay: {len(prefix)}/{len(steps)} steps on {host}, "
                 f"live agent confirms the tail ({why})"
@@ -981,6 +1528,11 @@ async def run_browser_agent(
                         f"full agent from scratch (trust verdict: {verdict})"
                     )
                     return None
+                # The end-of-run record_skill distills from action_log; without the replayed prefix in it, a warm run re-records a TAIL-ONLY skill (navigation missing) and clobbers the good one.
+                action_log.append({
+                    "tool": step["tool"], "input": step.get("params", {}), "ok": True,
+                    "result_summary": str(res.get("text", ""))[:200], "elapsed_ms": el_ms,
+                })
                 if res.get("url"):
                     last_seen_url = res["url"]
             replay_attempted = True
@@ -989,6 +1541,12 @@ async def run_browser_agent(
                 lst = await execute_browser_tool("BrowserListInteractives", {}, browser_id, tab_id)
                 if isinstance(lst, dict) and lst.get("text") and "error" not in lst:
                     p_fresh = f"\nCurrent page state after the replayed prefix:\n{p_truncate_state(lst['text'])}"
+                    # THE MARRIAGE (flag-gated): hand the post-prefix state to the verified send-script slot, the proven code tail (fill -> verify -> send -> two-sided receipt). A warm write then completes with ZERO model turns: replayed prefix + verified tail. Fail-open: if the script declines, the model gets the existing handoff note, today's behavior.
+                    if os.environ.get("OSW_REPLAY_SENDTAIL", "0") == "1":
+                        preloaded_perception = str(lst["text"])
+                        if lst.get("url"):
+                            current_url = str(lst["url"])
+                        logger.info("[browser-skills] prefix handoff -> send-script slot armed (perception + url set)")
             except Exception:
                 pass
             remaining = "; ".join(f"{s['tool']}({str(s.get('params', {}))[:80]})" for s in steps[unsafe_i:])
@@ -1072,8 +1630,8 @@ async def run_browser_agent(
             replay_host = browser_skills.host_of(m.group(0))
     # The card might have started on the WRONG host (the orchestrator often opens a fresh card on google and only navigates to the target later); if so, this dispatch check misses and the deferred re-check inside the loop catches it after the first navigation.
     replay_rechecked = False
-    logger.info(f"[browser-skills] dispatch replay check: host={replay_host!r}")
-    p_dispatch_replay = await p_try_replay(replay_host, 0, allow_prefix=True)
+    logger.info(f"[browser-skills] dispatch replay check: host={replay_host!r} removal={p_task_is_removal}")
+    p_dispatch_replay = None if p_task_is_removal else await p_try_replay(replay_host, 0, allow_prefix=True)
     if p_dispatch_replay is not None:
         return p_dispatch_replay
     if replay_prefix_note:
@@ -1092,9 +1650,163 @@ async def run_browser_agent(
                     f"sim={p_h_score:.2f} steps={len(route_hint_keys)} state={p_h_skill.get('state')}"
                 )
 
-    # Pre-nav landed on a results page (the cold entry case): scan it NOW so the model's very first turn can pick a candidate instead of read-then-decide.
+    text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
+    rp_violations = 0  # turns the model acted without ReportProgress (now accepted + reminded, not rejected)
+    # The model finishes by calling the Done tool; `message` is the clean human reply, `success` whether the goal was met. Falls back to terminal text on the rare run that stops without calling Done.
+    done_called = False
+    done_message = ""
+    done_success = True
+    done_keep_open = False
+    # `send_confirmed` means "the click ran, so never fire another one" and NOTHING more. It was
+    # doing double duty as permission to claim success, which is how a run that clicked send with no
+    # receipt still reported "your message went through and it's showing in the conversation now"
+    # (measured live on X 2026-07-28; nothing had been posted). Not repeating an action and being
+    # allowed to claim it worked are different facts about the world, so they get different flags.
+    delivery_verified = False
+    # Completion detection uses task_is_send (computed above, before the candidate scan): once an irreversible SEND has confirmed, the goal is met. The model otherwise stalls re-verifying what the confirm already proved (measured: send done at turn ~11, then ~12 wasted perception turns). We drive it to the OUTCOME and, if it keeps re-perceiving, end the run. A genuine multi-send task issues its NEXT send (an action) which resets the stall, so only true spinning ends here. Meaningless for a gather/read task, and arming it there let a cookie 'Accept all' click masquerade as the task's send, so we gate it on intent.
+    send_confirmed = False
+    # Two-sided receipt evidence: the fill must have VISIBLY committed its text to a textbox before a send-class click may end the run in code. r228 clicked a send-labeled control after an uncommitted fill and the old click-name-only receipt claimed a send that never happened.
+    composer_committed_payload = ""
+    perception_stall = 0           # consecutive turns the model only LOOKED (no action)
+    P_POST_SEND_STALL_LIMIT = 2     # once the send registered, finish fast
+    P_PERCEPTION_STALL_LIMIT = 6    # backstop when we couldn't detect the send (e.g. Enter): bound the spin
+    # When the spin backstop trips we don't guillotine the run (that leaks the model's half-finished sentence as the reply). We nudge it to wrap up ONCE, so it summarizes what it has via Done; a second trip then stops for real.
+    wrapup_nudged = False
+    # Distinct read results seen, so the backstop tells a productive page-by-page gather (new data each turn) from genuine spinning (re-reading the same thing).
+    seen_read_sigs: set[str] = set()
+    # rows already shown to the model; attached state shrinks to the delta
+    attached_state_seen: set[str] = set()
+    # under-batching telemetry + nudge state
+    single_action_streak = 0
+    batching_nudges = 0
+    redundant_read_nudges = 0
+    # True after a mutating action attaches fresh state; a solo read next is waste
+    fresh_state_pending = False
+    multi_action_turns = 0
+    batch_calls = 0
+    batch_guard_blocks = 0
+
+    # Staged-send script: prestage left a ready composer + the task quotes its payload -> code runs the fill/verify/send/verify tail the model spends 4-5 turns on. Success skips the loop entirely (turns=0); any pre-click ambiguity falls through untouched.
+    p_script = None
+    # A removal task ("delete the post that says 'X'") is also task_is_send (the classifier keys
+    # on the verb), so the send-script must stand down or it TYPES the target into a composer and
+    # POSTS it (measured live: delete tasks re-posted the marker). BrowserDeleteItem owns removals.
+    if (browser_send_script.script_enabled() and task_is_send and not is_removal_task(task)
+            and not app_mode and preloaded_perception and not cancel_event.is_set()):
+        try:
+            p_script = await asyncio.wait_for(browser_send_script.run_send_script(
+                task, browser_id, tab_id, preloaded_perception,
+                execute_browser_tool, send_submit_index_in_state, payload_in_textbox,
+                payload_source=user_prompt, current_url=current_url,
+            ), timeout=browser_send_script.WORST_CASE_BUDGET_S)
+        except Exception as p_se:
+            # Name the class: a bare TimeoutError stringifies to nothing, so this used to log
+            # "outer skip ()" and a starved send looked identical to a page we chose not to touch.
+            logger.info(f"[browser-sendscript] outer skip ({type(p_se).__name__}: {p_se})")
+            p_script = None
+        if isinstance(p_script, dict):
+            action_log.extend(p_script["log"])
+            if p_script["sent"]:
+                send_confirmed = True
+                done_called = True
+                p_aux_c, p_aux_m = await p_get_aux_client()
+                if p_script.get("delivered") is False:
+                    # ghost-drop host: composer cleared but the post did NOT persist. Tell the
+                    # truth and don't learn a recipe for a send that never actually landed.
+                    done_success = False
+                    done_message = (await compose_delivery_warning(p_aux_c, p_aux_m, task, p_script["payload"], current_url)
+                                    or browser_delivery_check.unconfirmed_delivery_note(current_url, p_script["payload"]))
+                else:
+                    # receipt verified (composer cleared): the send is DONE, end the run
+                    done_success = True
+                    delivery_verified = True
+                    await p_learn_write_recipe(execute_browser_tool, browser_id, tab_id, current_url, p_script["payload"])
+                    done_message = (await compose_send_confirmation(p_aux_c, p_aux_m, task, p_script["payload"])
+                                    or f'Done, I sent "{p_script["payload"]}" for you.')
+            else:
+                # Clicked but the composer did NOT clear: the send is UNVERIFIED. Leave send_confirmed False so the loop can't shortcut to a "done" it never earned (r264 set it True here and the model then FALSELY claimed delivery). The model gets ONE truthful verify pass, never a blind resend.
+                task = f"{task}\n\n[{p_script['note']}]"
+
+    # Code-side DELETE dispatch: the removal analog of the send-script. A "delete the post that
+    # says X" task auto-fires the same verified remove flow (find the item by its text, open its
+    # overflow menu, Delete, confirm, verify-gone) on the page prestage landed, instead of waiting
+    # for the model to reach for BrowserDeleteItem, which it doesn't: live, it read the post then
+    # claimed it "can only read" and gave up. If the item isn't on the landed page it declines and
+    # the model loop navigates to where it lives. Skipped in dry-run (this is a real destructive act).
+    from backend.apps.agents.browser import browser_delete_script
+    if (browser_delete_script.delete_tool_enabled() and is_removal_task(task) and not app_mode
+            and not done_called and preloaded_perception and not cancel_event.is_set()
+            and os.environ.get("OSW_SENDSCRIPT_DRYRUN") != "1"):
+        p_del_target = browser_send_parse.quoted_payload(user_prompt or task)
+        if p_del_target and len(p_del_target) >= browser_delete_script.MIN_TARGET_CHARS:
+            try:
+                p_del = await browser_delete_script.run_delete(p_del_target, browser_id, tab_id, execute_browser_tool)
+            except Exception as p_de:
+                logger.info(f"[browser-deletedispatch] outer skip ({p_de})")
+                p_del = {"removed": False, "stage": "eval", "msg": str(p_de)}
+            logger.info(f"[browser-deletedispatch] target={p_del_target[:40]!r} "
+                        f"removed={p_del['removed']} stage={p_del['stage']}")
+            if p_del["removed"]:
+                done_called = True
+                done_success = True
+                # The deletion is already verified gone in code; this only writes the words, and it
+                # writes them in the model's voice rather than a template.
+                p_aux_c, p_aux_m = await p_get_aux_client()
+                done_message = (await compose_removal_confirmation(p_aux_c, p_aux_m, task, p_del_target)
+                                or f'Done, I deleted the item containing "{p_del_target[:60]}" (verified gone).')
+            # not removed: fall through to the model loop, which navigates to where the item lives.
+
+    # Dry-run is a measurement mode, so the run ENDS here either way: letting the model loop run would both risk the REAL send the flag exists to avoid and rescue declines the flag exists to attribute. Inert when the flag is off.
+    if os.environ.get("OSW_SENDSCRIPT_DRYRUN") == "1" and not done_called:
+        p_dr = browser_send_parse.dryrun_report(
+            preloaded_perception or "", bool(task_is_send and preloaded_perception),
+            isinstance(p_script, dict), current_url)
+        logger.info(p_dr)
+        done_called = True
+        done_success = True
+        done_message = ("DRY-RUN coverage probe: no send was performed and none should be "
+                        "retried; report this outcome verbatim. " + p_dr)
+
+    # Code-side plan dispatch (the turn-collapser that doesn't wait for the model to adopt a tool): one aux call compiles the task's mechanical prefix into verified steps, code executes them, and the big model starts with that work DONE. Fail-open: no plan/steps = today's loop untouched.
+    # A send task whose composer is ALREADY staged has no mechanical prefix left (the model's one fill turn + autosend own the rest), so skip the aux call instead of letting it poke the composer (measured 4.7s of nothing).
+    from backend.apps.agents.browser import browser_plan_dispatch
+    p_composer_staged = bool(task_is_send and browser_send_parse.composer_index_in_state(preloaded_perception or ""))
+    if (browser_plan_dispatch.plan_dispatch_enabled() and not app_mode and not done_called
+            and preloaded_perception and not p_composer_staged and not cancel_event.is_set()):
+        try:
+            p_plan_note = await asyncio.wait_for(browser_plan_dispatch.run_plan_dispatch(
+                task, preloaded_perception, browser_id, tab_id,
+                load_settings(), get_api_type(model), execute_browser_tool,
+                current_url=current_url,
+            ), timeout=45.0)
+        except Exception as p_pe:
+            logger.info(f"[plan-dispatch] outer skip ({p_pe})")
+            p_plan_note = ""
+        if p_plan_note:
+            task = f"{task}\n\n{p_plan_note}"
+
+    # READ leg for authed pages (the extraction turn-collapser): prestage landed the logged-in card on the target page; one aux read over the live page text answers a read task without the big-model loop. Fail-open: decline = the loop runs as today.
+    from backend.apps.agents.browser import browser_read_script
+    if (browser_read_script.read_script_enabled() and not task_is_send and not app_mode
+            and not done_called and preloaded_perception and not cancel_event.is_set()):
+        try:
+            p_aux_c, p_aux_m = await p_get_aux_client()
+            p_read_answer = await asyncio.wait_for(browser_read_script.run_read_script(
+                p_aux_c, p_aux_m, task, browser_id, tab_id, execute_browser_tool,
+                current_url=current_url,
+            ), timeout=25.0)
+        except Exception as p_re:
+            logger.info(f"[browser-readscript] outer skip ({p_re})")
+            p_read_answer = None
+        if p_read_answer:
+            done_called = True
+            done_success = True
+            done_message = p_read_answer
+
+    # Candidate scan on a results-page entry, MOVED below the collapse tiers: it exists to hint the MODEL's first turn, so on a run the tiers already finished it was a measured ~4s of blocking aux for nothing.
     p_start_url = (current_url or initial_url or "").split("#")[0]
-    if p_start_url and RESULTS_URL_RE.search(p_start_url):
+    if (p_start_url and RESULTS_URL_RE.search(p_start_url) and not task_is_send
+            and not done_called and not cancel_event.is_set()):
         auto_scanned_urls.add(p_start_url)
         p_scan_json, p_sc_ms = await p_scan_results(task)
         if p_scan_json:
@@ -1118,56 +1830,75 @@ async def run_browser_agent(
                 f"{p_start_url[:90]} after {p_sc_ms}ms"
             )
 
-    text_parts = []  # initialized before loop so post-loop summary (line ~1294) has a default
-    rp_violations = 0  # turns the model acted without ReportProgress (now accepted + reminded, not rejected)
-    # The model finishes by calling the Done tool; `message` is the clean human reply, `success` whether the goal was met. Falls back to terminal text on the rare run that stops without calling Done.
-    done_called = False
-    done_message = ""
-    done_success = True
-    done_keep_open = False
-    # Completion detection: once an irreversible SEND has confirmed, the goal is met. The model otherwise stalls re-verifying what the confirm already proved (measured: send done at turn ~11, then ~12 wasted perception turns). We drive it to the OUTCOME and, if it keeps re-perceiving, end the run. A genuine multi-send task issues its NEXT send (an action) which resets the stall, so only true spinning ends here. This whole shortcut is meaningless for a gather/read task (no send to confirm), and arming it there let a cookie 'Accept all' click masquerade as the task's send, so we gate it on intent.
-    task_is_send = not deliverable_is_informational("", task)
-    send_confirmed = False
-    perception_stall = 0           # consecutive turns the model only LOOKED (no action)
-    P_POST_SEND_STALL_LIMIT = 2     # once the send registered, finish fast
-    P_PERCEPTION_STALL_LIMIT = 6    # backstop when we couldn't detect the send (e.g. Enter): bound the spin
-    # When the spin backstop trips we don't guillotine the run (that leaks the model's half-finished sentence as the reply). We nudge it to wrap up ONCE, so it summarizes what it has via Done; a second trip then stops for real.
-    wrapup_nudged = False
-    # Distinct read results seen, so the backstop tells a productive page-by-page gather (new data each turn) from genuine spinning (re-reading the same thing).
-    seen_read_sigs: set[str] = set()
-    # rows already shown to the model; attached state shrinks to the delta
-    attached_state_seen: set[str] = set()
-    # under-batching telemetry + nudge state
-    single_action_streak = 0
-    batching_nudges = 0
-    redundant_read_nudges = 0
-    # True after a mutating action attaches fresh state; a solo read next is waste
-    fresh_state_pending = False
-    multi_action_turns = 0
-    batch_calls = 0
-    batch_guard_blocks = 0
     try:
         for turn in range(MAX_TURNS):
-            if cancel_event.is_set():
+            if p_card_dead_early:
+                # Prestage already proved this webview dead; evict + report unresponsive via the
+                # exact same path the late gate uses, so recovery re-dispatches a fresh card
+                # without burning a run. turn is 0 here, so terminal handling stays well-defined.
+                DEAD_CARDS.add(browser_id)
+                await evict_dead_card(dashboard_id, browser_id)
+                card_gone_streak = CARD_GONE_LIMIT
                 break
+            if done_called or cancel_event.is_set():
+                break
+
+            # Login-once handoff: if we've landed on a login wall, pause so the user can sign in ONCE
+            # in this card (the persistent partition keeps the session, so future runs won't ask
+            # again), then continue. At most one pause per domain per run; the model's own
+            # RequestHumanIntervention stays as the fallback for walls this detector misses.
+            # Soft signed-out (composer withheld behind a "Sign in") only counts once the agent has
+            # actually tried and is still stuck, so a first-turn glance can't raise a false prompt.
+            p_wall_dom = browser_login_handoff.login_wall_domain(
+                last_seen_url, "\n".join(attached_state_seen), allow_soft=(turn >= 2))
+            if p_wall_dom and p_wall_dom not in p_login_prompted:
+                p_login_prompted.add(p_wall_dom)
+                # Borrow the sign-in the user already has in their everyday browser first: when it
+                # lands nobody is interrupted at all. Anything less falls through to the pause.
+                p_signed_in = await try_borrow_signin(p_wall_dom, browser_id, tab_id, last_seen_url)
+                if not p_signed_in:
+                    p_login_problem, p_login_instruction = browser_login_handoff.prompt_copy(p_wall_dom)
+                    p_login_decision = await p_request_browser_approval(
+                        session, "RequestHumanIntervention",
+                        {"problem": p_login_problem, "instruction": p_login_instruction})
+                    if cancel_event.is_set():
+                        break
+                    p_signed_in = p_login_decision.get("behavior") != "deny"
+                if p_signed_in:
+                    browser_login_handoff.record_login(p_wall_dom)
+                    p_signed_note = (f"You are now signed in to {p_wall_dom}. The page has changed; "
+                                     "look at it fresh and continue the task.")
+                    if messages and messages[-1].get("role") == "user":
+                        p_prev = messages[-1]["content"]
+                        if isinstance(p_prev, list):
+                            p_prev.append({"type": "text", "text": p_signed_note})
+                        else:
+                            messages[-1]["content"] = f"{p_prev}\n\n{p_signed_note}"
+                    else:
+                        messages.append({"role": "user", "content": p_signed_note})
 
             # Drop stale screenshots before each call: keep first + previous + current, stub the rest. Images are ~1.3-2k tokens each and get re-read every turn, so this is the biggest per-turn context win on any visual task (measured ~2.9x fewer image tokens, ~5x less upload).
             browser_history.prune_old_screenshots(messages)
             browser_history.prune_stale_page_state(messages)
             browser_history.place_cache_marker(messages)
             p_llm_t0 = time.monotonic()
+            # STREAM, don't .create(): 9Router returns non-Anthropic lanes (Gemini/OpenRouter/Antigravity) as a REAL multi-event SSE stream that the non-streaming client parses to empty content, silently breaking tool-use on every non-Claude provider (measured: only cc/ emitted tool_use before this). The streaming parser reconstructs tool_use identically for ALL providers, so this is the model-independence fix, not a UX tweak. Cache marker still rides p_cached_system (Anthropic keys on it; other routes ignore it harmlessly).
+            async def p_stream_turn():
+                async with client.messages.stream(
+                    model=api_model,
+                    max_tokens=4096,
+                    # Cache the ~4k-token fixed prefix (system + tool schema) so it's reprocessed once, not on every turn: big TTFT + cost win on the first run, which is dominated by turns x per-turn prefill. The trailing cache_control marker is what Anthropic keys on; on non-Anthropic routes (9router) the marker is harmlessly ignored.
+                    system=p_cached_system,
+                    tools=p_cached_tools,
+                    messages=messages,
+                ) as p_s:
+                    return await p_s.get_final_message()
+
             # Transient-capacity retry (free pool busy / 429 / overload): same backoff budget as chat turns, so a busy free tier waits instead of erroring the whole task. The sleep watches cancel_event so Stop stays instant.
             p_capacity_attempt = 0
             while True:
                 try:
-                    response = await p_cancellable(client.messages.create(
-                        model=api_model,
-                        max_tokens=4096,
-                        # Cache the ~4k-token fixed prefix (system + tool schema) so it's reprocessed once, not on every turn: big TTFT + cost win on the first run, which is dominated by turns x per-turn prefill. The trailing cache_control marker is what Anthropic keys on; on non-Anthropic routes (9router) the marker is harmlessly ignored.
-                        system=p_cached_system,
-                        tools=p_cached_tools,
-                        messages=messages,
-                    ))
+                    response = await p_cancellable(p_stream_turn())
                     break
                 except Exception as p_api_err:
                     p_wait = capacity_retry_wait(p_api_err, p_capacity_attempt)
@@ -1330,10 +2061,23 @@ async def run_browser_agent(
                                     else (P_PERCEPTION_STALL_LIMIT if p_acted else 10 ** 9))
                     if perception_stall >= p_stall_limit:
                         if send_confirmed:
-                            # the send registered: hand the parent a real done. The raw action-log proof (indices/coords) is machine-speak, kept out.
+                            # The send CLICK ran; whether it landed is a separate question and the
+                            # message has to answer the one we actually have evidence for. The raw
+                            # action-log proof (indices/coords) is machine-speak, kept out.
                             done_called = True
-                            done_message = "All set, your message went through and it's showing in the conversation now."
-                            logger.info(f"[browser-agent {session_id}] ending: {perception_stall} post-send perception turns")
+                            done_success = delivery_verified
+                            p_aux_c, p_aux_m = await p_get_aux_client()
+                            p_pay = composer_committed_payload or ""
+                            if delivery_verified:
+                                p_nice = await compose_send_confirmation(p_aux_c, p_aux_m, task, p_pay)
+                                done_message = p_nice or (
+                                    f'Done, I sent "{p_pay}" for you.' if p_pay else "Done, that's sent.")
+                            else:
+                                done_message = (await compose_unverified_send(
+                                    p_aux_c, p_aux_m, task, p_pay, current_url)
+                                    or browser_delivery_check.unverified_send_note(current_url, p_pay))
+                            logger.info(f"[browser-agent {session_id}] ending: {perception_stall} post-send "
+                                        f"perception turns, delivery_verified={delivery_verified}")
                             break
                         if not wrapup_nudged:
                             # don't cut it off mid-thought: ride a wrap-up nudge out on this turn's tool_results so next turn it answers via Done.
@@ -1346,7 +2090,13 @@ async def run_browser_agent(
                             logger.info(f"[browser-agent {session_id}] ending: wrap-up nudge ignored, stopping")
                             if not done_called:
                                 done_called = True
-                                done_message = "That's as far as I could get gathering this one."
+                                # The run is being cut off mid-thought, so say what was actually
+                                # reached in the model's own words instead of a stock apology that
+                                # tells the user nothing about what it did or did not get.
+                                p_aux_c, p_aux_m = await p_get_aux_client()
+                                done_message = (await compose_partial_result(
+                                    p_aux_c, p_aux_m, task, action_log)
+                                    or "That's as far as I could get gathering this one.")
                             break
             else:
                 perception_stall = 0
@@ -1505,6 +2255,65 @@ async def run_browser_agent(
                     continue
 
                 # Intra-run batch replay: run a learned mechanical flow for many inputs at machine speed, verify every step, gate sends, never ghost. Reads/searches loop freely; irreversible steps refuse.
+                if tu.name == "BrowserActVerified":
+                    from backend.apps.agents.browser import browser_verified_step
+                    from backend.apps.agents.browser.browser_prestage import BLOCKED_CLICK_RE
+                    p_steps_in = tu.input.get("steps") or []
+                    p_step_lines: list[str] = []
+                    p_all_ok = True
+                    if not p_steps_in:
+                        p_va_text = "No steps given; nothing to do."
+                    else:
+                        for p_si, p_raw in enumerate(p_steps_in[:4], start=1):
+                            p_tgt = str((p_raw or {}).get("target") or "")
+                            # the solo-send rule holds here in CODE: an irreversible-smelling target is refused, exactly like a batch
+                            if BLOCKED_CLICK_RE.search(p_tgt):
+                                p_step_lines.append(f"{p_si}. REFUSED: {p_tgt!r} looks irreversible; do it as a SOLO click with an `expect` proof.")
+                                p_all_ok = False
+                                break
+                            p_vstep = browser_verified_step.VerifiedStep(
+                                kind=str(p_raw.get("action") or "click"), target=p_tgt,
+                                role=str(p_raw.get("role") or ""), text=str(p_raw.get("text") or ""),
+                                expect=str(p_raw.get("expect") or ""))
+                            p_st = time.time()
+                            p_vr = await p_cancellable(browser_verified_step.run_verified_step(
+                                p_vstep, browser_id, tab_id, execute_browser_tool))
+                            if p_vr is None:
+                                p_step_lines.append(f"{p_si}. cancelled"); p_all_ok = False; break
+                            p_el = int((time.time() - p_st) * 1000)
+                            action_log.append({
+                                "tool": "BrowserActVerified", "input": p_raw, "ok": p_vr["ok"],
+                                "result_summary": (f"{p_vstep.kind} {p_tgt!r} verified" if p_vr["ok"]
+                                                   else str(p_vr["note"]))[:200],
+                                "elapsed_ms": p_el,
+                            })
+                            browser_metrics.record_tool(
+                                session_id, browser_id, turn, "BrowserActVerified", p_el, ok=p_vr["ok"],
+                                error="" if p_vr["ok"] else str(p_vr["note"]), is_loop=False,
+                                stagnation_streak=0, result_len=0)
+                            if p_vr["ok"]:
+                                p_step_lines.append(f"{p_si}. {p_vstep.kind} {p_tgt!r}: OK (verified)")
+                            else:
+                                p_step_lines.append(f"{p_si}. {p_vstep.kind} {p_tgt!r}: FAILED ({p_vr['note']}); remaining steps skipped")
+                                p_all_ok = False
+                                break
+                        p_va_text = ("All steps verified:\n" if p_all_ok else "Stopped early:\n") + "\n".join(p_step_lines)
+                        # fold the post-plan page state in so the model's next turn already sees the result
+                        p_va_state = await post_action_state(
+                            "BrowserBatch", {}, {"ok": True}, browser_id, tab_id,
+                            wait_exec=execute_browser_tool, goal=current_next_goal or "",
+                            seen_lines=attached_state_seen)
+                        if p_va_state:
+                            p_va_text += p_va_state
+                            fresh_state_pending = True
+                    tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": [{"type": "text", "text": p_va_text}]})
+                    result_msg = Message(role="tool_result", content={"text": p_va_text, "tool_name": tu.name, "elapsed_ms": 0})
+                    session.messages.append(result_msg)
+                    await ws_manager.send_to_session(session_id, "agent:message", {
+                        "session_id": session_id, "message": result_msg.model_dump(mode="json"),
+                    })
+                    continue
+
                 if tu.name == "BrowserRepeatFlow":
                     steps_tmpl = tu.input.get("steps") or []
                     values = [str(v) for v in (tu.input.get("values") or [])]
@@ -1673,6 +2482,12 @@ async def run_browser_agent(
                         "do that step SOLO with BrowserClickIndex + `expect` proof, and "
                         "batch only the routine steps around it."
                     )}
+                elif tu.name == "BrowserApiWrite":
+                    # API-first write tier: the site's own write API via the borrowed session, deterministic + a real receipt. A miss is a typed "use the UI" (never a crash), so the loop falls back cleanly.
+                    result = await p_cancellable(run_api_write(tu.input, current_url, browser_id, tab_id))
+                    if result is None:
+                        cancelled = True
+                        break
                 elif tu.name == "BrowserWait":
                     # Smart wait: return as soon as the page is ready (target or DOM settle), not on a blind timer (the audit's 42%-of-time hog).
                     result = await browser_wait.smart_wait(
@@ -1688,10 +2503,27 @@ async def run_browser_agent(
                     break
                 elapsed_ms = int((time.time() - start) * 1000)
 
+                # An API-first write that returned ok carries its own typed receipt, so it IS the confirmation: mark the send done so the loop drives to Done without a redundant UI re-verify (and never re-fires it).
+                if tu.name == "BrowserApiWrite" and isinstance(result, dict) and result.get("ok"):
+                    send_confirmed = True
+                    delivery_verified = True  # a typed API receipt IS the evidence, not a proxy for it
+
                 # Act-and-confirm: if the agent declared the change it expects, VERIFY it actually happened, success is observed, never assumed. A hit returns fast (act + confirm in one turn); a miss is a clear "may not have worked" (and a wedge surfaces as a clean not-confirmed, not a blind 20s timeout), so the agent never claims a success it didn't see or re-fires blindly.
                 p_expect = (str(tu.input.get("expect") or "").strip()
                            if isinstance(tu.input, dict) else "")
-                if p_expect and "error" not in result and tu.name in P_CONFIRM_TOOLS:
+                # A send-class click's text-probe is documented-unreliable (sent text renders late/split/scrolled off) and the composer-clear receipt supersedes it, so don't burn the 4s probe timeout on exactly the clicks that never confirm by text.
+                p_is_send_click = (task_is_send and "error" not in result and tu.name in P_CONFIRM_TOOLS
+                    and (browser_batch_replay.is_send_completed(
+                        {"action": "click", "name": result.get("clickedName") or "",
+                         "role": result.get("clickedRole") or ""}) or any(
+                        browser_batch_replay.is_send_completed(
+                            {"action": "click", "name": r.get("clickedName") or "",
+                             "role": r.get("clickedRole") or ""})
+                        for r in (result.get("results") or []))))
+                if p_is_send_click and p_expect:
+                    # Click registration is NOT delivery proof (curve2: X swallowed a clean click); this branch only skips the unreliable 4s text-probe, the composer receipt below is the arbiter.
+                    result["text"] = f"{result.get('text') or ''}\nThe send-class click registered; delivery is checked by the composer receipt."
+                elif p_expect and "error" not in result and tu.name in P_CONFIRM_TOOLS:
                     # target_only: wait for the expected text to actually appear, don't call it 'not confirmed' just because the page settled first (a sent message lands in the thread a beat after settle, esp. under load)
                     p_conf = await browser_wait.smart_wait(p_wait_exec, browser_id, tab_id, 4000,
                                                           until=p_expect, target_only=True)
@@ -1721,9 +2553,49 @@ async def run_browser_agent(
                         for r in (result.get("results") or []))
                     if p_send_click:
                         send_confirmed = True
-                        result["text"] = (f"{result.get('text') or ''}\n\n[task complete] The send "
-                            "went through (the composer cleared). Don't re-check it. Finish now by "
-                            "calling Done with your reply to the user.")
+                        p_receipt_ok = False
+                        if os.environ.get("OSW_RECEIPT_DONE", "1") != "0" and composer_committed_payload:
+                            # Deterministic receipt, two-sided: the fill was SEEN committed to a textbox earlier, and the box must now be SEEN empty of it. Click-name alone is not proof (r228: send-labeled click after an uncommitted fill = false success); missing evidence falls through to the old model-verified path, so the failure mode costs turns, never a lie.
+                            try:
+                                for p_rw in (0.4, 1.0):
+                                    await asyncio.sleep(p_rw)
+                                    p_rl2 = await asyncio.wait_for(
+                                        p_wait_exec("BrowserListInteractives", {}, browser_id, tab_id),
+                                        timeout=5.0)
+                                    if isinstance(p_rl2, dict) and "error" not in p_rl2 and p_rl2.get("text"):
+                                        if not payload_in_textbox(str(p_rl2["text"]), composer_committed_payload):
+                                            p_receipt_ok = True
+                                        break
+                            except Exception:
+                                p_receipt_ok = False
+                            if p_receipt_ok:
+                                done_called = True
+                                done_success = True
+                                delivery_verified = True  # two-sided receipt: fill committed AND box now empty
+                                p_payload = browser_batch_replay.send_payload_from_log(action_log, task)
+                                await p_learn_write_recipe(execute_browser_tool, browser_id, tab_id, current_url, p_payload)
+                                p_aux_c, p_aux_m = await p_get_aux_client()
+                                p_nice = (await compose_send_confirmation(p_aux_c, p_aux_m, task, p_payload)
+                                          if p_payload else "")
+                                done_message = p_nice or (
+                                    f'Done, I sent "{p_payload}" for you.'
+                                    if p_payload else
+                                    "Done, I sent your message."
+                                )
+                                logger.info(f"[browser-receipt {session_id}] two-sided receipt passed (fill committed + composer cleared); run ends in code")
+                            else:
+                                logger.info(f"[browser-receipt {session_id}] receipt WITHHELD (composer state unverified); model verifies")
+                        # The completion text must match the evidence: the old unconditional "went through, don't re-check" rode along even when the receipt was WITHHELD, and the model repeated it to the user as fact while nothing had posted (curve2 X, live). Verified = drive to Done; unverified = one truthful verify pass, never a resend.
+                        if p_receipt_ok:
+                            result["text"] = (f"{result.get('text') or ''}\n\n[task complete] The send "
+                                "went through (the composer cleared). Don't re-check it. Finish now by "
+                                "calling Done with your reply to the user.")
+                        else:
+                            result["text"] = (f"{result.get('text') or ''}\n\n[send clicked, NOT verified] "
+                                "The send click registered but delivery was NOT confirmed (no composer-cleared "
+                                "receipt). Do NOT click send again, a resend risks a double-post. Verify ON THE "
+                                "PAGE that the message actually posted (find it in the thread/feed/sent items); "
+                                "if you cannot see it, report honestly that the send did not confirm.")
 
                 action_log.append({
                     "tool": tu.name,
@@ -1780,6 +2652,44 @@ async def run_browser_agent(
                     result["text"] = f"{result.get('text') or ''}{p_auto_state}"
                     # a mutation attached fresh state; it stays "available" through intervening reads (Wait/Extract don't invalidate it), so a later solo re-list is still caught as redundant.
                     fresh_state_pending = True
+                p_fill_text = fill_text_of(tu.name, tool_input)
+                if p_fill_text and payload_in_textbox(p_auto_state or "", p_fill_text):
+                    composer_committed_payload = p_fill_text
+                    # B: the model just TYPED the message into a composer on a send task, so finish the send in CODE (find Send, click, verify the composer cleared) instead of it burning ~3-4 turns on a Send button whose index goes stale after the fill. Uses what the MODEL typed, so un-quoted phrasings ("say hi" -> "hi") work; fails safe, an unverified click never claims delivery and send_confirmed blocks a resend.
+                    if (task_is_send and not send_confirmed and tu.name in P_CONFIRM_TOOLS
+                            and browser_send_script.autosend_enabled()):
+                        p_cs = await browser_send_script.complete_send(
+                            composer_committed_payload, p_auto_state or "", browser_id, tab_id,
+                            execute_browser_tool, send_submit_index_in_state,
+                            composer_index=fill_index_of(tu.name, tool_input), current_url=current_url)
+                        if p_cs.get("clicked"):
+                            # True the moment the click RUNS, because its job here is to stop a
+                            # second one: autosend rides the model's fill turns, so unlike the
+                            # send-script path (which runs once and can safely leave this False) a
+                            # re-fill would fire another send. It is a resend guard, not evidence.
+                            send_confirmed = True
+                            action_log.extend(p_cs.get("log") or [])
+                            if p_cs.get("sent"):
+                                done_called = True
+                                p_aux_c, p_aux_m = await p_get_aux_client()
+                                if p_cs.get("delivered") is False:
+                                    # ghost-drop host: cleared but the post did NOT persist. Truthful hedge, no recipe.
+                                    done_success = False
+                                    done_message = (await compose_delivery_warning(
+                                        p_aux_c, p_aux_m, task, composer_committed_payload, current_url)
+                                        or browser_delivery_check.unconfirmed_delivery_note(current_url, composer_committed_payload))
+                                    logger.info(f"[browser-autosend {session_id}] post-fill code-send NOT confirmed (ghost-drop host; composer cleared, post did not persist)")
+                                else:
+                                    done_success = True
+                                    delivery_verified = True
+                                    await p_learn_write_recipe(execute_browser_tool, browser_id, tab_id, current_url, composer_committed_payload)
+                                    done_message = (await compose_send_confirmation(
+                                        p_aux_c, p_aux_m, task, composer_committed_payload)
+                                        or f'Done, I sent "{composer_committed_payload}" for you.')
+                                    logger.info(f"[browser-autosend {session_id}] post-fill code-send delivered (receipt verified)")
+                            else:
+                                task = f"{task}\n\n[{p_cs.get('note')}]"
+                                logger.info(f"[browser-autosend {session_id}] post-fill send click ran, receipt unverified; model verifies")
 
                 # One gentle nudge per violating turn, folded onto the action that ran, so the model self-corrects next turn without us costing it one.
                 if rp_reminder_pending and tu.name in ACTION_TOOLS_REQUIRING_REPORT:
@@ -1840,7 +2750,7 @@ async def run_browser_agent(
                             )
 
                 # Deferred replay re-check: the orchestrator often opens a fresh card on the wrong host, so the dispatch-time replay missed. Once a navigation lands us on a host that DOES have a matching skill, and nothing has dirtied the page yet, switch to replay (still verified per-step, still trust-gated). Fires at most once.
-                if (not replay_rechecked and tu.name == "BrowserNavigate"
+                if (not replay_rechecked and not p_task_is_removal and tu.name == "BrowserNavigate"
                         and replay_recheck_is_safe(action_log)):
                     cur_host = browser_skills.host_of(last_seen_url)
                     if cur_host and cur_host != replay_host:
@@ -2139,8 +3049,14 @@ async def run_browser_agent(
                                     playbook_seeded=pb_seeded)
         # Learn this task ONLY from a genuinely successful run whose deliverable a deterministic replay can actually reproduce. We skip recording when the run was dishonest (ghost) OR when its answer was gathered/judged content (a list/report): replay can redo the clicks but not regenerate the judgment, so recording it would create a thin shortcut that later ghosts.
         informational = deliverable_is_informational(summary, skill_key_task)
-        logger.info(f"[browser-skills] record gate: honest={honest} informational={informational}")
-        if honest and not informational:
+        # A removal run is NOT a recordable skill: the actual delete is a one-shot destructive
+        # dispatch (BrowserEvaluate), not in the replayable action_log, so what gets distilled is
+        # the meaningless scrolling around it. Replaying that bogus "skill" later reports done in 0
+        # turns while deleting nothing (measured live: repeat deletes all ghost-succeeded). Deletes
+        # always run fresh through the delete-dispatch.
+        p_is_removal = is_removal_task(skill_key_task)
+        logger.info(f"[browser-skills] record gate: honest={honest} informational={informational} removal={p_is_removal}")
+        if honest and not informational and not p_is_removal:
             try:
                 rec_host = browser_skills.host_of(last_seen_url)
                 p_distilled = browser_skills.distill_steps(action_log)
@@ -2161,10 +3077,12 @@ async def run_browser_agent(
 
         # Tier-2 memory: on a substantive verified success, distill this run into the DURABLE strategy playbook (one cheap aux call, mem0-style distill+ reconcile). Fires for BOTH mechanical and judgment tasks, it's how the judgment ones (which can't be skills) still get faster/wiser next time.
         if browser_playbook.should_learn(honest, turn + 1):
-            try:
-                # App mode keys by the stable app id (the run had no URL host); web keys by the final host, which navigation may have changed.
-                rec_pb_host = browser_id if app_mode else browser_skills.host_of(last_seen_url)
-                if rec_pb_host:
+            async def p_distill_learning() -> None:
+                try:
+                    # App mode keys by the stable app id (the run had no URL host); web keys by the final host, which navigation may have changed.
+                    rec_pb_host = browser_id if app_mode else browser_skills.host_of(last_seen_url)
+                    if not rec_pb_host:
+                        return
                     aux_client, aux_model = await p_get_aux_client()
                     changed = await browser_playbook.distill_and_store(
                         rec_pb_host, skill_key_task, latest_working_mem, summary,
@@ -2180,8 +3098,12 @@ async def run_browser_agent(
                         await ws_manager.send_to_session(session_id, "agent:message", {
                             "session_id": session_id, "message": p_learn_msg.model_dump(mode="json"),
                         })
-            except Exception as e:
-                logger.debug(f"[browser-playbook] distill skipped: {e}")
+                except Exception as e:
+                    logger.debug(f"[browser-playbook] distill skipped: {e}")
+            # Learning is advisory to FUTURE runs, so the user's reply must not wait on this aux call; it used to sit between "done" and the reply.
+            p_lt = asyncio.create_task(p_distill_learning())
+            learn_tasks.add(p_lt)
+            p_lt.add_done_callback(learn_tasks.discard)
         # The model asked to leave the browser open because the deliverable lives on the page (a video playing, a page to read). Pin the card so the auto-close on parent finish skips it. Only on honest success: never pin a broken or ghost run open. The keep broadcast lands before the parent reaches terminal state (it awaits this run), so the frontend has the flag set before any close path runs.
         if honest and done_keep_open and dashboard_id:
             try:
@@ -2372,6 +3294,26 @@ async def p_create_browser_card(dashboard_id: str, url: str, parent_session_id: 
     return browser_id
 
 
+async def p_rebroadcast_card(dashboard_id: str | None, browser_id: str) -> None:
+    """Re-send a card's card_added broadcast from the persisted layout. The spawn broadcast is
+    fire-and-forget with no ack, so a renderer that misses it (rAF stall, WS blip) leaves the card
+    unmounted forever = the dead-run wedge. Idempotent: the renderer no-ops on a card it already has."""
+    if not dashboard_id:
+        return
+    try:
+        from backend.apps.dashboards.dashboards import load
+        card = load(dashboard_id).layout.browser_cards.get(browser_id)
+        if card is None:
+            return
+        await ws_manager.broadcast_global("dashboard:browser_card_added", {
+            "dashboard_id": dashboard_id,
+            "browser_card": card.model_dump(mode="json"),
+            "parent_session_id": getattr(card, "spawned_by", "") or "",
+        })
+    except Exception as e:
+        logger.info(f"[browser-spawn-ack] rebroadcast failed for {browser_id}: {e}")
+
+
 async def run_browser_agents(
     tasks: list[dict],
     model: str,
@@ -2418,6 +3360,11 @@ async def run_browser_agents(
         if not browser_id and dashboard_id:
             # the url param is often empty with the target buried in the task text; a url there still names the host we must not duplicate
             host_src = url or entry_url or next(iter(re.findall(r"https?://[^\s)\"'<>]+", task_text)), "")
+            # Borrow the user's sign-in BEFORE any card exists. A new card loads its entry URL the
+            # instant it mounts, with no BrowserNavigate to hook, so this is the only moment the
+            # very first request can already carry the session. Outside the pick lock: it can touch
+            # the keychain, and holding a lock across that would serialize every card creation.
+            await borrow_signin_before_nav(host_src, "")
             async with p_card_pick_lock:
                 browser_id = find_reusable_card(dashboard_id, host_src, parent_session_id)
                 if browser_id:
@@ -2435,6 +3382,35 @@ async def run_browser_agents(
                         await execute_browser_tool("BrowserNavigate", {"url": url}, browser_id)
                     except Exception:
                         pass
+            elif os.environ.get("OSW_PRELUDE_TRIM", "1") != "0":
+                # Poll until the mounting card serves real page text instead of a blind 2s; capped, so the worst case is the old wait plus one probe.
+                p_mount_t0 = time.monotonic()
+                p_mounted = False
+                while time.monotonic() - p_mount_t0 < 2.5:
+                    try:
+                        p_probe = await execute_browser_tool("BrowserGetText", {}, browser_id)
+                        if (isinstance(p_probe, dict) and not p_probe.get("error")
+                                and len(str(p_probe.get("text") or "")) > 200):
+                            p_mounted = True
+                            break
+                    except Exception:
+                        pass
+                    await asyncio.sleep(0.25)
+                if not p_mounted:
+                    # Spawn ack: no response yet could be a slow page OR a renderer that missed the card_added broadcast entirely (no ack exists). Re-broadcast (idempotent) and give it one more bounded window; a card that's still dead after this hits the prestage dead-card catch instead of a wasted run.
+                    await p_rebroadcast_card(dashboard_id, browser_id)
+                    p_ack_t0 = time.monotonic()
+                    while time.monotonic() - p_ack_t0 < 4.0:
+                        try:
+                            p_probe = await execute_browser_tool("BrowserGetText", {}, browser_id)
+                            if isinstance(p_probe, dict) and not p_probe.get("error"):
+                                p_mounted = True
+                                break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.4)
+                    logger.info(f"[browser-spawn-ack] {browser_id} rebroadcast after silent mount; alive={p_mounted}")
+                logger.info(f"[browser-cold] mount poll {int((time.monotonic() - p_mount_t0) * 1000)}ms for {browser_id}")
             else:
                 await asyncio.sleep(2.0)
         elif browser_id and not app_mode:
@@ -2442,6 +3418,10 @@ async def run_browser_agents(
 
         is_pre_selected = browser_id in pre_selected
         p_nav_url = url or ("" if reused else entry_url)
+        # The fresh card already opened AT entry_url, so the pre-loop nav is a full second page load of the same page; trim mode drops it (perceive reads the mounting page, and the loop can still navigate itself if that read comes up empty).
+        if (os.environ.get("OSW_PRELUDE_TRIM", "1") != "0" and not reused and not url
+                and entry_url and p_nav_url == entry_url):
+            p_nav_url = ""
         try:
             return await run_browser_agent(
                 task=task_text,
@@ -2453,6 +3433,7 @@ async def run_browser_agents(
                 initial_url=None if app_mode else (p_nav_url if p_nav_url and (url or browser_id not in pre_selected) else None),
                 parent_session_id=parent_session_id,
                 app_mode=app_mode,
+                user_prompt=str(task_def.get("user_prompt") or ""),
             )
         finally:
             if not app_mode:

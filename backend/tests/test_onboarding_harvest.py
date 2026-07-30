@@ -64,7 +64,7 @@ def test_win_storage_key_parses_local_state_and_unwraps(monkeypatch, tmp_path):
         seen["passed"] = data
         return b"unwrapped-aes-key"
 
-    monkeypatch.setattr(browser_cookies, "p_win_dpapi_unprotect", fake_unprotect)
+    monkeypatch.setattr(browser_cookies, "win_dpapi_unprotect", fake_unprotect)
     key = browser_cookies.win_storage_key("Chrome")
     assert key == b"unwrapped-aes-key"
     assert seen["passed"] == b"wrapped-key-bytes"  # the 5-byte "DPAPI" prefix was stripped

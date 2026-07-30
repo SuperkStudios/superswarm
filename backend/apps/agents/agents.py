@@ -4,7 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from typeguard import typechecked
 
 from backend.apps.agents.agent_manager import agent_manager
@@ -425,7 +425,7 @@ async def subscriptions_status():
 
 
 @agents.router.post("/subscriptions/connect")
-async def subscriptions_connect(body: dict):
+async def subscriptions_connect(body: dict, request: Request):
     """Start OAuth flow for a subscription provider."""
     from backend.apps.nine_router import is_running, ensure_running, start_oauth
     provider = body.get("provider", "")
@@ -446,7 +446,9 @@ async def subscriptions_connect(body: dict):
             pass
 
     try:
-        result = await start_oauth(provider)
+        # The port the user's app actually reached us on beats guessing the default; only consulted
+        # when OPENSWARM_PORT is unset (dev uvicorn launches), never in packaged builds.
+        result = await start_oauth(provider, request.url.port)
 
         if result.get("flow") == "authorization_code" and result.get("state"):
             from backend.apps.oauth_state import pending_oauth

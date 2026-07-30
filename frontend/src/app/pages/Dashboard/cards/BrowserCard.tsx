@@ -66,7 +66,7 @@ import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
 import { openCardContextMenu } from '../desktop/CardContextMenu';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
-import { getActionLabel } from '@/shared/browserCommandHandler';
+import { getActionLabel, readDataDocument, recoverCardOffDataWall } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
 import BrowserAgentOverlay from './BrowserAgentOverlay';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
@@ -400,7 +400,14 @@ const BrowserCard: React.FC<Props> = ({
           if (isWindows) markWindowsWebviewSurvived();
           // Registered BEFORE loadURL so the guest preload can sync-take it at document-start: a resumed tab gets its sessionStorage back Chrome-style instead of a logged-out reload. No-op when no capsule exists.
           registerCapsuleForRestore(wv, tabId);
-          wv.loadURL(targetUrl).catch(() => {});
+          wv.loadURL(targetUrl)
+            .then(async () => {
+              // If this card's own entry URL is a raw JSON/API endpoint, it paints an unreadable data
+              // wall; get it onto a real page. (The agent-navigate path is handled in handleNavigate;
+              // this covers the initial load, which never goes through the command handler.)
+              if (await readDataDocument(wv)) recoverCardOffDataWall(wv, targetUrl);
+            })
+            .catch(() => {});
           try {
             (wv as any).setVisualZoomLevelLimits?.(1, 1);
             (wv as any).setZoomFactor?.(1);

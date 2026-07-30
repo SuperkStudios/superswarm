@@ -132,7 +132,7 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
         </Box>
       ) : activeTab === 'privacy' ? (
         <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
-          <DataPrivacySection styles={styles} />
+          <DataPrivacySection form={form} setForm={setForm} styles={styles} />
         </Box>
       ) : activeTab === 'advanced' ? (
         <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>

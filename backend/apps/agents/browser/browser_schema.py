@@ -23,12 +23,6 @@ P_MERGE_VERIFY = (
     "back 'NOT confirmed' or you forgot to pass one.\n"
 )
 
-MODEL_MAP = {
-    "sonnet": "claude-sonnet-4-6",
-    "opus": "claude-opus-4-6",
-    "haiku": "claude-haiku-4-5-20251001",
-}
-
 # The change an action should cause, declared by the agent and CONFIRMED after the action runs (success is observed, never assumed). A hit returns fast; a miss tells the agent it may not have worked instead of letting it claim a false success.
 P_EXPECT_DESC = {
     "type": "string",
@@ -243,7 +237,13 @@ BROWSER_TOOLS_SCHEMA = [
     },
     {
         "name": "BrowserNavigate",
-        "description": "Navigate the browser to a URL.",
+        "description": (
+            "Navigate the browser to a URL. Use a normal page URL a person would see. "
+            "Do NOT point it at a raw JSON/API endpoint (a /api/... or search-JSON URL "
+            "like Instagram's web/search/topsearch): that paints an unreadable data wall "
+            "in the card. To READ a site's own API, use BrowserReplayRoute, which fetches "
+            "the JSON silently without disturbing the page."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
@@ -388,9 +388,54 @@ BROWSER_TOOLS_SCHEMA = [
         },
     },
     {
+        "name": "BrowserActVerified",
+        "description": (
+            "Run a short SEQUENCE of dependent UI steps (2-4) in one call, where each "
+            "step must take effect before the next: open a menu then pick an item, "
+            "fill a field then the next one, expand a section then click inside it. "
+            "Each step names its target ELEMENT BY NAME (resolved fresh against the "
+            "live page at act time, so a stale index can't bite) and is VERIFIED in "
+            "code (did the expected change actually happen), with one automatic "
+            "re-aim on a miss. Steps:\n"
+            "- { action: 'click', target: '<element name>', role?: 'button'|'link'|..., "
+            "expect?: 'appeared:<text>'|'gone:<text>'|'url_changed'|'changed' }\n"
+            "- { action: 'fill', target: '<field name>', text: '<text to type>' } "
+            "(auto-verifies the text committed)\n"
+            "Execution stops at the first step that can't be verified and you get "
+            "per-step results plus what went wrong. NEVER put an irreversible action "
+            "(send/submit/post/pay/delete/confirm) here; those stay SOLO clicks with "
+            "an `expect` proof, as always."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["click", "fill"]},
+                            "target": {"type": "string"},
+                            "role": {"type": "string"},
+                            "text": {"type": "string"},
+                            "expect": {"type": "string"},
+                        },
+                        "required": ["action", "target"],
+                    },
+                },
+            },
+            "required": ["steps"],
+        },
+    },
+    {
         "name": "BrowserBatch",
         "description": (
-            "Your standard way to ACT on the page. Every mutation (navigate, "
+            "Low-level action batch for INDEPENDENT actions (navigate, scroll, press) "
+            "or when you must act by index/point. For a sequence of DEPENDENT named "
+            "click/fill steps (open menu then pick item, fill then fill), prefer "
+            "BrowserActVerified: it self-verifies each step and re-aims in code. "
+            "Every mutation (navigate, "
             "click, type, press, scroll) is a sub-action in this array, 1-5 per "
             "call; an array of one is fine when that is genuinely all you know. "
             "Each sub-action executes in order with the URL captured before/after. "
@@ -563,6 +608,37 @@ BROWSER_TOOLS_SCHEMA = [
         },
     },
     {
+        "name": "BrowserApiWrite",
+        "description": (
+            "Perform a WRITE on the CURRENT site through the site's OWN API using your "
+            "already-logged-in session, instead of clicking the UI. This is deterministic "
+            "and far more reliable: no captcha, no button to miss, no selector to drift, "
+            "and it hands back the site's REAL receipt (the new post/comment's id and "
+            "permalink) as proof it landed. Only some sites are supported so far "
+            "(currently Reddit: comment, reply, post, edit, delete). If the current site "
+            "has no built-in adapter, you can still do it the GENERAL way: set action='route' "
+            "with the site's own write endpoint (method + url + body) taken from BrowserListRoutes, "
+            "and it replays that request with your session. If neither works you get a clean miss, "
+            "just do the write through the UI instead. This IS a real write: call it ONCE, and the "
+            "receipt is your confirmation, do not re-check or re-fire it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "comment, reply, post, edit, delete (built-in adapter), or route (general: replay a captured write endpoint)."},
+                "parent_id": {"type": "string", "description": "comment/reply: fullname of the post/comment you're replying to (e.g. t3_abc, t1_xyz)."},
+                "thing_id": {"type": "string", "description": "edit/delete: fullname of your OWN post/comment (e.g. t1_xyz)."},
+                "text": {"type": "string", "description": "The body text (comment/reply/post/edit)."},
+                "subreddit": {"type": "string", "description": "post: the subreddit name, without the r/ prefix."},
+                "title": {"type": "string", "description": "post: the post title."},
+                "url": {"type": "string", "description": "post: a link URL; OR route: the write endpoint's full URL from BrowserListRoutes."},
+                "method": {"type": "string", "description": "route: the endpoint's HTTP method (POST, PUT, PATCH, DELETE)."},
+                "body": {"type": "object", "description": "route: the JSON body to send, matching the endpoint's captured shape, with YOUR content in the text field(s)."},
+            },
+            "required": ["action"],
+        },
+    },
+    {
         "name": "BrowserRepeatFlow",
         "description": (
             "Repeat a mechanical flow you JUST did, fast, for many inputs, without "
@@ -680,6 +756,32 @@ BROWSER_TOOLS_SCHEMA = [
             "required": ["problem", "instruction"],
         },
     },
+    {
+        "name": "BrowserDeleteItem",
+        "description": (
+            "Remove ONE item visible on the CURRENT page, named by a distinctive snippet of its "
+            "own text. Navigate to where the item lives FIRST (your profile, the thread) so it is "
+            "on screen, then call this. It opens that item's overflow / 'More' menu, clicks "
+            "Delete/Remove, confirms, and verifies the item is gone. Use this instead of clicking "
+            "the '...' menu yourself, that menu is small and lazy-rendered and hand-clicking it is "
+            "unreliable. Only your OWN items expose a Delete option. Returns whether it was "
+            "verifiably removed; if it says the item isn't on the page, navigate to where it lives "
+            "and retry."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_text": {
+                    "type": "string",
+                    "description": (
+                        "A distinctive exact snippet of the target item's own text, long enough "
+                        "to match only that one item (a phrase or id from the post/comment)."
+                    ),
+                },
+            },
+            "required": ["target_text"],
+        },
+    },
 ]
 
 # Schema-forced batching: the model ignored every prompt-level batching invitation (0 adoptions across 8 measured runs), so the single-step mutating tools are not offered to it at all; acting means a BrowserBatch array, and the one deliberate solo path is BrowserClickIndex (irreversible step with expect, or a text-box fill). Executors and replay still support everything.
@@ -707,6 +809,8 @@ ACTION_MAP = {
     "BrowserReplayRoute": "replay_route",
     # Internal replay primitive (skill replay calls it directly; not in the LLM-facing schema). Re-resolves a click target by role+name.
     "BrowserClickByName": "click_by_name",
+    # Internal: structural composer finder (send-script fallback; not LLM-facing). Ranks editable regions, marks the winner, optionally fills+verifies in-page.
+    "BrowserFindComposer": "find_composer",
 }
 
 # --- App agent: driving an OpenSwarm-built app via its native bridge ---------
@@ -1119,5 +1223,6 @@ ACTION_TOOLS_REQUIRING_REPORT = {
     "BrowserClickIndex",  # Phase 3
     "BrowserClickPoint",  # app mode: tap a canvas/game at a screen point
     "BrowserBatch",  # Phase 4
+    "BrowserActVerified",  # verified-step sequence (mutates state like a batch)
     "AppInvoke",  # app mode: invoking an app action mutates state
 }

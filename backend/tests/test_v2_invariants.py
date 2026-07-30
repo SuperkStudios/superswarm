@@ -555,7 +555,7 @@ def test_resolve_sdk_gemini_prefers_antigravity_over_api_key():
     s = AppSettings()
     s.google_api_key = "ai-studio-key"
     with patch.object(registry, "p_antigravity_connected", return_value=True):
-        # flash-lite IS AG-serveable -> AG wins over the key (probe retargeted after gemini-3-flash was removed)
+        # flash-lite IS AG-serveable (via ag/gemini-3-flash) -> AG wins over the key (probe retargeted after gemini-3-flash was removed on both branches)
         assert registry.resolve_model_id_for_sdk("gemini-3.1-flash-lite", s) == "ag/gemini-3-flash"
     with patch.object(registry, "p_antigravity_connected", return_value=False):
         # AG not connected -> key
@@ -671,13 +671,14 @@ def test_banned_models_not_offered():
     left 2026-07-02 after its ban lifted.)"""
     from backend.apps.agents.providers.registry import BUILTIN_MODELS
     all_values = {m["value"] for models in BUILTIN_MODELS.values() for m in models}
-    for dead in ("gemini-3.1-pro", "gemini-3.1-pro-api"):
+    for dead in ("gemini-3.1-pro", "gemini-3.1-pro-api", "gemini-3-flash", "gemini-3-flash-api"):
         assert dead not in all_values, f"{dead} is back in the picker"
     assert "gpt-5.5-api" in all_values
     assert "gpt-5.5" in all_values  # cx lane restored 2026-07-26 (live-probed)
     # No '3.1 pro' label survives in any provider group either.
     all_labels = " | ".join(m["label"].lower() for models in BUILTIN_MODELS.values() for m in models)
     assert "3.1 pro" not in all_labels
+    assert "gemini 3 flash" not in all_labels
 
 
 # =========================================================================== Group E, 9Router-streamed 401 detection =========================================================================== 9Router sometimes returns upstream auth failures AS the assistant's reply text, not as an exception. We detect the pattern in the stream handler to substitute a friendly bubble.

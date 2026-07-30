@@ -40,6 +40,8 @@ async def run_browser_fast_path(
     # The fast-path skips the orchestrator, so the UI never gets the BrowserAgent tool-call that draws the "Browser Agent" bubble. Emit a synthetic tool_call/ tool_result pair (same shape + mcp__ name the orchestrator uses) so the bubble shows here too. None until we actually dispatch a browser (a pure READ answer has no browser, so no bubble).
     p_browser_tool = "mcp__openswarm-browser-agent__CreateBrowserAgent"
     p_bubble_tid: Optional[str] = None
+    p_action_logs: List[List[Dict[str, object]]] = []
+    p_last_result: Dict[str, object] = {}
     try:
         from backend.apps.agents.browser.browser_agent import run_browser_agents
         from backend.apps.agents.browser import browser_fast_path
@@ -48,11 +50,17 @@ async def run_browser_fast_path(
         if verdict == "read":
             from backend.apps.agents.browser import browser_fast_read
             from backend.apps.agents.providers.registry import get_api_type
+            p_read_api = get_api_type(session.model)
             text = await browser_fast_read.try_fast_read(
-                prompt, brief, load_settings(), get_api_type(session.model),
+                prompt, brief, load_settings(), p_read_api,
             ) or ""
             if not text:
-                p_fp_path = "read->browser"
+                # The single page couldn't answer it; a multi-source read (a difference, a compare) fans out to N concurrent single-page reads + one reduce, still no browser and still fail-open.
+                from backend.apps.agents.browser import browser_map_reduce_read
+                text = await browser_map_reduce_read.try_map_reduce_read(
+                    prompt, load_settings(), p_read_api,
+                ) or ""
+                p_fp_path = "read-mapreduce" if text else "read->browser"
 
         p_entry = browser_fast_path.entry_url_from_brief(brief)
         if p_entry:
@@ -60,16 +68,21 @@ async def run_browser_fast_path(
 
         @typechecked
         async def p_dispatch(task_text: str) -> Dict[str, object]:
+            # user_prompt rides along RAW: the composed task's routing brief carries its own quoted strings, which made every real send payload look ambiguous to the send-script (r242/r243)
             results = await run_browser_agents(
                 tasks=[{"task": task_text, "browser_id": selected[0] if selected else "",
-                        "url": "", "entry_url": p_entry}],
+                        "url": "", "entry_url": p_entry, "user_prompt": prompt}],
                 model=session.model,
                 dashboard_id=session.dashboard_id,
                 pre_selected_browser_ids=selected,
                 parent_session_id=session_id,
             )
             r = results[0] if results else {}
-            return r if isinstance(r, dict) else {"summary": str(r or ""), "action_log": []}
+            r = r if isinstance(r, dict) else {"summary": str(r or ""), "action_log": []}
+            # Keep EVERY dispatch's actions, not just the last: a run that needed a recovery or a
+            # send probe did that work on the user's behalf and the trace has to show it.
+            p_action_logs.append(list(r.get("action_log") or []))
+            return r
 
         @typechecked
         def p_summary(r: Dict[str, object]) -> str:
@@ -84,6 +97,7 @@ async def run_browser_fast_path(
             await ws_manager.send_to_session(session_id, "agent:message", {
                 "session_id": session_id, "message": p_tc.model_dump(mode="json")})
             first = await p_dispatch(browser_fast_path.compose_task(prompt, brief))
+            p_last_result = first
             text = p_summary(first)
             if browser_fast_path.dispatch_failed(first):
                 # Retry only transient failures; a dead dashboard fails the retry identically, so skip it and tell the user instead.
@@ -125,8 +139,19 @@ async def run_browser_fast_path(
     )
     # Close the synthetic bubble (always, even if the dispatch threw) so it never hangs as "running"; the bubble pairs this result with its call positionally.
     if p_bubble_tid:
+        # The bubble carries the same auditable record the sub-agent path shows. It used to close
+        # with the literal string "done", so expanding it on this tier revealed nothing.
+        from backend.apps.agents.browser import browser_trace
+        p_trace = browser_trace.build_trace(
+            tier=browser_trace.tier_label(p_fp_path, used_browser=True),
+            action_logs=p_action_logs,
+            receipt=browser_trace.receipt_from(p_last_result),
+            entry_url=p_entry or "",
+        )
         p_tr = Message(role="tool_result", branch_id=session.active_branch_id,
-                       content={"tool_use_id": p_bubble_tid, "tool": p_browser_tool, "text": "done"})
+                       content={"tool_use_id": p_bubble_tid, "tool": p_browser_tool,
+                                "text": browser_trace.trace_text(p_trace),
+                                **browser_trace.trace_payload(p_trace)})
         session.messages.append(p_tr)
         await ws_manager.send_to_session(session_id, "agent:message", {
             "session_id": session_id, "message": p_tr.model_dump(mode="json")})
