@@ -29,6 +29,8 @@ interface DashboardHeaderProps {
   expandedSessionIds: string[];
   outputs: Record<string, Output>;
   dashboardId: string | undefined;
+  // The history popover lives in the bottom toolbar, which unmounts in fullscreen; without this the button would be a dead click.
+  historyAvailable?: boolean;
   canvasActions: CanvasActions;
   onHighlightCard?: (cardId: string) => void;
 }
@@ -53,6 +55,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   expandedSessionIds,
   outputs,
   dashboardId,
+  historyAvailable = true,
   canvasActions,
   onHighlightCard,
 }) => {
@@ -165,6 +168,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
           />
         )}
         {/* Chat history lives up here on the island, not in the dock, and it spans every dashboard. */}
+        {historyAvailable && (
         <Tooltip title="Chat history" placement="bottom">
           <Box
             onClick={(e: React.MouseEvent) => {
@@ -184,6 +188,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             <HistoryIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
           </Box>
         </Tooltip>
+        )}
         {dashboardId && (
           <Box sx={{ ml: 0.25, display: 'flex' }}>
             <ShareButton

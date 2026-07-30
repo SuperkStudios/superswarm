@@ -260,6 +260,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             dashboardId={dashboardId}
             canvasActions={canvas.actions}
             onHighlightCard={onHighlightCard}
+            historyAvailable={!anyFullscreen}
           />
         </Box>
       </Box>
