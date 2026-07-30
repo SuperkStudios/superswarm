@@ -35,6 +35,21 @@ interface DesktopDockProps {
 const TILE = 30;
 const PREVIEW_W = 190;
 
+/** A tile shows its site favicon OR the generic glyph, never the glyph peeking out from behind the favicon. */
+function DockTileIcon({ entry }: { entry: DockEntry }): React.ReactElement {
+  const [faviconFailed, setFaviconFailed] = useState(false);
+  if (!entry.faviconUrl || faviconFailed) return <>{entry.icon}</>;
+  return (
+    <Box
+      component="img"
+      src={entry.faviconUrl}
+      alt=""
+      onError={() => setFaviconFailed(true)}
+      sx={{ width: 18, height: 18, borderRadius: '6px' }}
+    />
+  );
+}
+
 /** Left-edge desktop dock: one tile per open card, hover previews, click focuses the window. */
 function DesktopDock({
   sessions,
@@ -177,16 +192,8 @@ function DesktopDock({
               ...(isActive && { outline: '2px solid #6aa2ff', outlineOffset: '2px' }),
             }}
           >
-            {entry.icon}
-            {entry.faviconUrl && (
-              <Box
-                component="img"
-                src={entry.faviconUrl}
-                alt=""
-                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
-                sx={{ position: 'absolute', width: 18, height: 18, borderRadius: '6px' }}
-              />
-            )}
+            {/* Keyed by url so navigating to a new site re-arms the favicon after a previous one failed. */}
+            <DockTileIcon key={entry.faviconUrl || 'glyph'} entry={entry} />
           </Box>
         );
       })}
