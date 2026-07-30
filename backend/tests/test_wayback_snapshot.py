@@ -69,11 +69,19 @@ def test_snapshot_date_parsing():
     assert snapshot_date("https://web.archive.org/nope") is None
 
 
-def test_raw_snapshot_form_is_requested(monkeypatch):
+@pytest.mark.asyncio
+async def test_raw_snapshot_form_is_requested(monkeypatch):
     """Without `id_` the archive injects its calendar toolbar, and on a Reddit snapshot
     that toolbar WAS the whole extracted text."""
-    from backend.apps.agents.tools.fetch.wayback import P_WAYBACK_LATEST
-    assert P_WAYBACK_LATEST.endswith("id_/")
+    seen = []
+
+    async def p_req(u, **kw):
+        seen.append(u)
+        return HttpReply(status=200, text=P_REAL_ARTICLE, content=P_REAL_ARTICLE.encode(),
+                         content_type="text/html", url=P_ARCHIVED_URL)
+    monkeypatch.setattr(WB, "browser_request", p_req)
+    await fetch_wayback("https://example.com/story")
+    assert seen == ["https://web.archive.org/web/2id_/https://example.com/story"]
 
 
 def test_snapshot_date_parsing_survives_the_raw_form():

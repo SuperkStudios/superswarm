@@ -139,10 +139,13 @@ async def search(body: SearchBody) -> Dict:
     async def try_startpage() -> Optional[Dict]:
         # Second independent engine (Google's index), so DuckDuckGo's bot challenge is no longer a single point of failure for keyless users.
         from backend.apps.agents.tools.search.search_startpage import search_startpage
-        text = await search_startpage(body.query, body.num_results)
-        if not text:
+        answer = await search_startpage(body.query, body.num_results)
+        # Raise rather than return None: a refusal is the engine failing, and the breaker must count it so a closed Startpage stops costing its budget too.
+        if answer.refused:
+            raise RuntimeError("Startpage answered with a challenge instead of results")
+        if not answer.results:
             return None
-        return {"query": body.query, "results": text, "backend": "startpage"}
+        return {"query": body.query, "results": answer.results, "backend": "startpage"}
 
     async def try_browser_search() -> Optional[Dict]:
         # Packaged-app tier: a real Chromium's fingerprint isn't subject to the headless-client challenge, and it can scrape Google/Bing directly. Skipped (None) when no Electron main bridge is connected.

@@ -82,22 +82,46 @@ def test_respects_num_results():
 async def test_challenge_page_reads_as_refused_not_as_zero_hits(monkeypatch):
     # Startpage answers its proof-of-work interstitial with a normal 200, so "parsed nothing" is the only honest signal.
     p_answer(monkeypatch, p_reply(200, P_CHALLENGE_BODY))
-    assert await search_startpage("q", 5) is None
+    answer = await search_startpage("q", 5)
+    assert answer.refused and not answer.results
 
 
 @pytest.mark.asyncio
 async def test_http_error_reads_as_refused(monkeypatch):
     p_answer(monkeypatch, p_reply(503, "nope"))
-    assert await search_startpage("q", 5) is None
+    assert (await search_startpage("q", 5)).refused
 
 
 @pytest.mark.asyncio
 async def test_must_post_or_startpage_serves_the_proof_of_work_wall(monkeypatch):
     seen = []
     p_answer(monkeypatch, p_reply(200, P_BODY), seen)
-    out = await search_startpage("some query", 5)
-    assert out is not None
+    out = (await search_startpage("some query", 5)).results
+    assert out
     url, method, params = seen[0]
     assert url == "https://www.startpage.com/sp/search"
     assert method == "POST"
     assert params == {"query": "some query", "cat": "web"}
+
+
+P_NO_RESULTS_BODY = """
+<html><body><div><img src="https://cdn.startpage.com/sp/cdn/images/dislike-face.svg"/></div>
+<h2>Uh-oh, there are no results for this search.</h2>
+<p>Let&#x27;s see, it could be due to:</p></body></html>
+"""
+
+
+@pytest.mark.asyncio
+async def test_startpages_own_no_results_page_is_an_answer_not_a_refusal(monkeypatch):
+    """Nonsense queries must read as 'nothing matched', not as an engine that shut us out."""
+    p_answer(monkeypatch, p_reply(200, P_NO_RESULTS_BODY))
+    answer = await search_startpage("zxqvbnmklwertyuiopasdfg", 5)
+    assert not answer.refused
+    assert answer.results == ""
+
+
+@pytest.mark.asyncio
+async def test_unrecognised_markup_is_a_refusal_not_zero_hits(monkeypatch):
+    """If Startpage redesigns, we must fail loudly rather than report the web as empty."""
+    p_answer(monkeypatch, p_reply(200, "<html><body><div class=whatever>redesigned</div></body></html>"))
+    assert (await search_startpage("python", 5)).refused

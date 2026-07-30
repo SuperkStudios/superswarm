@@ -4,6 +4,7 @@ import pytest
 
 import backend.apps.agents.tools.fetch.wayback as WB
 import backend.apps.agents.tools.search.search_startpage as SP
+from backend.apps.agents.tools.search.search_startpage import StartpageAnswer
 import backend.apps.web.web as W
 from backend.apps.agents.tools.web import DDGRateLimited, WebSearchTool
 import backend.apps.agents.tools.ssrf_guard as p_ssrf
@@ -35,7 +36,7 @@ def no_network(monkeypatch):
     monkeypatch.setattr(W, "openai_websearch_via_9router", p_empty)
 
     async def p_startpage_closed(query, num):
-        return None
+        return StartpageAnswer()
     monkeypatch.setattr(SP, "search_startpage", p_startpage_closed)
 
     async def p_no_snapshot(url):
@@ -64,7 +65,13 @@ def ddg_throttled(monkeypatch):
 
 def startpage_returns(monkeypatch, text):
     async def p_f(query, num):
-        return text
+        return StartpageAnswer(results=text)
+    monkeypatch.setattr(SP, "search_startpage", p_f)
+
+
+def startpage_refuses(monkeypatch):
+    async def p_f(query, num):
+        return StartpageAnswer(refused=True)
     monkeypatch.setattr(SP, "search_startpage", p_f)
 
 

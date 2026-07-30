@@ -18,10 +18,12 @@ import backend.apps.web.web as W
 from backend.apps.web.web import search, SearchBody
 from backend.tests.web_cascade_fixtures import (  # noqa: F401
     allow_urls,
+    fresh_breaker,
     patch_browser_bridge,
     ddg_returns,
     ddg_throttled,
     no_network,
+    startpage_refuses,
     startpage_returns,
 )
 
@@ -186,3 +188,28 @@ async def test_browser_search_skipped_when_no_bridge(monkeypatch):
 
     res = await search(SearchBody(query="q"))
     assert res["backend"] == "openai_native"
+
+
+@pytest.mark.asyncio
+async def test_a_refusing_startpage_counts_against_it(monkeypatch):
+    """A challenge and a genuinely empty web look identical on the wire, and treating a
+    refusal as 'no hits' meant a closed Startpage kept costing its full budget forever."""
+    from backend.apps.web.tier_breaker import FAILURES_TO_OPEN, tier_cooldown_left
+    ddg_throttled(monkeypatch)
+    startpage_refuses(monkeypatch)
+    for _ in range(FAILURES_TO_OPEN):
+        out = await search(SearchBody(query="anything", num_results=5))
+        assert out["backend"] == "none"
+    assert tier_cooldown_left("startpage") > 0
+    assert any("challenge" in e for e in out["cascade_errors"])
+
+
+@pytest.mark.asyncio
+async def test_an_honestly_empty_startpage_does_not_count_against_it(monkeypatch):
+    """Nonsense queries must not slowly cool down a perfectly healthy engine."""
+    from backend.apps.web.tier_breaker import FAILURES_TO_OPEN, tier_cooldown_left
+    ddg_throttled(monkeypatch)
+    for _ in range(FAILURES_TO_OPEN + 2):
+        out = await search(SearchBody(query="zxqvbnmklwertyuiopasdfg", num_results=5))
+        assert out["backend"] == "none"
+    assert tier_cooldown_left("startpage") == 0.0
