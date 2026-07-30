@@ -4,7 +4,14 @@ When a page is gone (404, domain dead, article pulled) or sits behind a wall
 that no client-side trick beats, the archive usually still has the REAL text,
 which beats a grounded model's summary of a page it also couldn't read.
 
-Uses `web.archive.org/web/2/<url>`, which redirects to the closest snapshot.
+Uses `web.archive.org/web/2id_/<url>`, which redirects to the closest snapshot
+and serves the ORIGINAL bytes. Without the `id_` the archive injects its own
+calendar toolbar into the page, and on a Reddit snapshot that toolbar was all
+the text there was: we returned "Jun JUL Aug 30 2025 2026 2027 success fail
+About this capture" as if it were the article, and it cleared the substance
+floor because it is made of real words. `id_` also keeps the page's own URL in
+the extracted metadata instead of stamping it `hostname: archive.org`.
+
 The documented `archive.org/wayback/available` JSON API is NOT used: it is
 aggressively throttled and answered 429 on every probe from this machine, while
 the redirect path answered in 0.5-3s.
@@ -19,12 +26,12 @@ from typeguard import typechecked
 from backend.apps.agents.tools.browser_http import browser_request
 from backend.apps.agents.tools.fetch.html_to_text import html_to_text
 
-P_WAYBACK_LATEST = "https://web.archive.org/web/2/"
+P_WAYBACK_LATEST = "https://web.archive.org/web/2id_/"
 P_ALLOWED_HOST = "web.archive.org"
 P_TIMEOUT = 10.0
 # Below this the "snapshot" is a stub or an archived error page, not the article.
 P_MIN_SUBSTANCE_CHARS = 200
-P_SNAPSHOT_RE = re.compile(r"/web/(\d{4})(\d{2})(\d{2})\d*/")
+P_SNAPSHOT_RE = re.compile(r"/web/(\d{4})(\d{2})(\d{2})\d*(?:id_)?/")
 # What the archive shows when the crawler was bounced to a login page: it is a 200 with real words, so only the wording gives it away.
 P_INTERSTITIAL_MARKER = "response at crawl time"
 

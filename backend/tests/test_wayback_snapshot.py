@@ -67,3 +67,22 @@ async def test_offsite_redirect_is_refused(monkeypatch):
 def test_snapshot_date_parsing():
     assert snapshot_date(P_ARCHIVED_URL) == "2026-07-11"
     assert snapshot_date("https://web.archive.org/nope") is None
+
+
+def test_raw_snapshot_form_is_requested(monkeypatch):
+    """Without `id_` the archive injects its calendar toolbar, and on a Reddit snapshot
+    that toolbar WAS the whole extracted text."""
+    from backend.apps.agents.tools.fetch.wayback import P_WAYBACK_LATEST
+    assert P_WAYBACK_LATEST.endswith("id_/")
+
+
+def test_snapshot_date_parsing_survives_the_raw_form():
+    assert snapshot_date("https://web.archive.org/web/20260727222838id_/https://x.example/") == "2026-07-27"
+
+
+@pytest.mark.asyncio
+async def test_archive_toolbar_text_alone_is_below_the_floor(monkeypatch):
+    toolbar = ("<html><body>Jun JUL Aug 30 2025 2026 2027 success fail About this capture "
+               "COLLECTED BY Collection: Save Page Now TIMESTAMPS</body></html>")
+    p_patch(monkeypatch, 200, toolbar)
+    assert await fetch_wayback("https://www.reddit.com/r/programming/") is None
