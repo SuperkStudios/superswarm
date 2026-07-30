@@ -259,9 +259,8 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
         q: historyQuery,
         limit: HISTORY_PAGE_SIZE,
         offset: historySearch.results.length,
-        dashboardId,
       }));
-    }, [dispatch, historyQuery, historySearch.loading, historySearch.hasMore, historySearch.results.length, dashboardId]);
+    }, [dispatch, historyQuery, historySearch.loading, historySearch.hasMore, historySearch.results.length]);
 
     const isExpanded = inputOpen || viewPickerOpen || historyOpen;
 
@@ -376,13 +375,14 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       };
     }, [handleOpenViewPicker, handleOpenHistory, onAddBrowser]);
 
+    // No dashboardId: chat history is global, so a chat you started on another dashboard is still findable here.
     useEffect(() => {
       if (!historyOpen) return;
       const timer = setTimeout(() => {
-        dispatch(searchHistory({ q: historyQuery, limit: HISTORY_PAGE_SIZE, offset: 0, dashboardId }));
+        dispatch(searchHistory({ q: historyQuery, limit: HISTORY_PAGE_SIZE, offset: 0 }));
       }, 300);
       return () => clearTimeout(timer);
-    }, [historyQuery, historyOpen, dispatch, dashboardId]);
+    }, [historyQuery, historyOpen, dispatch]);
 
     useEffect(() => {
       if (historyOpen && popoverMode === 'runs') {

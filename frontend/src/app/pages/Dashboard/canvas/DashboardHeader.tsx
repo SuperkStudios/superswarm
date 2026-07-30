@@ -5,6 +5,8 @@ import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import LanguageIcon from '@mui/icons-material/Language';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import HistoryIcon from '@mui/icons-material/History';
+import Tooltip from '@mui/material/Tooltip';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch } from '@/shared/hooks';
 import DashboardGlyph from './DashboardGlyph';
@@ -164,6 +166,26 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             }}
           />
         )}
+        {/* Chat history lives up here on the island, not in the dock, and it spans every dashboard. */}
+        <Tooltip title="Chat history" placement="bottom">
+          <Box
+            onClick={(e: React.MouseEvent) => {
+              e.stopPropagation();
+              window.dispatchEvent(new CustomEvent('openswarm:open-history'));
+            }}
+            sx={{
+              ml: 0.25,
+              display: 'flex',
+              alignItems: 'center',
+              borderRadius: '5px',
+              p: '2px',
+              cursor: 'pointer',
+              '&:hover': { bgcolor: `${c.bg.surface}99` },
+            }}
+          >
+            <HistoryIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+          </Box>
+        </Tooltip>
         {dashboardId && (
           <Box sx={{ ml: 0.25, display: 'flex' }}>
             <ShareButton

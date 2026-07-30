@@ -5,7 +5,6 @@ import Typography from '@mui/material/Typography';
 import LanguageIcon from '@mui/icons-material/Language';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
-import HistoryIcon from '@mui/icons-material/History';
 import { openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
@@ -202,12 +201,11 @@ function DesktopDock({
       {entries.length > 0 && (
         <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
       )}
-      {/* The og toolbar's actions, dock-resident: browser, workflow, note, history, then settings + apps below their own divider. No New-chat tile; the spawn pill at the bottom is always there. */}
+      {/* The og toolbar's actions, dock-resident: browser, workflow, note, then settings + apps below their own divider. New-chat lives in the spawn pill, history on the top island. */}
       {([
         { label: 'New browser', icon: <LanguageIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: onAddBrowser },
         { label: 'Workflows', icon: <EventRepeatIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
         { label: 'New note', icon: <StickyNote2OutlinedIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: onAddNote },
-        { label: 'History', icon: <HistoryIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: () => window.dispatchEvent(new CustomEvent('openswarm:open-history')) },
         { label: 'Settings', icon: <SettingsIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: () => dispatch(openSettingsModal(undefined)), divider: true },
         { label: 'Applications', icon: <AppsRoundedIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
       ] as { label: string; icon: React.ReactNode; act: () => void; divider?: boolean; bg?: string }[]).map((a) => (
