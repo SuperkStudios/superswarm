@@ -1,7 +1,7 @@
 import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { clearTiledCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
+import { addViewCard, clearTiledCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayer from './TetherLayer';
 import DashboardCardLayer from './DashboardCardLayer';
@@ -303,7 +303,11 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       )}
 
       {appsWindowOpen && !fullscreenCardId && (
-        <ApplicationsWindow onClose={() => setAppsWindowOpen(false)} />
+        <ApplicationsWindow
+          outputs={outputs}
+          onOpenApp={(outputId) => dispatch(addViewCard({ outputId }))}
+          onClose={() => setAppsWindowOpen(false)}
+        />
       )}
 
       {/* Canvas viewport */}
