@@ -12,9 +12,11 @@ Network is mocked; the lite fixture is the real markup shape captured live
 
 import asyncio
 
-import httpx
 import pytest
 
+import backend.apps.agents.tools.search_ddg as SD
+import backend.apps.agents.tools.search_ddg_lite as SDL
+from backend.apps.agents.tools.browser_http import HttpReply
 from backend.apps.agents.tools.web import WebSearchTool, DDGRateLimited
 from backend.apps.agents.tools.search_ddg_lite import parse_lite_results
 
@@ -34,36 +36,20 @@ P_LITE_BODY = """
 P_HTML_202_BODY = "anomaly detected, challenge page"
 
 
-class p_FakeResp:
-    def __init__(self, status_code: int, text: str):
-        self.status_code = status_code
-        self.text = text
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError("err", request=None, response=None)
-
-
-class p_RoutedClient:
-    """Fake AsyncClient that answers per-URL, so the html and lite endpoints can behave differently in one test."""
-    def __init__(self, routes: dict):
-        self.routes = routes
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def post(self, url, *a, **k):
-        for key, resp in self.routes.items():
-            if key in url:
-                return resp
-        raise AssertionError(f"unexpected URL {url}")
+def p_FakeResp(status: int, text: str) -> HttpReply:
+    return HttpReply(status=status, text=text, content=text.encode(),
+                     content_type="text/html", url="https://duckduckgo.example")
 
 
 def p_route(monkeypatch, routes: dict):
-    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: p_RoutedClient(routes))
+    """Answer per-URL so the html and lite endpoints can behave differently in one test."""
+    async def p_req(url, **kw):
+        for key, reply in routes.items():
+            if key in url:
+                return reply
+        raise AssertionError(f"unexpected URL {url}")
+    monkeypatch.setattr(SD, "browser_request", p_req)
+    monkeypatch.setattr(SDL, "browser_request", p_req)
 
 
 def test_lite_parser_on_real_shape():

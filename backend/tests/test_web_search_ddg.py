@@ -9,39 +9,25 @@ These pin the two bugs that turned DDG into a flaky 'No results found' source:
 We mock the network so the test is deterministic and offline.
 """
 
-import httpx
 import pytest
 
+import backend.apps.agents.tools.search_ddg as SD
+import backend.apps.agents.tools.search_ddg_lite as SDL
+from backend.apps.agents.tools.browser_http import HttpReply
 from backend.apps.agents.tools.web import WebSearchTool, DDGRateLimited
 
 
-class p_FakeResp:
-    def __init__(self, status_code: int, text: str):
-        self.status_code = status_code
-        self.text = text
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise httpx.HTTPStatusError("err", request=None, response=None)
+def p_reply(status: int, text: str) -> HttpReply:
+    return HttpReply(status=status, text=text, content=text.encode(),
+                     content_type="text/html", url="https://duckduckgo.example")
 
 
-class p_FakeClient:
-    """Stands in for httpx.AsyncClient; returns a canned response."""
-    def __init__(self, resp: p_FakeResp):
-        self.p_resp = resp
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def post(self, *a, **k):
-        return self.p_resp
-
-
-def p_patch_client(monkeypatch, resp: p_FakeResp):
-    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: p_FakeClient(resp))
+def p_patch_client(monkeypatch, reply: HttpReply):
+    """Mock the ONE seam every keyless rung goes through, whatever transport it picks."""
+    async def p_req(url, **kw):
+        return reply
+    monkeypatch.setattr(SD, "browser_request", p_req)
+    monkeypatch.setattr(SDL, "browser_request", p_req)
 
 
 # One real organic result + one sponsored (ad) row in DDG's html markup.
@@ -59,14 +45,14 @@ P_HTML_WITH_AD = """
 
 @pytest.mark.asyncio
 async def test_202_raises_rate_limited_not_empty(monkeypatch):
-    p_patch_client(monkeypatch, p_FakeResp(202, "<html>throttle challenge, no results</html>"))
+    p_patch_client(monkeypatch, p_reply(202, "<html>throttle challenge, no results</html>"))
     with pytest.raises(DDGRateLimited):
         await WebSearchTool.search_ddg("anything", 5)
 
 
 @pytest.mark.asyncio
 async def test_execute_reports_rate_limit_clearly(monkeypatch):
-    p_patch_client(monkeypatch, p_FakeResp(202, "throttle"))
+    p_patch_client(monkeypatch, p_reply(202, "throttle"))
     parts = await WebSearchTool().execute({"query": "x", "num_results": 5}, None)
     msg = parts[0]["text"].lower()
     assert "rate-limit" in msg
@@ -75,7 +61,7 @@ async def test_execute_reports_rate_limit_clearly(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ads_are_stripped_real_results_kept(monkeypatch):
-    p_patch_client(monkeypatch, p_FakeResp(200, P_HTML_WITH_AD))
+    p_patch_client(monkeypatch, p_reply(200, P_HTML_WITH_AD))
     out = await WebSearchTool.search_ddg("topic", 5)
     assert "example.com/real" in out
     assert "Real Result Title" in out
@@ -88,6 +74,6 @@ async def test_ads_are_stripped_real_results_kept(monkeypatch):
 @pytest.mark.asyncio
 async def test_genuinely_empty_is_not_a_rate_limit(monkeypatch):
     # 200 with no result blocks is a real empty result set, not a throttle.
-    p_patch_client(monkeypatch, p_FakeResp(200, "<html><body>nothing here</body></html>"))
+    p_patch_client(monkeypatch, p_reply(200, "<html><body>nothing here</body></html>"))
     out = await WebSearchTool.search_ddg("zxcvqwer no hits", 5)
     assert out == ""
