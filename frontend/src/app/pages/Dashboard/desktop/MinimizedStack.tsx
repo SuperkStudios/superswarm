@@ -1,7 +1,10 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { toggleMinimizeCard, setTiledCard, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
+import {
+  toggleMinimizeCard, setTiledCard, recordClosedCard,
+  closeSettingsCard, closeWorkflowsApp, toggleSettingsCardFullscreen, toggleWorkflowsHubFullscreen,
+} from '@/shared/state/dashboardLayoutSlice';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -27,7 +30,9 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   const dispatch = useAppDispatch();
   const c = useClaudeTokens();
   const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
-  const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, minimizedCards });
+  const workflowsHub = useAppSelector((s) => s.dashboardLayout.workflowsHub);
+  const settingsCard = useAppSelector((s) => s.dashboardLayout.settingsCard);
+  const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, workflowsHub, settingsCard, minimizedCards });
   if (entries.length === 0) return null;
 
   const restore = (entry: MinimizedEntry): void => {
@@ -40,10 +45,21 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
     if (entry.kind === 'browser') {
       dispatch(recordClosedCard({ kind: 'browser', id: entry.id }));
       void removeBrowserCardCleanly(entry.id, dispatch);
-    } else {
+    } else if (entry.kind === 'view') {
       dispatch(recordClosedCard({ kind: 'view', id: entry.id }));
       void removeViewCardCleanly(entry.id, dispatch);
+    } else if (entry.kind === 'workflows') {
+      dispatch(closeWorkflowsApp());
+    } else {
+      dispatch(closeSettingsCard());
     }
+  };
+  // Singletons own a fullscreen flag instead of a tiledCards entry, so a setTiledCard here would strand a ghost fullscreen owner nothing renders.
+  const tile = (entry: MinimizedEntry, zone: string): void => {
+    restore(entry);
+    if (entry.kind === 'workflows') { if (zone === 'fullscreen') dispatch(toggleWorkflowsHubFullscreen()); return; }
+    if (entry.kind === 'settings') { if (zone === 'fullscreen') dispatch(toggleSettingsCardFullscreen()); return; }
+    if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone }));
   };
 
   return (
@@ -89,12 +105,14 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
           selected={selectedIds.includes(entry.id)}
           onRestore={() => restore(entry)}
           onClose={() => close(entry)}
-          onTile={(zone: string) => { restore(entry); if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone })); }}
+          onTile={(zone: string) => tile(entry, zone)}
           onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
             items: [
               { label: 'Restore', onClick: () => restore(entry) },
-              { label: 'Restore full screen', onClick: () => { restore(entry); dispatch(setTiledCard({ cardId: entry.id, zone: 'fullscreen' })); } },
-              { label: 'Tile to zone', submenu: tileMenuRows((zone) => { restore(entry); if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone })); }) },
+              { label: 'Restore full screen', onClick: () => tile(entry, 'fullscreen') },
+              ...(entry.kind === 'browser' || entry.kind === 'view'
+                ? [{ label: 'Tile to zone', submenu: tileMenuRows((zone) => tile(entry, zone)) }]
+                : []),
               { kind: 'separator' },
               { label: 'Close', danger: true, onClick: () => close(entry) },
             ],

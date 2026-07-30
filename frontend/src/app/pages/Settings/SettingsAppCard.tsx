@@ -5,6 +5,7 @@ import {
   closeSettingsCard,
   setSettingsCardPosition,
   setSettingsCardSize,
+  toggleMinimizeCard,
   toggleSettingsCardFullscreen,
   SETTINGS_CARD_ID,
 } from '@/shared/state/dashboardLayoutSlice';
@@ -44,6 +45,7 @@ const SettingsAppCard: React.FC<Props> = ({
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
+  const isMinimized = useAppSelector((s) => !!s.dashboardLayout.minimizedCards[SETTINGS_CARD_ID]);
 
   const commitPosition = useCallback((x: number, y: number) => {
     dispatch(setSettingsCardPosition({ x, y }));
@@ -52,6 +54,7 @@ const SettingsAppCard: React.FC<Props> = ({
     dispatch(setSettingsCardSize({ width, height }));
   }, [dispatch]);
   const close = useCallback(() => { dispatch(closeSettingsCard()); }, [dispatch]);
+  const minimize = useCallback(() => { dispatch(toggleMinimizeCard({ cardId: SETTINGS_CARD_ID })); }, [dispatch]);
 
   return (
     <CanvasWindowCard
@@ -65,6 +68,7 @@ const SettingsAppCard: React.FC<Props> = ({
       cardHeight={cardHeight}
       cardZOrder={cardZOrder}
       fullscreen={isFullscreen}
+      minimized={isMinimized}
       minWidth={MIN_W}
       minHeight={MIN_H}
       background={c.bg.page}
@@ -104,7 +108,7 @@ const SettingsAppCard: React.FC<Props> = ({
             >
               <WindowControls
                 onClose={close}
-                onMinimize={close}
+                onMinimize={minimize}
                 onTile={(zone) => {
                   if (zone === 'fullscreen' || zone === 'restore') { dispatch(toggleSettingsCardFullscreen()); return; }
                   if (isFullscreen) dispatch(toggleSettingsCardFullscreen());

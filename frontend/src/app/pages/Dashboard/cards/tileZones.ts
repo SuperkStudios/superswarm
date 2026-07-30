@@ -124,9 +124,14 @@ export function useTiledStyle(
       : (el.parentElement as HTMLElement | null) ?? el;
     const posProps = ['left', 'top'];
     const sizeProps = ['width', 'height', 'transform', 'transform-origin', 'transition'];
+    // Drop ONLY the overrides this hook still owns: React re-asserts these props without the important
+    // flag when a card leaves its zone, and deleting those left the window with no geometry at all.
+    const clearOwn = (target: HTMLElement, props: string[]): void => {
+      props.forEach((pr) => { if (target.style.getPropertyPriority(pr) === 'important') target.style.removeProperty(pr); });
+    };
     const clearAll = (): void => {
-      posProps.forEach((pr) => posEl.style.removeProperty(pr));
-      sizeProps.forEach((pr) => el.style.removeProperty(pr));
+      clearOwn(posEl, posProps);
+      clearOwn(el, sizeProps);
     };
     const apply = (): void => {
       // A parked card (kept alive off-screen / minimized) must keep its sx parking position.

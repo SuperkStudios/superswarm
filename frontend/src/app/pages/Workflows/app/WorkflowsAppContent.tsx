@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { clearWorkflowsAppTarget, closeWorkflowsApp, toggleWorkflowsHubFullscreen } from '@/shared/state/dashboardLayoutSlice';
+import { clearWorkflowsAppTarget, closeWorkflowsApp, toggleMinimizeCard, toggleWorkflowsHubFullscreen, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from '@/app/pages/Dashboard/cards/WindowControls';
 import {
   fetchWorkflows, fetchAllRuns, fetchPausedState, fetchActiveRuns, fetchDeletedWorkflows,
@@ -84,7 +84,7 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader; onTileZone?: (zone: st
         >
           <WindowControls
             onClose={() => dispatch(closeWorkflowsApp())}
-            onMinimize={() => dispatch(closeWorkflowsApp())}
+            onMinimize={() => dispatch(toggleMinimizeCard({ cardId: WORKFLOWS_HUB_ID }))}
             onTile={(zone) => {
               if (zone === 'fullscreen' || zone === 'restore') { dispatch(toggleWorkflowsHubFullscreen()); return; }
               if (isFullscreen) dispatch(toggleWorkflowsHubFullscreen());

@@ -26,7 +26,9 @@ export const DEFAULT_WORKFLOWS_HUB_W = DEFAULT_BROWSER_CARD_W;
 export const DEFAULT_WORKFLOWS_HUB_H = DEFAULT_BROWSER_CARD_H;
 export const DEFAULT_SETTINGS_CARD_W = 900;
 export const DEFAULT_SETTINGS_CARD_H = 640;
+// The two singleton windows have no card map to key off, so they own these fixed ids everywhere (selection, minimize, z-order).
 export const SETTINGS_CARD_ID = 'settings';
+export const WORKFLOWS_HUB_ID = 'workflows-hub';
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;
 // Gap between the Workflows window and the cards it spawns (run monitor, that monitor's browser). Keeps the hub -> monitor -> browser row evenly spaced.
@@ -579,6 +581,9 @@ const dashboardLayoutSlice = createSlice({
       } else {
         state.minimizedCards[id] = true;
         if (state.tiledCards[id]) delete state.tiledCards[id];
+        // The singletons hold their own fullscreen flag instead of a tiledCards entry, so parking one has to drop that too.
+        if (id === SETTINGS_CARD_ID && state.settingsCard) state.settingsCard.fullscreen = false;
+        if (id === WORKFLOWS_HUB_ID && state.workflowsHub) state.workflowsHub.fullscreen = false;
       }
     },
     setTiledCard(state, action: PayloadAction<{ cardId: string; zone: string }>) {
@@ -1115,6 +1120,7 @@ const dashboardLayoutSlice = createSlice({
     openWorkflowsHub(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
       if (state.workflowsHub) {
         state.workflowsHub.zOrder = state.nextZOrder++;
+        delete state.minimizedCards[WORKFLOWS_HUB_ID];
         state.pendingFocusWorkflowsHub = true;
         return;
       }
@@ -1136,6 +1142,7 @@ const dashboardLayoutSlice = createSlice({
 
     closeWorkflowsHub(state) {
       state.workflowsHub = null;
+      delete state.minimizedCards[WORKFLOWS_HUB_ID];
     },
 
     // The Workflows app is an on-canvas card (like chat/browser/view cards), backed by the singleton workflowsHub geometry. Opening it creates or raises that card and pans to it; an optional workflowId deep-links to that workflow's detail once the card mounts.
@@ -1143,6 +1150,8 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsAppTarget = action.payload?.workflowId ?? null;
       if (state.workflowsHub) {
         state.workflowsHub.zOrder = state.nextZOrder++;
+        // Opening means visible: a parked window must come back to the canvas, or the focus pan flies to empty space.
+        delete state.minimizedCards[WORKFLOWS_HUB_ID];
         state.pendingFocusWorkflowsHub = true;
         return;
       }
@@ -1160,6 +1169,7 @@ const dashboardLayoutSlice = createSlice({
 
     closeWorkflowsApp(state) {
       state.workflowsHub = null;
+      delete state.minimizedCards[WORKFLOWS_HUB_ID];
       state.workflowsAppTarget = null;
       state.workflowsMonitorId = null;
       state.workflowsMonitorRunId = null;
@@ -1232,6 +1242,7 @@ const dashboardLayoutSlice = createSlice({
     openSettingsCard(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
       if (state.settingsCard) {
         state.settingsCard.zOrder = state.nextZOrder++;
+        delete state.minimizedCards[SETTINGS_CARD_ID];
         state.pendingFocusSettingsCard = true;
         return;
       }
@@ -1249,6 +1260,7 @@ const dashboardLayoutSlice = createSlice({
 
     closeSettingsCard(state) {
       state.settingsCard = null;
+      delete state.minimizedCards[SETTINGS_CARD_ID];
       state.pendingFocusSettingsCard = false;
     },
 

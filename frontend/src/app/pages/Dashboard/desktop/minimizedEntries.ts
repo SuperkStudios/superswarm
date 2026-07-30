@@ -1,4 +1,5 @@
-import type { BrowserCardPosition, ViewCardPosition } from '@/shared/state/dashboardLayoutSlice';
+import { SETTINGS_CARD_ID, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
+import type { BrowserCardPosition, ViewCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 
 export interface MinimizedRect {
@@ -8,7 +9,7 @@ export interface MinimizedRect {
   height: number;
 }
 
-export type MinimizedKind = 'browser' | 'view';
+export type MinimizedKind = 'browser' | 'view' | 'workflows' | 'settings';
 
 export interface MinimizedEntry {
   id: string;
@@ -25,14 +26,18 @@ export interface MinimizedSlices {
   browserCards: Record<string, BrowserCardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   outputs: Record<string, Output>;
+  workflowsHub: WorkflowsHubPosition | null;
+  settingsCard: WorkflowsHubPosition | null;
   minimizedCards: Record<string, boolean>;
 }
 
-/** Every window parked in the minimized rail, browsers and apps in one list so both share a small state. */
+/** Every window parked in the minimized rail, browsers, apps and the singleton windows in one list so they all share a small state. */
 export function buildMinimizedEntries({
   browserCards,
   viewCards,
   outputs,
+  workflowsHub,
+  settingsCard,
   minimizedCards,
 }: MinimizedSlices): MinimizedEntry[] {
   const list: MinimizedEntry[] = [];
@@ -58,6 +63,12 @@ export function buildMinimizedEntries({
       rect: vc,
       thumbnail: outputs[vc.output_id]?.thumbnail,
     });
+  }
+  if (workflowsHub && minimizedCards[WORKFLOWS_HUB_ID]) {
+    list.push({ id: WORKFLOWS_HUB_ID, kind: 'workflows', label: 'Workflows', rect: workflowsHub });
+  }
+  if (settingsCard && minimizedCards[SETTINGS_CARD_ID]) {
+    list.push({ id: SETTINGS_CARD_ID, kind: 'settings', label: 'Settings', rect: settingsCard });
   }
   return list;
 }

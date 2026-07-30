@@ -3,6 +3,8 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import LanguageIcon from '@mui/icons-material/Language';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import EventRepeatIcon from '@mui/icons-material/EventRepeat';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { pickIcon } from '../canvas/DashboardGlyph';
 import WindowControls, { ARC_CHIP_SX } from '../cards/WindowControls';
 import { getMinimizedShot } from './minimizedShots';
@@ -46,6 +48,9 @@ function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile, on
       );
     }
     if (entry.kind === 'browser') return <LanguageIcon sx={{ fontSize: size, color: 'rgba(255,255,255,0.55)', display: 'block' }} />;
+    // The singleton windows never have a thumbnail, so their own app glyph is the whole identity of the tile.
+    if (entry.kind === 'workflows') return <EventRepeatIcon sx={{ fontSize: size, color: 'rgba(255,255,255,0.55)', display: 'block' }} />;
+    if (entry.kind === 'settings') return <SettingsIcon sx={{ fontSize: size, color: 'rgba(255,255,255,0.55)', display: 'block' }} />;
     // Never a letter here: a glyph initial reads as a bug, so an unmatched name falls back to a real symbol.
     const AppIcon = pickIcon(entry.label);
     if (AppIcon) return <AppIcon size={size} strokeWidth={1.75} color="rgba(255,255,255,0.6)" />;
@@ -108,7 +113,8 @@ function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile, on
             opacity: 0, pointerEvents: 'none', transition: 'opacity 140ms ease',
           }}
         >
-          <WindowControls onClose={onClose} onMinimize={onRestore} onTile={onTile} tiled={false} />
+          {/* The singleton windows only know fullscreen, so their green light must not offer half/quarter zones it can't honor. */}
+          <WindowControls onClose={onClose} onMinimize={onRestore} onTile={onTile} tiled={false} noTileMenu={entry.kind === 'workflows' || entry.kind === 'settings'} />
         </Box>
       </Box>
 

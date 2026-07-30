@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { setWorkflowsHubPosition, setWorkflowsHubSize } from '@/shared/state/dashboardLayoutSlice';
+import { setWorkflowsHubPosition, setWorkflowsHubSize, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import CanvasWindowCard from '@/app/pages/Dashboard/cards/CanvasWindowCard';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 import { useWC } from './uiKit';
@@ -35,6 +35,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
   const WC = useWC();
   const dispatch = useAppDispatch();
   const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.workflowsHub?.fullscreen);
+  const isMinimized = useAppSelector((s) => !!s.dashboardLayout.minimizedCards[WORKFLOWS_HUB_ID]);
 
   // Keep fonts/keyframes available while the card is mounted.
   useEffect(() => { ensureAssets(); }, []);
@@ -48,7 +49,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
 
   return (
     <CanvasWindowCard
-      cardId="workflows-hub"
+      cardId={WORKFLOWS_HUB_ID}
       cardType="workflows-hub"
       selectType="workflows-hub-card"
       selectName="Workflows"
@@ -58,6 +59,7 @@ const WorkflowsAppCard: React.FC<Props> = ({
       cardHeight={cardHeight}
       cardZOrder={cardZOrder}
       fullscreen={isFullscreen}
+      minimized={isMinimized}
       minWidth={MIN_W}
       minHeight={MIN_H}
       background={WC.page}

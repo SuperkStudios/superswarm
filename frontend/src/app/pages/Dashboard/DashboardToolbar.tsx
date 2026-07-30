@@ -13,7 +13,7 @@ import ChatInput from '@/app/pages/AgentChat/ChatInput';
 import type { ContextPath } from '@/app/components/editor/DirectoryBrowser';
 import SchedulePopover from '@/app/pages/Workflows/SchedulePopover';
 import { openWorkflowCard, fetchAllRuns, upsertRun } from '@/shared/state/workflowsSlice';
-import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
+import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -171,7 +171,8 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const allRuns = useAppSelector((s) => s.workflows.allRuns);
     const allRunsLoading = useAppSelector((s) => s.workflows.allRunsLoading);
     const workflowItems = useAppSelector((s) => s.workflows.items);
-    const workflowsHubOpen = useAppSelector((s) => Boolean(s.dashboardLayout.workflowsHub));
+    // Parked counts as not-showing, so the pill restores the window instead of throwing its state away.
+    const workflowsHubOpen = useAppSelector((s) => Boolean(s.dashboardLayout.workflowsHub) && !s.dashboardLayout.minimizedCards[WORKFLOWS_HUB_ID]);
 
     const outputList = useMemo(() => Object.values(outputs), [outputs]);
     const filteredOutputs = useMemo(() => {

@@ -1,31 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { TILE_ZONES, useTiledStyle } from './tileZones';
+import { useCanvasWindowResize } from './useCanvasWindowResize';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 
-type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-
-const EDGE = 6;
-const CORNER = 14;
 const DRAG_THRESHOLD = 3;
 const SNAP_GRID = 24;
 const TILE_GAP = 8;
-
-const CURSOR_MAP: Record<ResizeDir, string> = {
-  n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
-  nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize',
-};
-const HANDLE_DEFS: { dir: ResizeDir; css: React.CSSProperties }[] = [
-  { dir: 'n', css: { top: -EDGE / 2, left: CORNER, right: CORNER, height: EDGE } },
-  { dir: 's', css: { bottom: -EDGE / 2, left: CORNER, right: CORNER, height: EDGE } },
-  { dir: 'w', css: { left: -EDGE / 2, top: CORNER, bottom: CORNER, width: EDGE } },
-  { dir: 'e', css: { right: -EDGE / 2, top: CORNER, bottom: CORNER, width: EDGE } },
-  { dir: 'nw', css: { top: -EDGE / 2, left: -EDGE / 2, width: CORNER, height: CORNER } },
-  { dir: 'ne', css: { top: -EDGE / 2, right: -EDGE / 2, width: CORNER, height: CORNER } },
-  { dir: 'sw', css: { bottom: -EDGE / 2, left: -EDGE / 2, width: CORNER, height: CORNER } },
-  { dir: 'se', css: { bottom: -EDGE / 2, right: -EDGE / 2, width: CORNER, height: CORNER } },
-];
 
 /** Drag handlers the window hands down to whatever renders its title bar. */
 export interface CanvasWindowHeader {
@@ -50,6 +32,8 @@ interface CanvasWindowCardProps {
   selectName: string;
   cardX: number; cardY: number; cardWidth: number; cardHeight: number; cardZOrder?: number;
   fullscreen?: boolean;
+  /** Parked in the minimized rail: stays mounted (and keeps its state) off-canvas instead of unmounting. */
+  minimized?: boolean;
   minWidth: number; minHeight: number;
   background: string; highlightColor: string;
   getCanvasState: () => { panX: number; panY: number; zoom: number };
@@ -71,7 +55,7 @@ interface CanvasWindowCardProps {
 const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   cardId, cardType, selectType, selectName,
   cardX, cardY, cardWidth, cardHeight, cardZOrder = 0,
-  fullscreen = false, minWidth, minHeight, background, highlightColor,
+  fullscreen = false, minimized = false, minWidth, minHeight, background, highlightColor,
   getCanvasState,
   isSelected = false, isHighlighted = false, multiDragDelta = null,
   onCardSelect, onDragStart, onDragMove, onDragEnd, onBringToFront,
@@ -166,53 +150,10 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   }, [finalizeDrag]);
   useDragEndBackstops(isDragging, finalizeDrag, abortDrag);
 
-  // ---- Resize ----
-  const resizeRef = useRef<{ dir: ResizeDir; sx0: number; sy0: number; ox: number; oy: number; ow: number; oh: number } | null>(null);
-  const [isResizing, setIsResizing] = useState(false);
-  const [localResize, setLocalResize] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-
-  const onResizeDown = useCallback((dir: ResizeDir) => (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    resizeRef.current = { dir, sx0: e.clientX, sy0: e.clientY, ox: cardX, oy: cardY, ow: cardWidth, oh: cardHeight };
-    setIsResizing(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, [cardX, cardY, cardWidth, cardHeight]);
-
-  const compute = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current) return null;
-    const { dir, sx0, sy0, ox, oy, ow, oh } = resizeRef.current;
-    const z2 = getCanvasState().zoom;
-    const dx = (e.clientX - sx0) / z2;
-    const dy = (e.clientY - sy0) / z2;
-    let nx = ox, ny = oy, nw = ow, nh = oh;
-    if (dir.includes('e')) nw = ow + dx;
-    if (dir.includes('w')) { nw = ow - dx; nx = ox + dx; }
-    if (dir.includes('s')) nh = oh + dy;
-    if (dir.includes('n')) { nh = oh - dy; ny = oy + dy; }
-    if (nw < minWidth) { if (dir.includes('w')) nx = ox + ow - minWidth; nw = minWidth; }
-    if (nh < minHeight) { if (dir.includes('n')) ny = oy + oh - minHeight; nh = minHeight; }
-    return { x: nx, y: ny, w: nw, h: nh };
-  }, [getCanvasState, minWidth, minHeight]);
-
-  const onResizeMove = useCallback((e: React.PointerEvent) => {
-    const r = compute(e);
-    if (r) setLocalResize(r);
-  }, [compute]);
-
-  const onResizeUp = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current) return;
-    const r = compute(e);
-    if (r) {
-      onCommitPosition(r.x, r.y);
-      onCommitSize(r.w, r.h);
-    }
-    resizeRef.current = null;
-    setLocalResize(null);
-    setIsResizing(false);
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-  }, [compute, onCommitPosition, onCommitSize]);
+  const { isResizing, live: localResize, handles } = useCanvasWindowResize({
+    cardX, cardY, cardWidth, cardHeight, minWidth, minHeight,
+    getCanvasState, onCommitPosition, onCommitSize,
+  });
 
   const onTileZone = useCallback((zone: string) => {
     const z = TILE_ZONES[zone];
@@ -249,15 +190,20 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         if (target.closest('[data-no-drag]')) return;
         onCardSelect?.(cardId, cardType, e.shiftKey);
       }}
+      data-keepalive-hidden={minimized ? '1' : undefined}
       style={{
         position: 'absolute',
         contain: 'layout style',
         willChange: 'transform',
-        left: fsStyle ? fsStyle.left : dx,
-        top: fsStyle ? fsStyle.top : dy,
+        // Parked windows go off-canvas rather than unmounting, so Settings keeps its form and Workflows its view state.
+        pointerEvents: minimized ? 'none' : undefined,
+        // Belt and braces: leaving fullscreen tears down the tiled-style hook, whose cleanup strips the inline left/top React just wrote, and visibility is the one park signal it never touches.
+        visibility: minimized ? 'hidden' : undefined,
+        left: minimized ? -100000 : fsStyle ? fsStyle.left : dx,
+        top: minimized ? -100000 : fsStyle ? fsStyle.top : dy,
         width: fsStyle ? fsStyle.width : dw,
         height: fsStyle ? fsStyle.height : dh,
-        transform: fsStyle ? fsStyle.transform : undefined,
+        transform: minimized ? undefined : fsStyle ? fsStyle.transform : undefined,
         transformOrigin: fsStyle ? fsStyle.transformOrigin : undefined,
         background,
         border: fsStyle ? 'none' : border,
@@ -282,14 +228,14 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         onTileZone,
       })}
 
-      {!fullscreen && HANDLE_DEFS.map(({ dir, css }) => (
+      {!fullscreen && !minimized && handles.map((h) => (
         <div
-          key={dir}
+          key={h.dir}
           data-no-drag
-          onPointerDown={onResizeDown(dir)}
-          onPointerMove={onResizeMove}
-          onPointerUp={onResizeUp}
-          style={{ position: 'absolute', cursor: CURSOR_MAP[dir], zIndex: 25, ...css }}
+          onPointerDown={h.onPointerDown}
+          onPointerMove={h.onPointerMove}
+          onPointerUp={h.onPointerUp}
+          style={h.style}
         />
       ))}
     </div>
