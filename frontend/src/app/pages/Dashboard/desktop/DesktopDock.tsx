@@ -8,6 +8,7 @@ import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayo
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
 import { useAppDispatch } from '@/shared/hooks';
+import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { getWebview } from '@/shared/browserRegistry';
 import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
 import { openCardContextMenu } from './openCardContextMenu';
@@ -66,6 +67,7 @@ function DesktopDock({
   onAddBrowser,
 }: DesktopDockProps): React.ReactElement | null {
   const dispatch = useAppDispatch();
+  const accent = useClaudeTokens().accent.primary;
   const dockBodyRef = useRef<HTMLDivElement | null>(null);
   // macOS Dock magnification: the tile under the cursor grows on a bell curve and its neighbors
   // SLIDE AWAY to make room (no horizontal pop-out, the part that read as wobble). Each tile that
@@ -195,7 +197,13 @@ function DesktopDock({
               cursor: 'pointer',
               overflow: 'hidden',
               flexShrink: 0,
-              ...(isActive && { outline: '2px solid #6aa2ff', outlineOffset: '2px' }),
+              transition: 'box-shadow 140ms ease, background 140ms ease',
+              // Same grammar as the minimized rail: soft accent tint, ONE accent inner ring as the carrier, and the icon lifts. The outer glow is decoration, never the signal.
+              ...(isActive && {
+                background: `linear-gradient(0deg, ${accent}1f, ${accent}1f), ${entry.tileBg}`,
+                boxShadow: `inset 0 0 0 1px ${accent}, 0 0 24px ${accent}26`,
+                '& > *': { filter: 'brightness(1.25)' },
+              }),
             }}
           >
             {/* Keyed by url so navigating to a new site re-arms the favicon after a previous one failed. */}
