@@ -1,8 +1,8 @@
-"""Diagnostic bundle for bug reports: one folder a user can drag into a GitHub issue.
+"""Routes for the Help panel: the product-knowledge feed, and the diagnostic bundle for bug reports.
 
-Everything is assembled LOCALLY and only revealed in the file manager; nothing uploads
-anywhere by itself. Contents are deliberately allowlisted (identity, versions, feature
-booleans, provider KINDS, counts, log tail) so no secret or API key can ever ride along.
+The bundle is assembled LOCALLY and only revealed in the file manager; nothing uploads anywhere by
+itself. Contents are deliberately allowlisted (identity, versions, feature booleans, provider KINDS,
+counts, log tail) so no secret or API key can ever ride along.
 """
 
 import base64
@@ -18,6 +18,7 @@ from typing import AsyncIterator, List
 from pydantic import BaseModel, ConfigDict, Field
 from typeguard import typechecked
 
+from backend.apps.help.knowledge import HelpKnowledgeResponse, build_knowledge_response
 from backend.config.Apps import SubApp
 from backend.config.paths import DATA_ROOT, SESSIONS_DIR
 
@@ -136,6 +137,12 @@ def p_build_report(req: BundleRequest) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+@help_app.router.get("/knowledge")
+@typechecked
+async def get_help_knowledge() -> HelpKnowledgeResponse:
+    return build_knowledge_response()
 
 
 @help_app.router.post("/bundle")

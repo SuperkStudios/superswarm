@@ -1,9 +1,8 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import { AnimatePresence, motion } from 'framer-motion';
-import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import BugReportOutlinedIcon from '@mui/icons-material/BugReportOutlined';
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
 import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
@@ -12,31 +11,14 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded';
 import ArrowOutwardRoundedIcon from '@mui/icons-material/ArrowOutwardRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
-import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import HelpAskBox from './HelpAskBox';
+import { FALLBACK_HELP_PROMPT, loadHelpKnowledge } from './helpKnowledge';
+import type { HelpKnowledge } from './helpSearch';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { createDraftSession, launchAndSendFirstMessage, type AgentConfig } from '@/shared/state/agentsSlice';
 import { addBrowserCard } from '@/shared/state/dashboardLayoutSlice';
 import { getLastDashboardId } from '@/shared/lastDashboardId';
 import { API_BASE } from '@/shared/config';
-
-// The Ask chat is a DEDICATED help chat, not a general agent: it knows the app's surfaces and stays
-// in support mode instead of launching into open-ended work.
-const HELP_SYSTEM_PROMPT = [
-  "You are OpenSwarm's help assistant, a dedicated support chat inside the app.",
-  'Answer questions about using OpenSwarm clearly and briefly, with the exact clicks or keys.',
-  'What you know about the app:',
-  '- Dashboards work like macOS Spaces: resting the cursor on the very top edge of the window reveals the spaces bar to switch dashboards or add one with +.',
-  '- The canvas holds cards: agent chats, browsers, built apps, and workflows. Cards have mac-style traffic lights; the green dot goes full screen, hovering it offers halves, quarters, and thirds.',
-  '- The dark dock on the left creates chats, browsers, and workflows, and opens History, Settings, and Apps.',
-  '- Cmd+K searches everything. Dictation: hold the mic in the Help pill (or the mic key) to talk; the words land where the cursor is.',
-  '- Settings (gear in the dock): Account, General (agent defaults), Appearance (theme, accent colors, text size), Privacy, Advanced, plus Models (connect Claude, ChatGPT, or Gemini subscriptions or API keys), Skills, Tools, Commands, and Usage.',
-  '- Workflows run agents on a schedule; open them from the dock calendar icon.',
-  'Behavior rules:',
-  '- Stay a help chat. Never start unrelated agent work or long tasks from here.',
-  '- You may read settings with the settings tools to answer questions about their setup; ask before changing anything.',
-  '- If something sounds like a bug, point them to Help then Report a bug, which packages diagnostics automatically.',
-  '- If they want real work done, tell them to start a regular chat from the dock or by typing on the canvas.',
-].join('\n');
 
 const REPO_ISSUES_URL = 'https://github.com/openswarm-ai/openswarm/issues/new';
 const DOCS_URL = 'https://docs.openswarm.com';
@@ -78,17 +60,25 @@ const HelpPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [reportText, setReportText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  const [knowledge, setKnowledge] = useState<HelpKnowledge | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Fetched on open so the instant answers are ready before the user finishes typing; cached across opens.
+  useEffect(() => {
+    let live = true;
+    void loadHelpKnowledge().then((k) => { if (live) setKnowledge(k); });
+    return () => { live = false; };
+  }, []);
 
   const startChat = useCallback((prompt: string): void => {
     const p = prompt.trim();
     if (!p) return;
     const dashboardId = getLastDashboardId() ?? undefined;
-    const config: AgentConfig = { name: 'Help', model, mode: 'agent', dashboard_id: dashboardId, system_prompt: HELP_SYSTEM_PROMPT };
+    const config: AgentConfig = { name: 'Help', model, mode: 'agent', dashboard_id: dashboardId, system_prompt: knowledge?.system_prompt || FALLBACK_HELP_PROMPT };
     const draftId = dispatch(createDraftSession({ mode: 'agent', model, dashboardId: dashboardId ?? '', setActive: true })).payload.draftId;
     void dispatch(launchAndSendFirstMessage({ draftId, config, prompt: p, mode: 'agent', model, expand: true }));
     onClose();
-  }, [dispatch, model, onClose]);
+  }, [dispatch, model, onClose, knowledge]);
 
   const submitReport = useCallback(async (kind: 'bug' | 'idea'): Promise<void> => {
     if (sending) return;
@@ -167,22 +157,7 @@ const HelpPanel: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             <Box sx={{ px: 1.25, pt: 0.75, pb: 0.5 }}>
               <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.95)' }}>How can we help?</Typography>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mx: 1, my: 0.75, px: 1.25, py: 0.75, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '10px' }}>
-              <AutoAwesomeRoundedIcon sx={{ fontSize: 15, color: 'rgba(255,255,255,0.5)' }} />
-              <Box
-                component="input"
-                value={ask}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAsk(e.target.value)}
-                onKeyDown={(e: React.KeyboardEvent) => { if (e.key === 'Enter') startChat(ask); e.stopPropagation(); }}
-                placeholder="Ask OpenSwarm anything..."
-                sx={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', color: 'rgba(255,255,255,0.92)', fontFamily: 'inherit', fontSize: '0.8125rem', '&::placeholder': { color: 'rgba(255,255,255,0.4)' } }}
-              />
-              {ask.trim() && (
-                <Box component="button" onClick={() => startChat(ask)} sx={{ display: 'flex', border: 'none', background: 'transparent', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', p: 0 }}>
-                  <ArrowUpwardRoundedIcon sx={{ fontSize: 16 }} />
-                </Box>
-              )}
-            </Box>
+            <HelpAskBox value={ask} knowledge={knowledge} onChange={setAsk} onAsk={() => startChat(ask)} />
             <Box component="button" onClick={() => { setReportText(''); setFiles([]); setPane('bug'); }} sx={rowSx}>
               <BugReportOutlinedIcon sx={iconSx} />
               <Box sx={{ flex: 1, minWidth: 0 }}>
