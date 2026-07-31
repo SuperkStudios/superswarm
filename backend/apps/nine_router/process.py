@@ -99,7 +99,7 @@ def is_running() -> bool:
         return False
 
 
-def p_nine_router_data_dir() -> str:
+def nine_router_data_dir() -> str:
     """Where 9Router persists machine-id + auth/cli-secret, the two files we
     hash into the /api/* auth token on 0.4.x. Mirrors 9Router's own default
     (DATA_DIR env, else ~/.9router on unix, %APPDATA%/9router on win) so we read
@@ -123,7 +123,7 @@ def harden_data_dir_permissions() -> None:
     every token refresh, which would drop a chmod on the file itself within the hour."""
     if os.name == "nt":
         return
-    data_dir = p_nine_router_data_dir()
+    data_dir = nine_router_data_dir()
     try:
         if not os.path.isdir(data_dir):
             return
@@ -152,7 +152,7 @@ def cli_auth_token() -> str | None:
     if not is_running():
         return None
     try:
-        data_dir = p_nine_router_data_dir()
+        data_dir = nine_router_data_dir()
         try:
             with open(os.path.join(data_dir, "machine-id"), encoding="utf-8") as f:
                 machine_id = f.read().strip()
@@ -200,7 +200,6 @@ def p_find_9router_dir() -> str | None:
     p_is_packaged = os.environ.get("OPENSWARM_PACKAGED") == "1"
 
     if p_is_packaged:
-        import sys
         p_resources = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         p_candidate = os.path.join(p_resources, "router")
         if os.path.isdir(p_candidate):
@@ -386,7 +385,7 @@ def read_persisted_connections() -> list[dict]:
     Empty list on any read problem."""
     try:
         import json as p_json
-        with open(os.path.join(p_nine_router_data_dir(), "db.json"), encoding="utf-8") as f:
+        with open(os.path.join(nine_router_data_dir(), "db.json"), encoding="utf-8") as f:
             db = p_json.load(f)
         return [c for c in (db.get("providerConnections") or []) if isinstance(c, dict)]
     except Exception:
