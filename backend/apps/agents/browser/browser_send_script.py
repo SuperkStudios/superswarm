@@ -97,6 +97,21 @@ async def complete_send(
                 {"xPercent": float(p_v["xPct"]), "yPercent": float(p_v["yPct"])}, browser_id, tab_id)
             send_name = str(p_v.get("name") or "submit")
             via = "container"
+        elif isinstance(p_v, dict) and p_v.get("disabled"):
+            # The submit EXISTS and the site is refusing it, so there is nothing here a better
+            # click could win: guessing at the literal "Send" would tap some other widget and the
+            # cleared composer would read as delivery. Measured live on reddit's r/test/submit,
+            # which is the whole shape of issue #94: its "post" button sits greyed out until the
+            # title field is filled, and every run blind-tapped a coordinate and claimed success.
+            # Handing back untouched is what lets the model do the one thing that CAN fix this,
+            # fill the rest of the form, and it costs a run that was never going to send anyway.
+            logger.info(f"[browser-sendscript] submit {str(p_v.get('name'))!r} is present but DISABLED; "
+                        f"the form is incomplete, handing to the model without clicking anything")
+            return {"clicked": False, "sent": False, "log": log,
+                    "note": (f"The {str(p_v.get('name')) or 'submit'} button is visible but disabled, so this "
+                             f"form is not ready to send: something it requires is still empty (often a "
+                             f"title or subject), or the editor never registered the typed text. Fill the "
+                             f"remaining fields, then send. Nothing was clicked and nothing was posted.")}
         else:
             p_why = p_v.get("why") if isinstance(p_v, dict) else "unreadable eval"
             logger.info(f"[browser-sendscript] container submit miss ({p_why}); by-name fallback")
@@ -192,7 +207,13 @@ async def run_send_script(
     prompt; the composed task carries the routing brief whose own quoted strings
     made every real payload look ambiguous (r242/r243)."""
     t0 = time.monotonic()
-    p_struct = os.environ.get("OSW_COMPOSER_STRUCT") == "1"
+    # Default ON as of 2026-07-31, on a measured sweep over the 9 sites this profile is genuinely
+    # signed into: composer reach 3/9 -> 6/9, submit resolution 2/9 -> 5/9. The name-based detector
+    # it backs up only sees a composer that carries a recognisable accessible name, which is a
+    # minority of the web; instagram reached its composer on this tier and nothing else. It costs
+    # one page scan on a page that has no composer, and every gate downstream (quoted payload,
+    # fill-seen-committed, two-sided receipt) is unchanged, so a wider search cannot loosen safety.
+    p_struct = os.environ.get("OSW_COMPOSER_STRUCT", "1") != "0"
 
     async def fresh_list() -> str:
         try:
@@ -225,8 +246,10 @@ async def run_send_script(
     if browser_send_parse.is_readonly(task_sans_brief) or (payload_source and browser_send_parse.is_readonly(payload_source)):
         logger.info("[browser-sendscript] decline: read-only directive in user request")
         return None
-    if browser_send_parse.looks_like_login_wall(current_url, state_text):
-        logger.info(f"[browser-sendscript] decline: login/auth wall ({(current_url or '')[:60]!r})")
+    p_wall = browser_send_parse.login_wall_reason(current_url, state_text)
+    if p_wall:
+        logger.info(f"[browser-sendscript] decline: login/auth wall ({(current_url or '')[:60]!r}) "
+                    f"triggered by {p_wall}")
         return None
     payload = browser_send_parse.quoted_payload(payload_source or task)
     if not payload:
@@ -299,7 +322,11 @@ async def run_send_script(
             # OSW_COMPOSER_REVEAL: let the finder take one reversible reveal action (open the
             # compose surface: a modal trigger, the first conversation, or a scroll) when the
             # composer isn't painted yet. It never commits a send, only opens a surface.
-            p_reveal = os.environ.get("OSW_COMPOSER_REVEAL") == "1"
+            # Default ON with the same sweep behind it: youtube's comment box exists only after a
+            # scroll and a click on its placeholder, so no amount of scanning a painted page finds
+            # it, and it was the single site this tier won. Reveal never commits anything: it opens
+            # a surface, and its HARDBLOCK list keeps it off send/submit/pay/delete controls.
+            p_reveal = os.environ.get("OSW_COMPOSER_REVEAL", "1") != "0"
             # A reveal that OPENS the first list item (a Reddit thread, a TikTok video, a GitHub
             # issue) is a full-page NAVIGATION: it kills the finder's own JS context, so that one
             # call can't reach the composer that only exists on the destination. When the finder
@@ -416,7 +443,22 @@ async def run_send_script(
     # found, fill committed); we stop before the irreversible click and report readiness.
     if os.environ.get("OSW_SENDSCRIPT_DRYRUN") == "1":
         send_ready = bool(send_index_in_state(state2, composer[0]))
-        logger.info(f"[browser-sendscript] DRYRUN: WOULD send (fill committed, send_button_listed={send_ready}); not clicking")
+        # Resolve the submit too, WITHOUT clicking it: the resolver is a page read that hands back
+        # coordinates, so a dry run can measure both halves of coverage (did we reach a composer AND
+        # can we find its send) on the great majority of sites we are never allowed to post to.
+        # Measuring only the fill is exactly how a resolver that could not find reddit's button hid
+        # behind a passing suite: every dry sweep said "ready to send" about a send that would have
+        # blind-tapped a coordinate.
+        r_ev = await execute_tool(
+            "BrowserEvaluate",
+            {"expression": browser_submit_click.container_submit_expression(payload)}, browser_id, tab_id)
+        p_v = browser_submit_click.parse_eval_value(r_ev)
+        p_ok = bool(isinstance(p_v, dict) and p_v.get("ok"))
+        p_named = (str(p_v.get("name") or "") if p_ok else
+                   str(p_v.get("why") or "unreadable eval") if isinstance(p_v, dict) else "unreadable eval")
+        logger.info(f"[browser-sendscript] DRYRUN: WOULD send (fill committed, "
+                    f"send_button_listed={send_ready}, submit_resolved={p_ok}, "
+                    f"submit_rank={p_v.get('rank') if p_ok else 0}, submit={p_named!r}); not clicking")
         return {"sent": False, "payload": payload, "log": log,
                 "note": "DRYRUN: filled + ready to send, stopped before the irreversible click"}
     # 3+4: the irreversible click + two-sided receipt, shared with the mid-loop takeover. A click error hands back to the model (fill committed, not sent); a clicked-but-unverified send returns sent=False so the caller never claims delivery.

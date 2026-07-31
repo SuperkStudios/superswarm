@@ -67,10 +67,11 @@ async def test_structural_finder_declines_when_no_editable(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_structural_off_by_default_never_calls_finder(monkeypatch):
-    """Flag off = the proven name path only; a name-less perception declines and the finder
-    is never invoked (the structural path can't perturb the default)."""
-    monkeypatch.delenv("OSW_COMPOSER_STRUCT", raising=False)
+async def test_the_structural_kill_switch_really_kills_it(monkeypatch):
+    """The finder went default-ON (composer reach 3/9 -> 6/9 measured live), so the thing worth
+    pinning is no longer the default but the escape hatch: =0 must fall all the way back to the
+    proven name path with the finder never invoked, so a site it upsets is fixable without a build."""
+    monkeypatch.setenv("OSW_COMPOSER_STRUCT", "0")
     ex, calls = make_struct_exec({"found": True, "filled": True, "selector": "x", "role": "textarea"})
     r = await ss.run_send_script(TASK, "b1", "", NAMELESS, ex, send_submit_index_in_state,
                                  payload_in_textbox, payload_source=TASK, current_url="https://example.com/")
@@ -131,11 +132,12 @@ async def test_cross_nav_no_retry_when_reveal_did_not_navigate(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reveal_flag_off_by_default(monkeypatch):
-    """Struct on but reveal unset: the finder is still called, but reveal=False, so it only
-    scans what's painted and never clicks a trigger (the safe default)."""
+async def test_the_reveal_kill_switch_leaves_the_finder_scanning_only(monkeypatch):
+    """Reveal also went default-ON (it is the only tier that reaches youtube's comment box, which
+    exists only after a scroll and a click). =0 must still call the finder but forbid it from
+    touching anything: scan what is painted, click no trigger."""
     monkeypatch.setenv("OSW_COMPOSER_STRUCT", "1")
-    monkeypatch.delenv("OSW_COMPOSER_REVEAL", raising=False)
+    monkeypatch.setenv("OSW_COMPOSER_REVEAL", "0")
     ex, calls = make_struct_exec({"found": False})
     await ss.run_send_script(TASK, "b1", "", NAMELESS, ex, send_submit_index_in_state,
                              payload_in_textbox, payload_source=TASK, current_url="https://example.com/")

@@ -2705,6 +2705,16 @@ async def run_browser_agent(
                             else:
                                 task = f"{task}\n\n[{p_cs.get('note')}]"
                                 logger.info(f"[browser-autosend {session_id}] post-fill send click ran, receipt unverified; model verifies")
+                        elif p_cs.get("note"):
+                            # Nothing was clicked, and the reason is worth more than the silence:
+                            # a disabled submit means the FORM is incomplete, which is the one
+                            # failure here the model can actually fix (fill the title, the subject,
+                            # the missing required field). Dropping this note left it re-clicking a
+                            # greyed-out button until the turn budget ran out.
+                            task = f"{task}\n\n[{p_cs.get('note')}]"
+                            action_log.extend(p_cs.get("log") or [])
+                            logger.info(f"[browser-autosend {session_id}] no send click ran; handed the "
+                                        f"model the reason instead")
 
                 # One gentle nudge per violating turn, folded onto the action that ran, so the model self-corrects next turn without us costing it one.
                 if rp_reminder_pending and tu.name in ACTION_TOOLS_REQUIRING_REPORT:

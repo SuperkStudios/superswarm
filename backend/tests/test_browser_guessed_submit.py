@@ -20,7 +20,8 @@ COMMITTED = f'[2]<textbox "Write a message" value="{PAYLOAD}">'
 CLEARED = '[2]<textbox "Write a message">\n[9]<button "Attach">'
 
 
-def make_exec(*, submit_listed: bool, container_ok: bool, visible_after: bool, cleared: bool = True):
+def make_exec(*, submit_listed: bool, container_ok: bool, visible_after: bool, cleared: bool = True,
+              container_disabled: bool = False):
     """A composer whose submit is or isn't resolvable, and a page that does or doesn't end up
     showing the payload. Records which route the tail took."""
     calls = {"clicks": [], "lists": 0, "evals": []}
@@ -40,6 +41,9 @@ def make_exec(*, submit_listed: bool, container_ok: bool, visible_after: bool, c
                 return {"text": f'{{"visible": {str(visible_after).lower()}}}'}
             if container_ok:                          # the container submit resolver
                 return {"text": '{"ok": true, "xPct": 50.0, "yPct": 50.0, "name": "Post"}'}
+            if container_disabled:                    # found it, the site is refusing it
+                return {"text": '{"ok": false, "disabled": true, "name": "post", '
+                                '"why": "the submit control is present but DISABLED"}'}
             return {"text": '{"ok": false, "why": "no submit control in the composer container"}'}
         calls["clicks"].append((tool, params))
         return {"ok": True}
@@ -103,3 +107,26 @@ async def test_a_composer_that_never_cleared_is_still_not_sent():
     composer still holds the text, nothing was sent no matter what else is on the page."""
     r, _ = await run_tail(submit_listed=False, container_ok=False, visible_after=True, cleared=False)
     assert r["sent"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_submit_clicks_absolutely_nothing():
+    """Issue #94, the reddit shape. Its submit is present and greyed out until the title is filled.
+    The old code read that as "no submit control", guessed at a button named Send, and the cleared
+    composer then read as a delivery for a post that never existed. A control the SITE is refusing
+    cannot be won by clicking harder, so the only correct move is to touch nothing."""
+    r, calls = await run_tail(submit_listed=False, container_ok=False, container_disabled=True,
+                              visible_after=False)
+    assert calls["clicks"] == [], "a disabled submit must not produce ANY click, guessed or otherwise"
+    assert r["clicked"] is False and r["sent"] is False
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_submit_says_what_is_actually_wrong():
+    """The note is the whole value of the fix: it is the one failure here a model can repair, by
+    filling whatever the form still wants. It has to name that, and it must not imply a post."""
+    r, _ = await run_tail(submit_listed=False, container_ok=False, container_disabled=True,
+                          visible_after=False)
+    note = str(r["note"]).lower()
+    assert "disabled" in note and "nothing was posted" in note
+    assert "title" in note, "name the usual culprit so the model knows where to look"

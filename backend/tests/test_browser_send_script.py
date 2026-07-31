@@ -58,14 +58,19 @@ X_COMPOSER = '[3]<textbox "Post your reply">\n[8]<button "Reply">'  # X, not Lin
 
 @pytest.mark.asyncio
 async def test_surface_gate_declines_when_no_composer_in_perception():
-    """STRUCTURAL gate: a page whose perception has no compose-shaped textbox and no
-    messaging opener declines UNTOUCHED, regardless of URL, so the script never fires
-    where a fill would land nowhere useful. Stays composer-less through the poll."""
+    """STRUCTURAL gate: a page whose perception has no compose-shaped textbox and no messaging
+    opener declines, regardless of URL, so the script never fires where a fill would land nowhere
+    useful. Stays composer-less through the poll.
+
+    Since the structural finder went default-ON it gets ONE look here (that is the point of it, and
+    it is how instagram reaches its composer at all). So "untouched" is now specifically: it may ASK
+    the page whether it has an editable, and it may do nothing else. No index fill, no click, no
+    send. The finder that answers "found nothing" must still put the run on the model path."""
     ex, calls = make_exec([NO_COMPOSER, NO_COMPOSER, NO_COMPOSER, NO_COMPOSER])
     r = await ss.run_send_script(TASK, "b1", "", NO_COMPOSER, ex, send_submit_index_in_state,
                                  payload_in_textbox, payload_source=TASK, current_url=FEED_URL)
     assert r is None
-    assert not calls["clicks"]
+    assert [t for t, _ in calls["clicks"]] == ["BrowserFindComposer"]
 
 
 @pytest.mark.asyncio
