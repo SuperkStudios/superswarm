@@ -293,17 +293,15 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
       {/* Body: intervention prompt OR scrollable action log */}
       {intervention ? (
         <Box sx={{ flex: 1, px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          {/* The run is stopped dead until somebody reads this, so it reads like a headline, not a footnote. The line that used to sit under it ("resolve it above, then click Done") was 10px at 30% opacity, the faintest thing on the card, and it only restated the amber button two rows down. */}
+          <Typography sx={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.92)', fontWeight: 500, lineHeight: 1.45 }}>
             {interventionProblem}
           </Typography>
           {interventionInstruction && (
-            <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', lineHeight: 1.4 }}>
+            <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.62)', lineHeight: 1.45 }}>
               {interventionInstruction}
             </Typography>
           )}
-          <Typography sx={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>
-            Resolve the issue in the browser above, then click Done.
-          </Typography>
           {showSkipInput ? (
             <Box sx={{ display: 'flex', gap: 0.5, mt: 'auto', pt: 0.5, alignItems: 'center' }}>
               <InputBase
