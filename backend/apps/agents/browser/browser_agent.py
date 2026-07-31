@@ -7,12 +7,14 @@ Sub-agents appear as visible AgentSession cards on the dashboard.
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
 import re
 import time
 from datetime import datetime
+from typing import List
 from uuid import uuid4
 
 import anthropic
@@ -291,10 +293,50 @@ async def borrow_signin_before_nav(url: str, browser_id: str) -> None:
         logger.info(f"[session-import] pre-nav borrow skipped: {type(exc).__name__}")
 
 
+# True browser time for one run, accumulated at the ONE place every browser command passes through.
+# It used to be summed from `elapsed_ms` on each action_log entry, which meant 18 call sites each
+# self-reported, and 18 of them wrote a literal 0: all of prestage, and the entire send-script tail.
+# So a run would print tools=113ms next to other=15626ms and send us hunting a dead-time ghost that
+# was mostly just browser work nobody counted. A mutable cell rather than a plain float because a
+# tool dispatched inside a sub-task gets a COPIED context, and a copied context cannot hand a new
+# number back to the parent; the shared list can.
+P_BROWSER_MS: contextvars.ContextVar[List[float]] = contextvars.ContextVar("osw_browser_ms")
+# Above this, a single browser command is worth naming in the log. A real navigation legitimately
+# takes a second or two, so this sits above that and only catches the ones worth explaining.
+P_SLOW_BROWSER_MS = 1500.0
+
+
+def browser_ms_used() -> int:
+    """Milliseconds spent in browser commands this run, 0 when nothing started a run."""
+    try:
+        return int(P_BROWSER_MS.get()[0])
+    except (LookupError, IndexError):
+        return 0
+
+
 async def execute_browser_tool(
     tool_name: str, tool_input: dict, browser_id: str, tab_id: str = "",
 ) -> dict:
     """Execute a browser tool via ws_manager directly (no MCP/HTTP round-trip)."""
+    p_t0 = time.time()
+    try:
+        return await p_execute_browser_tool(tool_name, tool_input, browser_id, tab_id)
+    finally:
+        p_ms = (time.time() - p_t0) * 1000
+        try:
+            P_BROWSER_MS.get()[0] += p_ms
+        except LookupError:
+            pass          # called outside a run (a probe, a test); nothing to bill it to
+        # A run's browser time is a single number, which tells you it was slow but never WHICH call
+        # was slow. One line per genuinely slow command costs nothing on a healthy run and turns
+        # "15s of tools" into a name and a duration.
+        if p_ms >= P_SLOW_BROWSER_MS:
+            logger.info(f"[browser-slow] {tool_name} took {int(p_ms)}ms -> {browser_id}")
+
+
+async def p_execute_browser_tool(
+    tool_name: str, tool_input: dict, browser_id: str, tab_id: str = "",
+) -> dict:
     if tool_name == "BrowserNavigate":
         await borrow_signin_before_nav(str((tool_input or {}).get("url") or ""), browser_id)
     # One greppable line naming the actual buttons/keys/selectors this call drives,
@@ -1291,6 +1333,7 @@ async def run_browser_agent(
     action_log: list[dict] = list(preloaded_reads)
     final_screenshot: str | None = None
     metrics_started_at = time.time()  # wall-clock start for per-task timing
+    P_BROWSER_MS.set([0.0])
     last_seen_url = initial_url or current_url or ""  # host source for skill record/replay
 
     # Loop detection state; sliding window of recent state-mutating tool calls
@@ -3045,7 +3088,7 @@ async def run_browser_agent(
                 f"[browser-route {session_id}] adoption: {p_adopted}/{len(route_hint_keys)} "
                 f"hinted steps matched by executed actions"
             )
-        p_tools_ms_total = sum(int(a.get("elapsed_ms", 0) or 0) for a in action_log)
+        p_tools_ms_total = browser_ms_used()
         p_wall_ms = int((time.time() - metrics_started_at) * 1000)
         p_err_tools = sum(1 for a in action_log if not a.get("ok", True))
         logger.info(
