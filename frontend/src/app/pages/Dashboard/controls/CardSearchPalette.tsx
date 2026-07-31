@@ -4,6 +4,7 @@ import InputBase from '@mui/material/InputBase';
 import Typography from '@mui/material/Typography';
 import SearchIcon from '@mui/icons-material/Search';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import TopLayerPortal from '@/shared/TopLayerPortal';
 import type { CardPosition, ViewCardPosition, BrowserCardPosition } from '@/shared/state/dashboardLayoutSlice';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 
@@ -125,7 +126,7 @@ const CardSearchPalette: React.FC<Props> = ({
   };
 
   return (
-    <>
+    <TopLayerPortal>
       {/* Backdrop */}
       <Box
         onClick={onClose}
@@ -228,7 +229,7 @@ const CardSearchPalette: React.FC<Props> = ({
           )}
         </Box>
       </Box>
-    </>
+    </TopLayerPortal>
   );
 };
 
