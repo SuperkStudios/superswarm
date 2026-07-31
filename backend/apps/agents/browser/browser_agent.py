@@ -3261,6 +3261,60 @@ async def evict_dead_card(dashboard_id: str | None, browser_id: str) -> None:
     await asyncio.sleep(P_EVICT_SETTLE_S)
 
 
+# The user can still scroll back through the last few results; everything older is a site-isolated renderer process held for nobody. Small on purpose.
+P_KEEP_IDLE_AGENT_CARDS = 3
+
+
+async def reap_idle_agent_cards(dashboard_id: str | None, keep: int = P_KEEP_IDLE_AGENT_CARDS) -> int:
+    """Drop all but the newest `keep` finished agent-spawned cards; returns how many went.
+
+    The frontend does fade a spawned card away when its parent finishes, but that removal is owned
+    by the card's OWN component: switch dashboards, quit, or unmount it inside the 3s timer and the
+    card survives, persisted, forever (measured: 8 stranded cards on one dashboard, 6 of them with
+    the keep-open flag clear, so every one was supposed to be gone). Each survivor remounts a live
+    webview on the next launch, and they accumulate for as long as the user keeps using the agent.
+    So the bound lives here, at the point of allocation, where no unmounted component can skip it.
+    Never touches a user's own card, and never one an agent is driving right now."""
+    if not dashboard_id:
+        return 0
+    try:
+        from backend.apps.agents.agent_manager import agent_manager
+        from backend.apps.dashboards.dashboards import load, save
+
+        dash = load(dashboard_id)
+        idle: list[tuple] = []
+        for bid, card in dash.layout.browser_cards.items():
+            spawned = getattr(card, "spawned_by", None)
+            if not spawned or bid in ACTIVE_AGENT_CARDS:
+                continue
+            parent = agent_manager.get_session(spawned)
+            if parent is not None and getattr(parent, "status", "") == "running":
+                continue
+            born = getattr(card, "created_at", None)
+            # A float key never raises the way comparing a naive datetime to an aware one would; cards from before the field existed sort to 0 and reap first, which is correct, they are the oldest thing here.
+            idle.append((born.timestamp() if born else 0.0, bid))
+        if len(idle) <= keep:
+            return 0
+        idle.sort()
+        doomed = [bid for _, bid in idle[:len(idle) - keep]]
+        for bid in doomed:
+            del dash.layout.browser_cards[bid]
+            DEAD_CARDS.discard(bid)
+        dash.updated_at = datetime.now()
+        save(dash)
+        for bid in doomed:
+            try:
+                await ws_manager.broadcast_global("dashboard:browser_card_evict", {
+                    "dashboard_id": dashboard_id, "browser_id": bid})
+            except Exception:
+                pass
+        logger.info(f"[browser-agent] reaped {len(doomed)} idle agent cards, kept newest {keep}: {doomed}")
+        return len(doomed)
+    except Exception as e:
+        logger.info(f"[browser-agent] idle-card reap skipped ({e})")
+        return 0
+
+
 async def p_create_browser_card(dashboard_id: str, url: str, parent_session_id: str | None = None) -> str:
     """Create a new browser card on the dashboard and return its browser_id."""
     from backend.apps.dashboards.dashboards import load, save
@@ -3281,6 +3335,7 @@ async def p_create_browser_card(dashboard_id: str, url: str, parent_session_id: 
         height=800,
         spawned_by=parent_session_id,
         dashboard_id=dashboard_id,
+        created_at=datetime.now(),
     )
     dashboard.layout.browser_cards[browser_id] = card
     dashboard.updated_at = datetime.now()
@@ -3366,6 +3421,8 @@ async def run_browser_agents(
             # the keychain, and holding a lock across that would serialize every card creation.
             await borrow_signin_before_nav(host_src, "")
             async with p_card_pick_lock:
+                # Before allocating, collect what earlier runs left behind, else a session's cards only ever grow.
+                await reap_idle_agent_cards(dashboard_id)
                 browser_id = find_reusable_card(dashboard_id, host_src, parent_session_id)
                 if browser_id:
                     reused = True
