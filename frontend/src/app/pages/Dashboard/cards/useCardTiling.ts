@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setTiledCard, clearTiledCard } from '@/shared/state/dashboardLayoutSlice';
-import { computeTiledStyle } from './tileZones';
+import { zoneRect } from '../canvas/tiledGeometry';
 
 // THE tiling rule set. Every card that can sit on the canvas (chat, app, browser, workflow, the
 // Settings window, the Workflows window) routes through this hook, so tiling behaves identically
@@ -50,14 +50,14 @@ export function useCardTiling({ cardId, getCanvasState, commitPosition }: CardTi
     else dispatch(setTiledCard({ cardId, zone: next }));
   }, [dispatch, cardId]);
 
-  // The rect a tiled card occupies, in canvas coords. computeTiledStyle sizes in SCREEN px (the card
-  // is counter-scaled by 1/zoom), so the footprint has to come back through the zoom.
+  // The rect a tiled card occupies, in canvas coords. zoneRect is in SCREEN px (the card is
+  // counter-scaled by 1/zoom), so the footprint has to come back through the zoom.
   const tiledFrame = useCallback((): CardFrame | null => {
     if (!zone) return null;
     const cam = getCanvasState();
-    const style = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
-    if (!style) return null;
-    return { x: style.left, y: style.top, w: style.width / cam.zoom, h: style.height / cam.zoom };
+    const r = zoneRect(zone);
+    if (!r) return null;
+    return { x: (r.x - cam.panX) / cam.zoom, y: (r.y - cam.panY) / cam.zoom, w: r.w / cam.zoom, h: r.h / cam.zoom };
   }, [zone, getCanvasState]);
 
   const untileForResize = useCallback((): CardFrame | null => {

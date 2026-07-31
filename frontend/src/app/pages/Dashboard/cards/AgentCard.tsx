@@ -35,7 +35,7 @@ import {
   clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
-import { useTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
@@ -660,19 +660,7 @@ const AgentCard: React.FC<Props> = ({
   };
 
   const isFullscreen = tileZone === 'fullscreen';
-  // Fullscreen pins the card to the viewport, so while tiled the geometry must track canvas pan/zoom.
-  // Chat cards read the camera via a getter (not props) to avoid re-rendering on every pan tick, so
-  // we subscribe to the pan event ONLY while tiled (one card at most), and read fresh camera then.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, session.id);
+  const isTiled = !!tileZone;
   // A collapsed chat can never stay tiled: collapsing while fullscreen left a white full-window shell
   // (the header collapse control still fires in full size view). Seal the state instead of the path.
   useEffect(() => {
@@ -751,6 +739,7 @@ const AgentCard: React.FC<Props> = ({
   const activeY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
   const activeW = localResize?.w ?? cardWidth;
   const activeH = localResize?.h ?? cardHeight;
+  const tiledSize = useTiledCard({ cardId: session.id, zone: tileZone, active: true, originX: activeX, originY: activeY, getCamera: getCanvasState });
 
   const isBranchSpawn = spawnFrom?.type === 'branch';
   const spawnInitial = spawnFrom
@@ -778,14 +767,14 @@ const AgentCard: React.FC<Props> = ({
     <motion.div
       layout={false}
       initial={spawnInitial}
-      animate={{ opacity: 1, scale: 1, left: tiledStyle ? tiledStyle.left : activeX, top: tiledStyle ? tiledStyle.top : activeY }}
+      animate={{ opacity: 1, scale: 1, left: activeX, top: activeY }}
       exit={exitAnimation}
       // While tiled the card is pinned to the viewport: position must track pan instantly, never spring.
-      transition={tiledStyle ? { ...spawnTransition, left: { duration: 0 }, top: { duration: 0 } } : spawnTransition}
+      transition={isTiled ? { ...spawnTransition, left: { duration: 0 }, top: { duration: 0 } } : spawnTransition}
       onPointerDownCapture={() => onBringToFront?.(session.id, 'agent')}
       style={{
         position: 'absolute',
-        zIndex: tiledStyle ? 999990 : isDragging || isResizing ? 999999 : cardZOrder,
+        zIndex: isTiled ? 999990 : isDragging || isResizing ? 999999 : cardZOrder,
       }}
     >
     <Box
@@ -821,7 +810,7 @@ const AgentCard: React.FC<Props> = ({
         // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
         // is hovered, but it floats ABOVE the card's box, so without this strip the pointer leaving
         // the card to reach it dropped :hover and the header died mid-approach (chats ungrabbable).
-        ...(expanded && !tiledStyle && !pillMode && {
+        ...(expanded && !isTiled && !pillMode && {
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -835,10 +824,9 @@ const AgentCard: React.FC<Props> = ({
         contain: 'layout style',
         // Each card gets its own compositor layer; hover-cross used to cost 100-200ms PRESENTATION by re-painting the whole canvas.
         willChange: 'transform',
-        width: pillMode ? 'fit-content' : tiledStyle ? tiledStyle.width : (localResize ? activeW : Math.max(cardWidth, MIN_W)),
-        height: tiledStyle ? tiledStyle.height : (localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto')),
-        transform: tiledStyle ? tiledStyle.transform : undefined,
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        width: pillMode ? 'fit-content' : tiledSize ? tiledSize.width : (localResize ? activeW : Math.max(cardWidth, MIN_W)),
+        height: tiledSize ? tiledSize.height : (localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto')),
+        transformOrigin: tiledSize ? '0 0' : undefined,
         bgcolor: c.bg.surface,
         border: isHighlighted
           ? `2px solid ${c.accent.primary}`
@@ -941,16 +929,16 @@ const AgentCard: React.FC<Props> = ({
         ...(expanded && {
           // Warm near-neutral dark (the Claude/ChatGPT family) instead of the saturated plum: long
           // reading sessions want a quiet ground; the accent system carries the brand color.
-          bgcolor: tiledStyle ? 'rgb(33,31,36)' : 'rgba(33,31,36,0.88)',
-          ...(tiledStyle ? {} : {
+          bgcolor: isTiled ? 'rgb(33,31,36)' : 'rgba(33,31,36,0.88)',
+          ...(isTiled ? {} : {
             backdropFilter: 'blur(24px) saturate(150%)',
             WebkitBackdropFilter: 'blur(24px) saturate(150%)',
           }),
           border: isFullscreen ? 'none' : isSelected ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.08)',
-          borderRadius: tiledStyle ? '12px' : '20px',
+          borderRadius: isTiled ? '12px' : '20px',
           boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
           // The hover header floats ABOVE the card; the root must not clip it (the chat body clips itself).
-          ...(tiledStyle ? {} : { overflow: 'visible' }),
+          ...(isTiled ? {} : { overflow: 'visible' }),
         }),
       }}
     >
@@ -995,7 +983,7 @@ const AgentCard: React.FC<Props> = ({
 
       {/* Grab band: the top sliver of an expanded card drags it, matching the "grab the window by
           its top edge" instinct; the pop-above header remains the labeled handle. */}
-      {expanded && !tiledStyle && !pillMode && (
+      {expanded && !isTiled && !pillMode && (
         <Box
           onPointerDown={handleDragPointerDown}
           onPointerMove={handleDragPointerMove}
@@ -1056,7 +1044,7 @@ const AgentCard: React.FC<Props> = ({
         onLostPointerCapture={abortDrag}
         sx={{
           ...(expanded
-            ? tiledStyle
+            ? isTiled
               ? {
                   // Fullscreen/tiled: no room above the card, so the scrim rides on top. Never hidden: in fullscreen the title and the lights are the only way out.
                   position: 'absolute',
@@ -1124,7 +1112,7 @@ const AgentCard: React.FC<Props> = ({
               alignItems: 'center',
               gap: 1,
               // Expanded titles wear the same glass bubble as the collapsed pill; a bare label floating over the canvas read as a stray caption.
-              ...(expanded && !tiledStyle && {
+              ...(expanded && !isTiled && {
                 alignSelf: 'flex-start',
                 flex: '0 1 auto',
                 // mr auto or the row's space-between flings the bubble to the far edge, away from the lights.
@@ -1138,7 +1126,7 @@ const AgentCard: React.FC<Props> = ({
                 WebkitBackdropFilter: GLASS_SURFACE_BLUR,
                 boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
               }),
-              ...(!(expanded && !tiledStyle) && { borderRadius: 1 }),
+              ...(!(expanded && !isTiled) && { borderRadius: 1 }),
             }}
           >
             <InlineEditableTitle
@@ -1226,7 +1214,7 @@ const AgentCard: React.FC<Props> = ({
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            borderRadius: tiledStyle ? undefined : '20px',
+            borderRadius: isTiled ? undefined : '20px',
           }}
         >
           <DarkTokensScope>

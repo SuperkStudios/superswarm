@@ -42,7 +42,7 @@ import {
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
-import { useTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import { getMinimizedShot, saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
@@ -234,17 +234,7 @@ const BrowserCard: React.FC<Props> = ({
   }, [dispatch, browserId]);
   const tiling = useCardTiling({ cardId: browserId, getCanvasState, commitPosition: commitCardPosition });
   const tileZone = tiling.zone;
-  // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, browserId);
+  const isTiled = !!tileZone;
   const onTile = tiling.applyZone;
 
   // ---- In-chat dock: while docked to an expanded chat, the card overlays the chat's slot rect.
@@ -1015,12 +1005,13 @@ const BrowserCard: React.FC<Props> = ({
             ? `0 0 0 1px #3b82f6, ${c.shadow.md}`
             : c.shadow.md;
 
-  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+  const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
   // Chat collapsed: its docked browser parks off-screen and lives on as the pill's frozen shot,
   // instead of teleporting back to wherever it sat before docking. The park waits for that shot:
   // an off-screen guest never paints again, and capturePage on one never settles (Electron 42).
-  const wantsDockPark = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+  const wantsDockPark = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
   const dockParked = wantsDockPark && pillShotSettled;
+  const tiledSize = useTiledCard({ cardId: browserId, zone: tileZone, active: !keepAliveHidden && !isMinimized && !dockParked, originX: displayX, originY: displayY, getCamera: getCanvasState });
   const pillShotPaintable = !!pillShotOwner && !dockParked && !isMinimized && !keepAliveHidden && !suspendedSnap;
   useEffect(() => {
     if (!pillShotPaintable) return undefined;
@@ -1098,12 +1089,12 @@ const BrowserCard: React.FC<Props> = ({
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
-        top: tiledStyle && !(keepAliveHidden || isMinimized || dockParked) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
-        transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
-        width: tiledStyle ? tiledStyle.width : dockActive ? dockRect!.w : displayW,
-        height: tiledStyle ? tiledStyle.height : dockActive ? dockRect!.h : displayH,
+        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: dockActive ? dockRect!.y : (dragging ? cardY : displayY),
+        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
+        transformOrigin: tiledSize ? '0 0' : undefined,
+        width: tiledSize ? tiledSize.width : dockActive ? dockRect!.w : displayW,
+        height: tiledSize ? tiledSize.height : dockActive ? dockRect!.h : displayH,
         borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
         border: agentBorder,
         bgcolor: c.bg.surface,
@@ -1111,7 +1102,7 @@ const BrowserCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

@@ -24,7 +24,7 @@ import WindowControls from './WindowControls';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
 import { viewCardMenuRows } from './viewCardMenuRows';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
-import { useTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { API_BASE, getAuthToken } from '@/shared/config';
@@ -167,17 +167,7 @@ const DashboardViewCard: React.FC<Props> = ({
   useEffect(() => {
     if (previewDeferred && (isSelected || interactive)) dispatch(activateViewCardPreview(cardKey));
   }, [previewDeferred, isSelected, interactive, cardKey, dispatch]);
-  // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardKey);
+  const isTiled = !!tileZone;
   const isFullscreen = tileZone === 'fullscreen';
 
   // ---- In-chat dock (mirrors BrowserCard): while docked to an expanded chat, overlay its slot rect.
@@ -635,7 +625,8 @@ const DashboardViewCard: React.FC<Props> = ({
   const dragTx = dragging ? displayX - cardX : 0;
   const dragTy = dragging ? displayY - cardY : 0;
 
-  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !isMinimized;
+  const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !isMinimized;
+  const tiledSize = useTiledCard({ cardId: cardKey, zone: tileZone, active: !isMinimized, originX: displayX, originY: displayY, getCamera: getCanvasState });
 
   return (
     <Box
@@ -675,12 +666,12 @@ const DashboardViewCard: React.FC<Props> = ({
         // Minimized apps live in the right-edge rail, so the card itself parks off-canvas at full size
         // (same trick as browser cards) and restores to exactly the geometry it left.
         pointerEvents: isMinimized ? 'none' : undefined,
-        left: isMinimized ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
-        top: isMinimized ? -100000 : (tiledStyle ? tiledStyle.top : (dragging ? cardY : displayY)),
-        width: tiledStyle ? tiledStyle.width : displayW,
-        height: tiledStyle ? tiledStyle.height : displayH,
-        transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        left: isMinimized ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: isMinimized ? -100000 : (dragging ? cardY : displayY),
+        width: tiledSize ? tiledSize.width : displayW,
+        height: tiledSize ? tiledSize.height : displayH,
+        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
+        transformOrigin: tiledSize ? '0 0' : undefined,
         borderRadius: isFullscreen ? '12px' : `${c.radius.lg}px`,
         border: isHighlighted
           ? `2px solid ${c.accent.primary}`
@@ -702,7 +693,7 @@ const DashboardViewCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

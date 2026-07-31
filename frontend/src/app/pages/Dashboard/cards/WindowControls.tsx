@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
-import { TILE_GROUPS, TILE_ZONES, ZONE_LABELS } from './tileZones';
+import { TILE_ZONES } from '../canvas/tiledGeometry';
+import { TILE_GROUPS, ZONE_LABELS } from './tileZones';
 
 interface WindowControlsProps {
   onClose: () => void;

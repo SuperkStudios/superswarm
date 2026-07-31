@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { useTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import { useCanvasWindowResize } from './useCanvasWindowResize';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
@@ -66,17 +66,6 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
 }) => {
   const c = useClaudeTokens();
   const tiling = useCardTiling({ cardId, getCanvasState, commitPosition: onCommitPosition });
-  // A tile pins the card to the viewport, so its geometry must track pan/zoom like the tiled
-  // agent/browser cards; reuse the exact same helper. Subscribe to pan only while tiled.
-  const [, forceTick] = useState(0);
-  useEffect(() => {
-    if (!tiling.isTiled) return undefined;
-    const onPan = (): void => forceTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tiling.isTiled]);
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tiling.zone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardId);
 
   // ---- Drag (title bar is the handle) ----
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number; startPanX: number; startPanY: number } | null>(null);
@@ -169,6 +158,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   const dy = (localResize?.y ?? localDragPos?.y ?? cardY) + mdDy;
   const dw = localResize?.w ?? cardWidth;
   const dh = localResize?.h ?? cardHeight;
+  const tiledSize = useTiledCard({ cardId, zone: tiling.zone, active: !minimized, originX: dx, originY: dy, getCamera: getCanvasState });
 
   const border = isHighlighted ? `2px solid ${highlightColor}` : isSelected ? '2px solid #3b82f6' : `1px solid ${c.border.subtle}`;
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
@@ -196,14 +186,12 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         willChange: 'transform',
         // Parked windows go off-canvas rather than unmounting, so Settings keeps its form and Workflows its view state.
         pointerEvents: minimized ? 'none' : undefined,
-        // Belt and braces: leaving fullscreen tears down the tiled-style hook, whose cleanup strips the inline left/top React just wrote, and visibility is the one park signal it never touches.
         visibility: minimized ? 'hidden' : undefined,
-        left: minimized ? -100000 : tiledStyle ? tiledStyle.left : dx,
-        top: minimized ? -100000 : tiledStyle ? tiledStyle.top : dy,
-        width: tiledStyle ? tiledStyle.width : dw,
-        height: tiledStyle ? tiledStyle.height : dh,
-        transform: minimized ? undefined : tiledStyle ? tiledStyle.transform : undefined,
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        left: minimized ? -100000 : dx,
+        top: minimized ? -100000 : dy,
+        width: tiledSize ? tiledSize.width : dw,
+        height: tiledSize ? tiledSize.height : dh,
+        transformOrigin: tiledSize ? '0 0' : undefined,
         background,
         border: tiling.isFullscreen ? 'none' : border,
         borderRadius: c.radius.lg,
@@ -211,7 +199,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: tiledSize ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.3s ease, border-color 0.2s ease',
       }}
     >

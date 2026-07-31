@@ -6,6 +6,7 @@ import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
+import { syncTiledGeometry } from '../../canvas/tiledGeometry';
 
 const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 3.0;
@@ -89,6 +90,9 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       // Dot RADIUS lives in the committed backgroundImage and lags to gesture-end; at 1-4px dots the mid-pinch error is invisible and skipping the per-frame gradient rebuild keeps this handler pure style writes.
       grid.style.backgroundSize = `${spacing}px ${spacing}px`;
     }
+    // Tiled cards are counter-transformed against this exact camera, in this exact task: same write,
+    // same frame, so the tile and the canvas can never be painted from two different cameras.
+    syncTiledGeometry(stateRef.current);
   }, []);
 
   // Per-frame camera write during a gesture: DOM + live ref only, NO React commit. Dragging cards re-pin to the cursor off the pan-changed event, same signal the old per-frame commit produced.
