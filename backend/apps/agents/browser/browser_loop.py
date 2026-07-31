@@ -298,6 +298,25 @@ def is_removal_task(task: str) -> bool:
     return bool(P_DELETE_INTENT_RE.search(task or ""))
 
 
+# Verbs that put something OUT into the world, as opposed to merely acting on a page. Deliberately
+# narrower than task_is_send, which only means "not an informational ask" and so counts a plain
+# "click the Search button": gating the skill store on THAT stopped the agent learning any click
+# task at all, which is the whole speed mechanism.
+P_PUBLISH_INTENT_RE = re.compile(
+    r"\b(post|submit|publish|send|tweet|comment|repl(?:y|ies)|dm|message)\b", re.I)
+
+
+def is_publish_task(task: str) -> bool:
+    """A task whose deliverable LEAVES the machine (a post, a reply, a message).
+
+    Keeps an unconfirmed write out of the skill store. Measured live on reddit: the composer filled,
+    `send_button_found=False`, the agent blind-tapped a coordinate, nothing posted, and a one-step
+    "skill" (click the body textbox) still got recorded for "create a text post and submit it".
+    Replaying that reports done in one turn while posting nothing, the same ghost the removal gate
+    already exists to stop."""
+    return bool(P_PUBLISH_INTENT_RE.search(task or ""))
+
+
 def deliverable_is_informational(summary: str, task: str = "") -> bool:
     """True if the run's final answer is GATHERED CONTENT (a list/report the model
     extracted or judged), not a short action confirmation. A deterministic replay

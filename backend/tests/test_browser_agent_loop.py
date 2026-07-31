@@ -1913,3 +1913,47 @@ def test_login_wall_skip_does_not_remember(monkeypatch, tmp_path):
     p_run_settled(task="log into acme", browser_id="b1", model="sonnet")
 
     assert not H.is_authenticated("acme.example")
+
+
+def test_an_unconfirmed_post_teaches_us_nothing(monkeypatch):
+    """Measured live on reddit 2026-07-31: the composer filled, then `send_button_found=False`, the
+    agent blind-tapped a coordinate, NOTHING posted, and it still recorded a one-step "skill" (click
+    the body textbox) for "create a text post and submit it". Replaying that reports done in one turn
+    while posting nothing, the ghost class the removal gate already exists to stop.
+
+    Uses the SAME tool shape as test_skill_is_recorded_then_replayed_with_zero_llm_calls, which does
+    record, so the only difference here is that the ask publishes and the send never confirmed."""
+    import backend.apps.agents.browser.browser_skills as SK
+    SK.clear()
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    task = "submit the post"
+    primary = FakeLLM([
+        Resp([p_rp("find the control"), p_tu("BrowserListInteractives")]),
+        Resp([p_rp("click it"), p_tu("BrowserClickIndex", index=1)]),
+        Resp([Blk("text", "Done, I sent it for you.")], stop_reason="end_turn"),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    asyncio.run(BA.run_browser_agent(
+        task=task, browser_id="b1", model="sonnet", initial_url=DOC_URL,
+    ))
+    assert SK.find_skill("docs.google.com", task) is None, (
+        "an unconfirmed publish must never be distilled into a replayable skill")
+
+
+def test_a_plain_click_task_still_learns(monkeypatch):
+    """The publish gate must stay narrow. `task_is_send` only means "not an informational ask", so
+    keying on it stopped the agent learning ANY click task, which is the whole speed mechanism."""
+    import backend.apps.agents.browser.browser_skills as SK
+    SK.clear()
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    primary = FakeLLM([
+        Resp([p_rp("find it"), p_tu("BrowserListInteractives")]),
+        Resp([p_rp("click it"), p_tu("BrowserClickIndex", index=1)]),
+        Resp([Blk("text", "Done, clicked Search.")], stop_reason="end_turn"),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    asyncio.run(BA.run_browser_agent(
+        task="click the Search button", browser_id="b1", model="sonnet", initial_url=DOC_URL,
+    ))
+    assert SK.find_skill("docs.google.com", "click the Search button") is not None, (
+        "a non-publishing action task must still be learnable")

@@ -44,6 +44,7 @@ from backend.apps.agents.browser.browser_loop import (
     completion_is_honest,
     deliverable_is_informational,
     interstitial_dismiss_target,
+    is_publish_task,
     is_removal_task,
     recoverable_tool_error,
     replay_recheck_is_safe,
@@ -3069,8 +3070,17 @@ async def run_browser_agent(
         # turns while deleting nothing (measured live: repeat deletes all ghost-succeeded). Deletes
         # always run fresh through the delete-dispatch.
         p_is_removal = is_removal_task(skill_key_task)
-        logger.info(f"[browser-skills] record gate: honest={honest} informational={informational} removal={p_is_removal}")
-        if honest and not informational and not p_is_removal:
+        # The same trap as removals, one door down. A submit that never confirmed leaves an action_log
+        # of navigating and typing with NO send in it, so what distills is the scaffolding around a
+        # thing that did not happen. Measured live on reddit: the composer filled, then
+        # `send_button_found=False`, the agent blind-tapped a coordinate, nothing posted, and it still
+        # recorded a one-step "skill" (click the body textbox) for "create a text post and submit it".
+        # Replaying that reports done in one turn while posting nothing. A write only teaches us
+        # something once it actually went through.
+        p_unconfirmed_send = is_publish_task(skill_key_task) and not send_confirmed
+        logger.info(f"[browser-skills] record gate: honest={honest} informational={informational} "
+                    f"removal={p_is_removal} unconfirmed_send={p_unconfirmed_send}")
+        if honest and not informational and not p_is_removal and not p_unconfirmed_send:
             try:
                 rec_host = browser_skills.host_of(last_seen_url)
                 p_distilled = browser_skills.distill_steps(action_log)
