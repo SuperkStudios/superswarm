@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 ToolRunner = Callable[[str, Dict, str, str], Awaitable[Dict]]
 
 P_MIN_PAGE_CHARS = 500
-P_MAX_PAGE_CHARS = 24000
+MAX_PAGE_CHARS = 24000
 P_TEXT_TIMEOUT_S = 8.0
 P_AUX_TIMEOUT_S = 12.0
 # Prestage's click often lands here while the SPA is still hydrating (measured: a
@@ -107,8 +107,12 @@ async def run_read_script(
             prev = -1
             text, url = "", ""
             for attempt in range(MAX_READS):
+                # Ask for the whole budget we can actually use. The handler's default is sized for the
+                # main loop's context, not for this one aux call, and taking that default meant half
+                # our reads arrived pre-truncated with the answer sitting just past the cut.
                 r = await asyncio.wait_for(
-                    execute_tool("BrowserGetText", {}, browser_id, tab_id), timeout=P_TEXT_TIMEOUT_S)
+                    execute_tool("BrowserGetText", {"max_chars": MAX_PAGE_CHARS}, browser_id, tab_id),
+                    timeout=P_TEXT_TIMEOUT_S)
                 text = str(r.get("text") or "") if isinstance(r, dict) and "error" not in r else ""
                 url = str(r.get("url") or "") if isinstance(r, dict) else ""
                 if len(text) >= P_MIN_PAGE_CHARS and 0 <= prev <= len(text) <= prev * (1 + P_STABLE_GROWTH):
@@ -131,7 +135,7 @@ async def run_read_script(
                 aux_client.messages.create(
                     model=aux_model, max_tokens=500, temperature=0, system=P_SYSTEM,
                     messages=[{"role": "user", "content": (
-                        f"Request: {task[:1200]}\n\nPage text:\n{page[:P_MAX_PAGE_CHARS]}")}],
+                        f"Request: {task[:1200]}\n\nPage text:\n{page[:MAX_PAGE_CHARS]}")}],
                 ), timeout=P_AUX_TIMEOUT_S))
             ms = int((time.monotonic() - t0) * 1000)
             answer = is_answer(reply)

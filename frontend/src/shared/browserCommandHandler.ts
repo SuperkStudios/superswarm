@@ -257,9 +257,20 @@ async function evalViaExecuteJs(wv: BrowserWebview, code: string): Promise<any> 
   return first.value;
 }
 
-async function handleGetText(wv: BrowserWebview): Promise<Record<string, any>> {
+// What the MAIN model loop gets. Every read lands in its context, so this stays modest on purpose.
+const GET_TEXT_DEFAULT_CHARS = 15000;
+// Ceiling for a caller that asks for more. The read script (one cheap aux call with its own context)
+// asks for its full budget: measured, 9 of 18 of its reads came back at EXACTLY 15000 chars, meaning
+// cut off, and on a reddit thread the comment scores sit after the post body, so they were never in
+// the text it was handed. It then declined, and a 100-220s model loop went scrolling for what we had
+// truncated ourselves.
+const GET_TEXT_MAX_CHARS = 30000;
+
+async function handleGetText(wv: BrowserWebview, params: Record<string, any> = {}): Promise<Record<string, any>> {
+  const asked = Number(params.max_chars) || GET_TEXT_DEFAULT_CHARS;
+  const cap = Math.min(Math.max(asked, 1000), GET_TEXT_MAX_CHARS);
   const text: string = await evalInPage(wv,
-    'document.body.innerText.substring(0, 15000)'
+    `document.body.innerText.substring(0, ${cap})`
   );
   // Sampled HERE (on a read), not on navigate: by the time the agent reads the page, the SPA's XHR/fetch have fired, so routes are actually captured.
   const routes_available = await countSafeRoutes(wv);
@@ -2028,7 +2039,7 @@ async function runBrowserCommand(
         result = await handleScreenshot(wv, params);
         break;
       case 'get_text':
-        result = await handleGetText(wv);
+        result = await handleGetText(wv, params);
         break;
       case 'get_console':
         result = await handleGetConsole(wv);

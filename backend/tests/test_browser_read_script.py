@@ -163,3 +163,27 @@ def test_a_page_that_simply_lacks_the_field_is_still_an_answer():
         "Title: 'How to open a jar'. Channel: Kitchen Tips. 1.2M views.",
     ):
         assert rs.is_answer(answer) == answer, answer
+
+
+def test_the_read_asks_for_its_whole_budget_not_the_loops_default():
+    """The handler's default char cap is sized for the MAIN model loop's context, not for this one
+    cheap aux call. Taking that default silently truncated the page: measured, 9 of 18 live reads
+    came back at EXACTLY the cap, and on a reddit thread the comment scores sit past the post body,
+    so the answer was cut off and a 100-220s model loop went looking for what we had removed."""
+    asked = {}
+
+    async def run_tool(name, params, browser_id, tab_id):
+        asked.update(params or {})
+        return {"text": PAGE, "url": "https://www.reddit.com/r/x/comments/1/y"}
+
+    aux = Aux("The top comment is by u/someone with 387 upvotes.")
+    out = asyncio.run(rs.run_read_script(aux, "m", "top comment?", "b1", "t1", run_tool))
+    assert out == "The top comment is by u/someone with 387 upvotes."
+    assert asked.get("max_chars") == rs.MAX_PAGE_CHARS, (
+        f"read must ask for the {rs.MAX_PAGE_CHARS} chars it can use, asked {asked!r}")
+
+
+def test_the_budget_it_asks_for_is_the_budget_it_sends():
+    """If the ask and the send drift apart we are either paying for text we discard, or discarding
+    text we paid for. They are the same number by construction."""
+    assert rs.MAX_PAGE_CHARS >= 24000
