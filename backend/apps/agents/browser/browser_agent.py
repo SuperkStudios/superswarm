@@ -58,6 +58,11 @@ P_BATCHABLE_ACTION_TOOLS = {
 }
 
 # Injected when the spin backstop trips: one chance to land a real answer from what's already gathered, instead of the loop cutting it off mid-thought.
+# Past this many seconds a run stops exploring and delivers what it has. Sits above every run that
+# actually succeeded in the 2026-07-30 sweeps (slowest good one: 142.8s) and well under the 300s
+# that produced an empty answer. It nudges rather than kills, so the answer still comes from Done.
+P_WALL_BUDGET_S = 180.0
+
 P_WRAPUP_NUDGE = (
     "You've spent several turns looking without finishing. Wrap up NOW: call Done with the "
     "best answer you can give from what you've ALREADY gathered. For a find/list ask, put the "
@@ -2042,10 +2047,19 @@ async def run_browser_agent(
                         p_novel_read = True
 
             # Out of turn budget with no answer yet: nudge a wrap-up so a long-running gather delivers what it has via Done at the cap, instead of the for-loop ending on the model's half-finished sentence. Same one-shot channel.
-            if turn >= MAX_TURNS - 4 and not wrapup_nudged and not done_called and not send_confirmed:
+            # Turns are not minutes: 40 turns bounds the LOOP but not the clock, and nobody waits
+            # five minutes for a browser errand they could have run themselves. Measured: a reddit
+            # task ground past 300s and returned NOTHING, while every run that ever succeeded that
+            # day finished inside 143s. So the clock gets the same nudge the turn cap gets, and the
+            # answer arrives partial-but-honest instead of never.
+            p_out_of_time = time.time() - metrics_started_at > P_WALL_BUDGET_S
+            if ((turn >= MAX_TURNS - 4 or p_out_of_time)
+                    and not wrapup_nudged and not done_called and not send_confirmed):
                 wrapup_nudged = True
                 wrapup_pending = True
-                logger.info(f"[browser-agent {session_id}] turn budget low ({turn}/{MAX_TURNS}); nudging wrap-up")
+                p_why = (f"wall budget spent ({int(time.time() - metrics_started_at)}s)" if p_out_of_time
+                         else f"turn budget low ({turn}/{MAX_TURNS})")
+                logger.info(f"[browser-agent {session_id}] {p_why}; nudging wrap-up")
 
             # Spin backstop: a pure-perception turn that ISN'T gathering new data is wasted (re-verifying a send, or re-looking at the same page). Bound it.
             if p_turn_actions == 0:

@@ -367,6 +367,40 @@ def test_spin_backstop_nudges_a_clean_wrapup_instead_of_a_midthought(monkeypatch
     assert result.get("done") is True
 
 
+def test_a_run_out_of_wall_time_delivers_what_it_has(monkeypatch):
+    # Turns bound the LOOP, not the clock. Measured 2026-07-30: a reddit task ground past 300s and
+    # returned an EMPTY answer, while every run that succeeded that day finished inside 143s. The
+    # clock now gets the same one-shot wrap-up nudge the turn cap gets, so a long errand comes back
+    # partial-but-honest instead of never.
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    monkeypatch.setattr(BA, "P_WALL_BUDGET_S", 0.0)  # over budget from the first turn
+    primary = FakeLLM([
+        Resp([p_rp("looking around"), p_tu("BrowserGetText")]),
+        Resp([p_tu("Done", message="Top comment is from u/someone, 387 upvotes.")]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    result = asyncio.run(BA.run_browser_agent(task="read the top comment", browser_id="b1", model="sonnet"))
+    assert any("Wrap up NOW" in json.dumps(c["messages"]) for c in primary.calls), \
+        "a run past its wall budget must be nudged to deliver"
+    assert result["summary"] == "Top comment is from u/someone, 387 upvotes."
+    assert result.get("done") is True
+
+
+def test_a_quick_run_is_never_nudged_by_the_wall_budget(monkeypatch):
+    # The budget must not touch normal runs, or it would cut short the very tasks it exists to save.
+    BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
+    assert BA.P_WALL_BUDGET_S >= 150, "budget must sit above the slowest run that actually succeeded"
+    primary = FakeLLM([
+        Resp([p_rp("reading"), p_tu("BrowserGetText")]),
+        Resp([p_tu("Done", message="It costs $9.99.")]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    result = asyncio.run(BA.run_browser_agent(task="what does it cost", browser_id="b1", model="sonnet"))
+    assert not any("Wrap up NOW" in json.dumps(c["messages"]) for c in primary.calls), \
+        "a fast run must never see the wrap-up nudge"
+    assert result["summary"] == "It costs $9.99."
+
+
 def test_early_perception_is_not_cut_short_before_any_action(monkeypatch):
     # Orienting on a cold/slow page can take several look-only turns; the stall backstop must NOT fire before the agent has done anything (it only bounds a POST-action spin). Here 7 perception turns precede the finish; all must run.
     BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
