@@ -58,6 +58,50 @@ async def test_free_route_zeroes_cost():
 
 
 @pytest.mark.asyncio
+async def test_error_shaped_result_raises_after_accounting():
+    # is_error / error_* subtype used to be consumed as a normal end-of-turn (silent success).
+    session, turn, thinking = p_fixt()
+    m = ResultMessage(subtype="error_during_execution", duration_ms=100, duration_api_ms=80,
+                      is_error=True, num_turns=1, session_id="sdk-1",
+                      usage={"input_tokens": 100, "output_tokens": 50},
+                      errors=["tool crashed hard"])
+    with patch.object(result_message.ws_manager, "send_to_session", new=AsyncMock()):
+        with pytest.raises(result_message.TurnResultError) as exc:
+            await result_message.handle_result_message(
+                m, session, session.id, turn, thinking, {}, "sonnet", "anthropic", load_settings())
+    assert "tool crashed hard" in str(exc.value)
+    assert session.tokens["output"] == 50  # token accounting still lands before the raise
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_and_refusal_stops_raise_even_with_success_subtype():
+    for stop_reason, phrase in (("max_tokens", "maximum output length"), ("refusal", "refused")):
+        session, turn, thinking = p_fixt()
+        m = ResultMessage(subtype="success", duration_ms=100, duration_api_ms=80,
+                          is_error=False, num_turns=1, session_id="sdk-1",
+                          usage={"input_tokens": 10, "output_tokens": 5}, stop_reason=stop_reason)
+        with patch.object(result_message.ws_manager, "send_to_session", new=AsyncMock()):
+            with pytest.raises(result_message.TurnResultError) as exc:
+                await result_message.handle_result_message(
+                    m, session, session.id, turn, thinking, {}, "sonnet", "anthropic", load_settings())
+        assert phrase in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_success_result_never_raises():
+    # The mutation pair for the error detection: the happy path must stay a normal completion.
+    session, turn, thinking = p_fixt()
+    m = ResultMessage(subtype="success", duration_ms=100, duration_api_ms=80,
+                      is_error=False, num_turns=1, session_id="sdk-1",
+                      usage={"input_tokens": 10, "output_tokens": 5}, stop_reason="end_turn",
+                      permission_denials=[{"tool_name": "Bash"}])
+    with patch.object(result_message.ws_manager, "send_to_session", new=AsyncMock()):
+        await result_message.handle_result_message(
+            m, session, session.id, turn, thinking, {}, "sonnet", "anthropic", load_settings())
+    assert session.tokens["output"] == 5
+
+
+@pytest.mark.asyncio
 async def test_resets_per_turn_state_at_completion():
     session, turn, thinking = p_fixt()
     turn.output_tokens = 999
