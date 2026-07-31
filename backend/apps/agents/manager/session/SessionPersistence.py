@@ -10,7 +10,6 @@ from typeguard import typechecked
 from backend.apps.agents.core.models import AgentSession
 from backend.apps.agents.core.ws_manager import ws_manager
 from backend.apps.agents.manager.session.session_store import (
-    delete_session_file,
     load_all_session_data,
     save_session,
 )
@@ -85,8 +84,8 @@ class SessionPersistence(AgentManagerProtocol):
                 session.status = "completed" if (p_last is not None and p_last.role == "assistant") else "stopped"
             session.pending_approvals = []
             apply_context_window(session)
+            # The file stays on disk: unlinking here made RAM the only copy, so any non-graceful shutdown (updater SIGKILL, crash) destroyed the chat.
             self.sessions[session.id] = session
-            delete_session_file(sid)
             restored += 1
         # One summary line, not one per session (startups with hundreds of sessions flooded the console).
         if restored:

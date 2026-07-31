@@ -161,11 +161,10 @@ class SessionLifecycle(AgentManagerProtocol):
         """Return paginated, optionally filtered summaries of sessions, live ones included."""
         # A malformed file (a list, a bare string) would blow up data.get and 500 the whole endpoint.
         all_data = [pair for pair in load_all_session_data() if isinstance(pair[1], dict)]
-        # Restore deletes the file of every still-open session at boot, so the live ones exist ONLY in memory; without merging them your current chats simply are not in history.
-        on_disk = {data.get("id", sid) for sid, data in all_data}
+        # Live sessions usually also have a disk copy (boot restore keeps the file), but the disk copy lags the turn in flight; memory wins the dedupe because it is never staler.
+        in_memory = set(self.sessions.keys())
+        all_data = [pair for pair in all_data if pair[0] not in in_memory and pair[1].get("id") not in in_memory]
         for sid, session in self.sessions.items():
-            if sid in on_disk:
-                continue
             all_data.append((sid, {
                 "id": sid,
                 "name": session.name,
@@ -234,10 +233,10 @@ class SessionLifecycle(AgentManagerProtocol):
             return list(self.sessions.values())
         # Memory first, then promote on-disk sessions for this dashboard, but ONLY ones the dashboard's layout still has a card for. A session keeps its dashboard_id when its card is deleted, so promoting by tag alone resurrected deleted chats on every reopen; the layout's cards are the real source of truth for what's on the board. Imported sessions ARE in the layout, so they still surface, and this bounds the disk read to once per session per run, like resume_session.
         result = [s for s in self.sessions.values() if s.dashboard_id == dashboard_id]
-        seen = {s.id for s in result}
         card_ids = self.p_dashboard_card_ids(dashboard_id)
         for sid, data in load_all_session_data():
-            if sid in seen or sid not in card_ids:
+            # Skip anything already in memory (not just this dashboard's slice): promoting a stale disk copy over a live session would clobber its in-flight state.
+            if sid in self.sessions or sid not in card_ids:
                 continue
             if data.get("dashboard_id") != dashboard_id:
                 continue
