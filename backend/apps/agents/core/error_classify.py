@@ -1,6 +1,8 @@
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
+import anthropic
+import httpx
 from typeguard import typechecked
 
 # Secret shapes that must never ride along when we ship a stderr tail or an error string to telemetry. own_key mode means the subprocess stderr can echo the user's OWN provider key, so this scrub is the wall between a diagnostic and a key leak; over-redacting is fine, leaking is not.
@@ -199,13 +201,31 @@ def parse_retry_after(exc: BaseException, extra_text: str = "") -> int | None:
     return None
 
 
+# Transports that fail without saying anything a pattern can read. anthropic.APIConnectionError
+# stringifies to the bare "Connection error." (no code, no ECONNRESET, nothing), so the list above
+# scores it NON-transient and the retry never fires: one network hiccup then throws away a run that
+# was already several steps in, and the user is told "Error: Connection error." Measured live, twice
+# in one sweep. A transport failure is transient by construction, so classify it by TYPE, which no
+# rewording upstream can break.
+P_TRANSIENT_EXC_TYPES: Tuple[type, ...] = (
+    anthropic.APIConnectionError,   # APITimeoutError subclasses this
+    anthropic.InternalServerError,
+    httpx.TransportError,           # connect/read/write/pool timeouts, protocol errors
+    ConnectionError,
+    TimeoutError,
+)
+
+
 @typechecked
 def is_transient_capacity_error(exc: BaseException, extra_text: str = "") -> bool:
     # The Claude CLI's underlying ProcessError stringifies to a generic "Command failed with exit code 1 / Check stderr output for details"; the real cause (rate_limit_error / No pool capacity available / 429 / overloaded) only surfaces in the subprocess's stderr stream, which we capture via the SDK's `stderr` callback and pass in as extra_text. Classify against both so we catch capacity errors regardless of which channel carried the message.
     combined = f"{exc!s}\n{extra_text}".strip()
-    if not combined:
+    if combined and NON_TRANSIENT_PATTERNS.search(combined):
         return False
-    if NON_TRANSIENT_PATTERNS.search(combined):
+    # Ahead of the empty-string bail on purpose: what the exception IS doesn't depend on whether it bothered to say anything.
+    if isinstance(exc, P_TRANSIENT_EXC_TYPES):
+        return True
+    if not combined:
         return False
     if TRANSIENT_CAPACITY_PATTERNS.search(combined):
         return True
