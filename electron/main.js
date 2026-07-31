@@ -1523,19 +1523,8 @@ function sendToRenderer(channel, ...args) {
 // Maps a raw electron-updater error to a short, human message. The raw error
 // is always logged separately for debugging; users only ever see this. No
 // em/en dashes per repo style.
-function friendlyUpdateError(err) {
-  const raw = ((err && err.message) || String(err) || '').toLowerCase();
-  // Experimental on, but there is no pre-release to fetch: the provider 404s
-  // looking for the pre-release channel feed. This is the screenshot case.
-  if (autoUpdater && autoUpdater.allowPrerelease &&
-      /404|not found|cannot find|no published|latest.*\.yml/.test(raw)) {
-    return 'No experimental builds available right now. You are on the latest version.';
-  }
-  if (/net::|enotfound|etimedout|econnrefused|getaddrinfo|network/.test(raw)) {
-    return 'Could not reach the update server. Check your connection and try again.';
-  }
-  return 'Update check failed. Please try again later.';
-}
+// Extracted to electron/updateErrorMessage.js so the mapping is unit-testable; see node --test there.
+const { friendlyUpdateError } = require('./updateErrorMessage');
 
 // Phase 2 provenance: which exact commit produced this build. The build
 // scripts write electron/build-info.json (gitignored, regenerated each build)
@@ -1645,7 +1634,7 @@ function setupAutoUpdater() {
     // but no pre-release exists": the GitHub provider 404s hunting a pre-release
     // feed, which is not a real failure, just "nothing newer to install".
     console.error('Auto-update error:', err);
-    const friendly = friendlyUpdateError(err);
+    const friendly = friendlyUpdateError(err, !!(autoUpdater && autoUpdater.allowPrerelease));
     cachedUpdateStatus = { status: 'error', info: null, error: friendly };
     sendToRenderer('update-error', friendly);
   });
