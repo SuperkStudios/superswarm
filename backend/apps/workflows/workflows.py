@@ -1022,7 +1022,8 @@ async def edit_agent_session(workflow_id: str):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
-        allowed_tools=[],
+        # None, not [], since an empty list is now a real restriction and would leave this chat with no tools at all.
+        allowed_tools=None,
         dashboard_id=edit_dashboard_id,
         workflow_edit_id=wf.id,
     )
@@ -1261,9 +1262,8 @@ async def test_run_workflow(workflow_id: str, body: dict):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=executor._resolve_system_prompt(wf),
-        allowed_tools=resolved_allowed_tools if resolved_allowed_tools is not None else [
-            "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
-        ],
+        # A test run has to hit the same tool surface the scheduled run will, or the test proves nothing.
+        allowed_tools=resolved_allowed_tools,
         dashboard_id=test_dashboard_id,
     )
     session = await agent_manager.launch_agent(config)
@@ -1400,7 +1400,8 @@ async def schedule_agent_session(workflow_id: str):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
-        allowed_tools=[],
+        # None, not [], since an empty list is now a real restriction and would leave this chat with no tools at all.
+        allowed_tools=None,
         dashboard_id=wf.dashboard_id,
     )
     session = await agent_manager.launch_agent(config)

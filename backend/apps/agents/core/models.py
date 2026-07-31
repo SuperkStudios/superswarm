@@ -9,7 +9,8 @@ class AgentConfig(BaseModel):
     mode: str = "agent"
     provider: str = "anthropic"
     system_prompt: Optional[str] = None
-    allowed_tools: list[str] = Field(default_factory=lambda: ["Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion"])
+    # None means "whatever the mode allows". A list is an actual restriction and IS enforced at launch, so it must stay None unless the caller really means to narrow the surface.
+    allowed_tools: Optional[list[str]] = None
     max_turns: Optional[int] = None
     target_directory: Optional[str] = None
     dashboard_id: Optional[str] = None
