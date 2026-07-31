@@ -2077,6 +2077,15 @@ app.whenReady().then(async () => {
     // Don't block on Widevine; it'll resolve in the background. Logged above.
     widevinePromise.catch(() => {});
 
+    // Warm the dictation model well after the window is up, so the first phrase transcribes at the
+    // steady-state speed instead of waiting out a cold model load under the user's keypress.
+    const warmDelay = setTimeout(() => {
+      const started = whisperService.warmInBackground(voiceResourceDir(), voiceUserDataDir());
+      console.log(started ? '[voice] warming whisper in background' : '[voice] no model yet, skipping boot warm');
+    }, 8000);
+    if (warmDelay.unref) warmDelay.unref();
+    powerMonitor.on('resume', () => { whisperService.reprimeAfterWake().catch(() => {}); });
+
     // Affiliate / referral handshake. On the very first launch, opens the
     // landing page's /welcome handler in the user's default browser so the
     // browser (which holds the install_token from the click on the
