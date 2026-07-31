@@ -113,8 +113,7 @@ function MinimizedTile({ entry, accent, selected, onRestore, onClose, onTile, on
             opacity: 0, pointerEvents: 'none', transition: 'opacity 140ms ease',
           }}
         >
-          {/* The singleton windows only know fullscreen, so their green light must not offer half/quarter zones it can't honor. */}
-          <WindowControls onClose={onClose} onMinimize={onRestore} onTile={onTile} tiled={false} noTileMenu={entry.kind === 'workflows' || entry.kind === 'settings'} />
+          <WindowControls onClose={onClose} onMinimize={onRestore} onTile={onTile} tiled={false} />
         </Box>
       </Box>
 

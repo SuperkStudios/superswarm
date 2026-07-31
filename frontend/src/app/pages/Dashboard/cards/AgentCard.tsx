@@ -32,11 +32,11 @@ import {
   clearGlowingAgentCard,
   removeCard,
   recordClosedCard,
-  setTiledCard,
   clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
-import { useTiledStyle, computeTiledStyle } from './tileZones';
+import { useTiledStyle } from './tileZones';
+import { useCardTiling } from './useCardTiling';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
 import { agentCardMenuRows } from './agentCardMenuRows';
@@ -446,20 +446,29 @@ const AgentCard: React.FC<Props> = ({
   const justDraggedRef = useRef(false);
   const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
 
-  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[session.id]);
+  const commitPosition = useCallback((x: number, y: number) => {
+    dispatch(setCardPosition({ sessionId: session.id, x, y }));
+  }, [dispatch, session.id]);
+  const tiling = useCardTiling({ cardId: session.id, getCanvasState, commitPosition });
+  const tileZone = tiling.zone;
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? cardX, origY: popped?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(session.id, 'agent');
-  }, [cardX, cardY, onDragStart, session.id, getCanvasState, tileZone]);
+  }, [cardX, cardY, cardWidth, onDragStart, session.id, getCanvasState, tiling]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -564,17 +573,10 @@ const AgentCard: React.FC<Props> = ({
       let effectiveY = cardY;
       let effectiveW = Math.max(cardWidth, MIN_W);
       let effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
-      // Grabbing an edge of a TILED chat exits the tile and resizes from exactly where it sat,
-      // macOS-style; without this the handles resized the stale free-position geometry.
-      if (tileZone) {
-        const cam = getCanvasState();
-        const ts = computeTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
-        if (ts) {
-          effectiveX = ts.left; effectiveY = ts.top;
-          effectiveW = ts.width / cam.zoom; effectiveH = ts.height / cam.zoom;
-          setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
-          dispatch(clearTiledCard(session.id));
-        }
+      const popped = tiling.untileForResize();
+      if (popped) {
+        effectiveX = popped.x; effectiveY = popped.y; effectiveW = popped.w; effectiveH = popped.h;
+        setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
       }
       resizeRef.current = {
         dir,
@@ -588,7 +590,7 @@ const AgentCard: React.FC<Props> = ({
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, expanded, tileZone, dispatch, session.id],
+    [cardX, cardY, cardWidth, cardHeight, expanded, tiling],
   );
 
   const computeResize = useCallback(
@@ -678,11 +680,9 @@ const AgentCard: React.FC<Props> = ({
   }, [tileZone, expanded, dispatch, session.id]);
   const onMinimize = (): void => { dispatch(collapseSession(session.id)); };
   const onTile = (zone: string): void => {
-    if (zone === 'restore') dispatch(clearTiledCard(session.id));
-    else {
-      if (!expanded) dispatch(expandSession(session.id));
-      dispatch(setTiledCard({ cardId: session.id, zone }));
-    }
+    // A collapsed chat has nothing to fill a zone with, so tiling one opens it first.
+    if (zone !== 'restore' && !expanded) dispatch(expandSession(session.id));
+    tiling.applyZone(zone);
   };
 
 
@@ -1114,7 +1114,7 @@ const AgentCard: React.FC<Props> = ({
             onPointerDown={(e) => e.stopPropagation()}
             sx={{ display: 'flex', alignItems: 'center', mr: 0.75, flexShrink: 0 }}
           >
-            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} noTileMenu={tileZone === 'fullscreen'} />
+            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
           </Box>
           <Box
             sx={{

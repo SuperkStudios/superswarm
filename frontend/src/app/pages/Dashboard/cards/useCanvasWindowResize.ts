@@ -41,12 +41,14 @@ interface CanvasWindowResizeArgs {
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   onCommitPosition: (x: number, y: number) => void;
   onCommitSize: (width: number, height: number) => void;
+  /** Tiling rule 5: grabbing a grip breaks the tile and resizes from the rect the card was filling. */
+  untileForResize?: () => { x: number; y: number; w: number; h: number } | null;
 }
 
 /** The 8 edge/corner grips of a canvas window: preview the new rect locally, commit it on release. */
 export function useCanvasWindowResize({
   cardX, cardY, cardWidth, cardHeight, minWidth, minHeight,
-  getCanvasState, onCommitPosition, onCommitSize,
+  getCanvasState, onCommitPosition, onCommitSize, untileForResize,
 }: CanvasWindowResizeArgs): CanvasWindowResizeState {
   const resizeRef = useRef<{ dir: ResizeDir; sx0: number; sy0: number; ox: number; oy: number; ow: number; oh: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -56,10 +58,15 @@ export function useCanvasWindowResize({
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    resizeRef.current = { dir, sx0: e.clientX, sy0: e.clientY, ox: cardX, oy: cardY, ow: cardWidth, oh: cardHeight };
+    const popped = untileForResize?.() ?? null;
+    if (popped) setLive(popped);
+    resizeRef.current = {
+      dir, sx0: e.clientX, sy0: e.clientY,
+      ox: popped?.x ?? cardX, oy: popped?.y ?? cardY, ow: popped?.w ?? cardWidth, oh: popped?.h ?? cardHeight,
+    };
     setIsResizing(true);
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, [cardX, cardY, cardWidth, cardHeight]);
+  }, [cardX, cardY, cardWidth, cardHeight, untileForResize]);
 
   const compute = useCallback((e: React.PointerEvent) => {
     if (!resizeRef.current) return null;

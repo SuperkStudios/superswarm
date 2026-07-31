@@ -6,7 +6,6 @@ import {
   setSettingsCardPosition,
   setSettingsCardSize,
   toggleMinimizeCard,
-  toggleSettingsCardFullscreen,
   SETTINGS_CARD_ID,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
@@ -44,7 +43,6 @@ const SettingsAppCard: React.FC<Props> = ({
 }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
-  const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
   const isMinimized = useAppSelector((s) => !!s.dashboardLayout.minimizedCards[SETTINGS_CARD_ID]);
 
   const commitPosition = useCallback((x: number, y: number) => {
@@ -67,7 +65,6 @@ const SettingsAppCard: React.FC<Props> = ({
       cardWidth={cardWidth}
       cardHeight={cardHeight}
       cardZOrder={cardZOrder}
-      fullscreen={isFullscreen}
       minimized={isMinimized}
       minWidth={MIN_W}
       minHeight={MIN_H}
@@ -85,7 +82,7 @@ const SettingsAppCard: React.FC<Props> = ({
       onCommitPosition={commitPosition}
       onCommitSize={commitSize}
     >
-      {({ header, onTileZone }) => (
+      {({ header, tileZone, onTileZone }) => (
         <>
           <div
             onPointerDown={header.onPointerDown}
@@ -106,17 +103,7 @@ const SettingsAppCard: React.FC<Props> = ({
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center' }}
             >
-              <WindowControls
-                onClose={close}
-                onMinimize={minimize}
-                onTile={(zone) => {
-                  if (zone === 'fullscreen' || zone === 'restore') { dispatch(toggleSettingsCardFullscreen()); return; }
-                  if (isFullscreen) dispatch(toggleSettingsCardFullscreen());
-                  onTileZone(zone);
-                }}
-                tiled={isFullscreen}
-                noTileMenu={isFullscreen}
-              />
+              <WindowControls onClose={close} onMinimize={minimize} onTile={onTileZone} tiled={!!tileZone} />
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <SettingsIcon sx={{ fontSize: 18, color: c.text.secondary, display: 'block' }} />

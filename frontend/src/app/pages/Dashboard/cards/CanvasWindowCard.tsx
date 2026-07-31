@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { TILE_ZONES, useTiledStyle } from './tileZones';
+import { useTiledStyle } from './tileZones';
+import { useCardTiling } from './useCardTiling';
 import { useCanvasWindowResize } from './useCanvasWindowResize';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 
 const DRAG_THRESHOLD = 3;
 const SNAP_GRID = 24;
-const TILE_GAP = 8;
 
 /** Drag handlers the window hands down to whatever renders its title bar. */
 export interface CanvasWindowHeader {
@@ -21,6 +21,9 @@ export interface CanvasWindowHeader {
 
 export interface CanvasWindowChrome {
   header: CanvasWindowHeader;
+  /** The window's current tile zone, or undefined while it floats free. */
+  tileZone: string | undefined;
+  /** A TILE_ZONES key, 'fullscreen', or 'restore'. */
   onTileZone: (zone: string) => void;
 }
 
@@ -31,7 +34,6 @@ interface CanvasWindowCardProps {
   selectType: string;
   selectName: string;
   cardX: number; cardY: number; cardWidth: number; cardHeight: number; cardZOrder?: number;
-  fullscreen?: boolean;
   /** Parked in the minimized rail: stays mounted (and keeps its state) off-canvas instead of unmounting. */
   minimized?: boolean;
   minWidth: number; minHeight: number;
@@ -55,7 +57,7 @@ interface CanvasWindowCardProps {
 const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   cardId, cardType, selectType, selectName,
   cardX, cardY, cardWidth, cardHeight, cardZOrder = 0,
-  fullscreen = false, minimized = false, minWidth, minHeight, background, highlightColor,
+  minimized = false, minWidth, minHeight, background, highlightColor,
   getCanvasState,
   isSelected = false, isHighlighted = false, multiDragDelta = null,
   onCardSelect, onDragStart, onDragMove, onDragEnd, onBringToFront,
@@ -63,17 +65,18 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   children,
 }) => {
   const c = useClaudeTokens();
-  // Fullscreen pins the card to the viewport, so its geometry must track pan/zoom like the tiled
-  // agent/browser cards; reuse the exact same helper. Subscribe to pan only while fullscreen.
+  const tiling = useCardTiling({ cardId, getCanvasState, commitPosition: onCommitPosition });
+  // A tile pins the card to the viewport, so its geometry must track pan/zoom like the tiled
+  // agent/browser cards; reuse the exact same helper. Subscribe to pan only while tiled.
   const [, forceTick] = useState(0);
   useEffect(() => {
-    if (!fullscreen) return undefined;
+    if (!tiling.isTiled) return undefined;
     const onPan = (): void => forceTick((t) => t + 1);
     window.addEventListener('openswarm:canvas-pan-changed', onPan);
     return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [fullscreen]);
+  }, [tiling.isTiled]);
   const cam = getCanvasState();
-  const fsStyle = useTiledStyle(fullscreen ? 'fullscreen' : undefined, cam.panX, cam.panY, cam.zoom, getCanvasState, cardId);
+  const tiledStyle = useTiledStyle(tiling.zone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardId);
 
   // ---- Drag (title bar is the handle) ----
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number; startPanX: number; startPanY: number } | null>(null);
@@ -85,18 +88,23 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
 
   const onHeaderPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (fullscreen) return;  // pinned to the viewport, no drag until restored
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag], button, [role="button"], input, textarea, select')) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? cardX, origY: popped?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     didDrag.current = false;
     setIsDragging(true);
     onDragStart?.(cardId, cardType);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }, [cardId, cardType, cardX, cardY, fullscreen, onDragStart, getCanvasState]);
+  }, [cardId, cardType, cardX, cardY, cardWidth, tiling, onDragStart, getCanvasState]);
 
   const onHeaderPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragState.current) return;
@@ -152,17 +160,8 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
 
   const { isResizing, live: localResize, handles } = useCanvasWindowResize({
     cardX, cardY, cardWidth, cardHeight, minWidth, minHeight,
-    getCanvasState, onCommitPosition, onCommitSize,
+    getCanvasState, onCommitPosition, onCommitSize, untileForResize: tiling.untileForResize,
   });
-
-  const onTileZone = useCallback((zone: string) => {
-    const z = TILE_ZONES[zone];
-    const vp = document.querySelector('[data-canvas-viewport]')?.getBoundingClientRect();
-    if (!z || !vp) return;
-    const camera = getCanvasState();
-    onCommitPosition((z.x * vp.width + TILE_GAP - camera.panX) / camera.zoom, (z.y * vp.height + TILE_GAP - camera.panY) / camera.zoom);
-    onCommitSize((z.w * vp.width - TILE_GAP * 2) / camera.zoom, (z.h * vp.height - TILE_GAP * 2) / camera.zoom);
-  }, [getCanvasState, onCommitPosition, onCommitSize]);
 
   const mdDx = (!isDragging && !isResizing && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
   const mdDy = (!isDragging && !isResizing && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
@@ -199,20 +198,20 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         pointerEvents: minimized ? 'none' : undefined,
         // Belt and braces: leaving fullscreen tears down the tiled-style hook, whose cleanup strips the inline left/top React just wrote, and visibility is the one park signal it never touches.
         visibility: minimized ? 'hidden' : undefined,
-        left: minimized ? -100000 : fsStyle ? fsStyle.left : dx,
-        top: minimized ? -100000 : fsStyle ? fsStyle.top : dy,
-        width: fsStyle ? fsStyle.width : dw,
-        height: fsStyle ? fsStyle.height : dh,
-        transform: minimized ? undefined : fsStyle ? fsStyle.transform : undefined,
-        transformOrigin: fsStyle ? fsStyle.transformOrigin : undefined,
+        left: minimized ? -100000 : tiledStyle ? tiledStyle.left : dx,
+        top: minimized ? -100000 : tiledStyle ? tiledStyle.top : dy,
+        width: tiledStyle ? tiledStyle.width : dw,
+        height: tiledStyle ? tiledStyle.height : dh,
+        transform: minimized ? undefined : tiledStyle ? tiledStyle.transform : undefined,
+        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
         background,
-        border: fsStyle ? 'none' : border,
+        border: tiling.isFullscreen ? 'none' : border,
         borderRadius: c.radius.lg,
         boxShadow: (isDragging || isResizing) ? c.shadow.lg : c.shadow.md,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: fsStyle ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.3s ease, border-color 0.2s ease',
       }}
     >
@@ -225,10 +224,11 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
           onLostPointerCapture: abortDrag,
           dragging: isDragging,
         },
-        onTileZone,
+        tileZone: tiling.zone,
+        onTileZone: tiling.applyZone,
       })}
 
-      {!fullscreen && !minimized && handles.map((h) => (
+      {!minimized && handles.map((h) => (
         <div
           key={h.dir}
           data-no-drag

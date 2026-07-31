@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { store } from '@/shared/state/store';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -39,13 +38,12 @@ import {
   moveBrowserTab,
   recordClosedCard,
   toggleMinimizeCard,
-  setTiledCard,
-  clearTiledCard,
   setBrowserDocked,
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
-import { useTiledStyle, computeTiledStyle } from './tileZones';
+import { useTiledStyle } from './tileZones';
+import { useCardTiling } from './useCardTiling';
 import { getMinimizedShot, saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
@@ -231,7 +229,11 @@ const BrowserCard: React.FC<Props> = ({
   );
   const browserAgentSession = useAppSelector(selectBrowserAgentSession);
   const isMinimized = useAppSelector((s) => Boolean(s.dashboardLayout.minimizedCards[browserId]));
-  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[browserId]);
+  const commitCardPosition = useCallback((x: number, y: number) => {
+    dispatch(setBrowserCardPosition({ browserId, x, y }));
+  }, [dispatch, browserId]);
+  const tiling = useCardTiling({ cardId: browserId, getCanvasState, commitPosition: commitCardPosition });
+  const tileZone = tiling.zone;
   // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
   const [tileTick, setTileTick] = useState(0);
   useEffect(() => {
@@ -243,10 +245,7 @@ const BrowserCard: React.FC<Props> = ({
   void tileTick;
   const cam = getCanvasState();
   const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, browserId);
-  const onTile = useCallback((zone: string): void => {
-    if (zone === 'restore') dispatch(clearTiledCard(browserId));
-    else dispatch(setTiledCard({ cardId: browserId, zone }));
-  }, [dispatch, browserId]);
+  const onTile = tiling.applyZone;
 
   // ---- In-chat dock: while docked to an expanded chat, the card overlays the chat's slot rect.
   // Pure geometry in the shared canvas layer (same DOM node), so the webview never remounts.
@@ -780,17 +779,22 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? dockRect?.x ?? cardX, origY: popped?.y ?? dockRect?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(browserId, 'browser');
-  }, [cardX, cardY, onDragStart, browserId, getCanvasState, tileZone, dockRect]);
+  }, [cardX, cardY, cardWidth, onDragStart, browserId, getCanvasState, tiling, dockRect]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -912,27 +916,16 @@ const BrowserCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      // Grabbing an edge of a TILED card exits the tile and resizes from exactly where it sat,
-      // macOS-style; without this the handles resized the stale free-position geometry.
-      let origX = cardX, origY = cardY, origW = cardWidth, origH = cardHeight;
-      const zone = store.getState().dashboardLayout.tiledCards[browserId];
-      if (zone) {
-        const cam = getCanvasState();
-        const ts = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
-        if (ts) {
-          origX = ts.left; origY = ts.top; origW = ts.width / cam.zoom; origH = ts.height / cam.zoom;
-          setLocalResize({ x: origX, y: origY, w: origW, h: origH });
-          dispatch(clearTiledCard(browserId));
-        }
-      }
+      const popped = tiling.untileForResize();
+      if (popped) setLocalResize(popped);
       resizeRef.current = {
         dir, startX: e.clientX, startY: e.clientY,
-        origX, origY, origW, origH,
+        origX: popped?.x ?? cardX, origY: popped?.y ?? cardY, origW: popped?.w ?? cardWidth, origH: popped?.h ?? cardHeight,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, getCanvasState, dispatch],
+    [cardX, cardY, cardWidth, cardHeight, tiling],
   );
 
   const computeResize = useCallback(
@@ -1177,7 +1170,7 @@ const BrowserCard: React.FC<Props> = ({
             onMinimize={handleMinimize}
             onTile={onTile}
             tiled={!!tileZone}
-            noTileMenu={tileZone === 'fullscreen'}
+           
           />
         </Box>
         <Box

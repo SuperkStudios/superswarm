@@ -34,7 +34,6 @@ const WorkflowsAppCard: React.FC<Props> = ({
 }) => {
   const WC = useWC();
   const dispatch = useAppDispatch();
-  const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.workflowsHub?.fullscreen);
   const isMinimized = useAppSelector((s) => !!s.dashboardLayout.minimizedCards[WORKFLOWS_HUB_ID]);
 
   // Keep fonts/keyframes available while the card is mounted.
@@ -58,7 +57,6 @@ const WorkflowsAppCard: React.FC<Props> = ({
       cardWidth={cardWidth}
       cardHeight={cardHeight}
       cardZOrder={cardZOrder}
-      fullscreen={isFullscreen}
       minimized={isMinimized}
       minWidth={MIN_W}
       minHeight={MIN_H}
@@ -76,8 +74,8 @@ const WorkflowsAppCard: React.FC<Props> = ({
       onCommitPosition={commitPosition}
       onCommitSize={commitSize}
     >
-      {({ header, onTileZone }) => (
-        <WorkflowsAppContent header={header} onTileZone={onTileZone} />
+      {({ header, tileZone, onTileZone }) => (
+        <WorkflowsAppContent header={header} tileZone={tileZone} onTileZone={onTileZone} />
       )}
     </CanvasWindowCard>
   );

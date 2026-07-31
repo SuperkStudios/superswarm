@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { clearWorkflowsAppTarget, closeWorkflowsApp, toggleMinimizeCard, toggleWorkflowsHubFullscreen, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
+import { clearWorkflowsAppTarget, closeWorkflowsApp, toggleMinimizeCard, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from '@/app/pages/Dashboard/cards/WindowControls';
 import {
   fetchWorkflows, fetchAllRuns, fetchPausedState, fetchActiveRuns, fetchDeletedWorkflows,
@@ -18,11 +18,10 @@ import ComposeView from './ComposeView';
 import TrashView from './TrashView';
 
 // The three-pane Workflows body plus its title bar. The card wraps this with drag/resize geometry and passes the drag handlers in; the title bar lives here because Share needs to know which workflow is open.
-const WorkflowsAppContent: React.FC<{ header: CardHeader; onTileZone?: (zone: string) => void }> = ({ header, onTileZone }) => {
+const WorkflowsAppContent: React.FC<{ header: CardHeader; tileZone: string | undefined; onTileZone: (zone: string) => void }> = ({ header, tileZone, onTileZone }) => {
   const WC = useWC();
   const dispatch = useAppDispatch();
   const target = useAppSelector((s) => s.dashboardLayout.workflowsAppTarget);
-  const isFullscreen = useAppSelector((s) => !!s.dashboardLayout.workflowsHub?.fullscreen);
   const dashboardId = useAppSelector((s) => s.tempState.lastDashboardId) || undefined;
 
   const [mode, setMode] = useState<AppMode>('home');
@@ -85,13 +84,8 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader; onTileZone?: (zone: st
           <WindowControls
             onClose={() => dispatch(closeWorkflowsApp())}
             onMinimize={() => dispatch(toggleMinimizeCard({ cardId: WORKFLOWS_HUB_ID }))}
-            onTile={(zone) => {
-              if (zone === 'fullscreen' || zone === 'restore') { dispatch(toggleWorkflowsHubFullscreen()); return; }
-              if (isFullscreen) dispatch(toggleWorkflowsHubFullscreen());
-              onTileZone?.(zone);
-            }}
-            tiled={isFullscreen}
-            noTileMenu={isFullscreen}
+            onTile={onTileZone}
+            tiled={!!tileZone}
           />
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

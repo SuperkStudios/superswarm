@@ -2,8 +2,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import {
-  toggleMinimizeCard, setTiledCard, recordClosedCard,
-  closeSettingsCard, closeWorkflowsApp, toggleSettingsCardFullscreen, toggleWorkflowsHubFullscreen,
+  toggleMinimizeCard, setTiledCard, recordClosedCard, closeSettingsCard, closeWorkflowsApp,
 } from '@/shared/state/dashboardLayoutSlice';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
@@ -30,6 +29,7 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   const dispatch = useAppDispatch();
   const c = useClaudeTokens();
   const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
+  const tiledCards = useAppSelector((s) => s.dashboardLayout.tiledCards);
   const workflowsHub = useAppSelector((s) => s.dashboardLayout.workflowsHub);
   const settingsCard = useAppSelector((s) => s.dashboardLayout.settingsCard);
   const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, workflowsHub, settingsCard, minimizedCards });
@@ -38,7 +38,9 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   const restore = (entry: MinimizedEntry): void => {
     dropMinimizedShot(entry.id);
     dispatch(toggleMinimizeCard({ cardId: entry.id }));
-    onRestore(entry.id, entry.rect);
+    // A card that kept its tile comes back pinned to the viewport, so flying the camera to its stored
+    // free-floating rect would just wander off to empty canvas.
+    if (!tiledCards[entry.id]) onRestore(entry.id, entry.rect);
   };
   const close = (entry: MinimizedEntry): void => {
     dropMinimizedShot(entry.id);
@@ -54,11 +56,8 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
       dispatch(closeSettingsCard());
     }
   };
-  // Singletons own a fullscreen flag instead of a tiledCards entry, so a setTiledCard here would strand a ghost fullscreen owner nothing renders.
   const tile = (entry: MinimizedEntry, zone: string): void => {
     restore(entry);
-    if (entry.kind === 'workflows') { if (zone === 'fullscreen') dispatch(toggleWorkflowsHubFullscreen()); return; }
-    if (entry.kind === 'settings') { if (zone === 'fullscreen') dispatch(toggleSettingsCardFullscreen()); return; }
     if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone }));
   };
 

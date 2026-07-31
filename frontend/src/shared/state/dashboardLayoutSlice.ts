@@ -112,8 +112,6 @@ export interface WorkflowsHubPosition {
   width: number;
   height: number;
   zOrder: number;
-  // Full size view: the card fills the whole dashboard (reuses the fullscreen tile geometry).
-  fullscreen?: boolean;
 }
 
 // One entry in the Ctrl/Cmd+Shift+T "reopen last closed" stack: a full snapshot for browser/view/workflow/tab, just the session id for an agent (its session is brought back via resumeSession).
@@ -571,19 +569,17 @@ const dashboardLayoutSlice = createSlice({
   name: 'dashboardLayout',
   initialState,
   reducers: {
-    // Window controls (traffic lights). Minimize toggles a per-card pill; tiling snaps a card to a
-    // macOS-style viewport zone (green = 'fill'). Minimizing an un-tiles and vice-versa, so a card
-    // is never both pill'd and tiled at once.
+    // Window controls (traffic lights). Minimize parks a card in the right-edge rail; tiling snaps it
+    // to a macOS-style viewport zone. Rule 6 of the tiling set (see cards/useCardTiling.ts): a parked
+    // card keeps its zone and restores back into it, but never keeps 'fullscreen', which would leave
+    // an off-canvas card hiding the whole shell.
     toggleMinimizeCard(state, action: PayloadAction<{ cardId: string }>) {
       const id = action.payload.cardId;
       if (state.minimizedCards[id]) {
         delete state.minimizedCards[id];
       } else {
         state.minimizedCards[id] = true;
-        if (state.tiledCards[id]) delete state.tiledCards[id];
-        // The singletons hold their own fullscreen flag instead of a tiledCards entry, so parking one has to drop that too.
-        if (id === SETTINGS_CARD_ID && state.settingsCard) state.settingsCard.fullscreen = false;
-        if (id === WORKFLOWS_HUB_ID && state.workflowsHub) state.workflowsHub.fullscreen = false;
+        if (state.tiledCards[id] === 'fullscreen') delete state.tiledCards[id];
       }
     },
     setTiledCard(state, action: PayloadAction<{ cardId: string; zone: string }>) {
@@ -1098,6 +1094,9 @@ const dashboardLayoutSlice = createSlice({
 
     removeWorkflowCard(state, action: PayloadAction<string>) {
       delete state.workflowCards[action.payload];
+      // Rule 7: a dead card must never keep owning a tile; a stale entry poisons every reader of it.
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
     },
 
     // Rekey draft- id to the server-assigned id without visually hopping the card.
@@ -1143,6 +1142,7 @@ const dashboardLayoutSlice = createSlice({
     closeWorkflowsHub(state) {
       state.workflowsHub = null;
       delete state.minimizedCards[WORKFLOWS_HUB_ID];
+      delete state.tiledCards[WORKFLOWS_HUB_ID];
     },
 
     // The Workflows app is an on-canvas card (like chat/browser/view cards), backed by the singleton workflowsHub geometry. Opening it creates or raises that card and pans to it; an optional workflowId deep-links to that workflow's detail once the card mounts.
@@ -1169,18 +1169,12 @@ const dashboardLayoutSlice = createSlice({
 
     closeWorkflowsApp(state) {
       state.workflowsHub = null;
+      delete state.tiledCards[WORKFLOWS_HUB_ID];
       delete state.minimizedCards[WORKFLOWS_HUB_ID];
       state.workflowsAppTarget = null;
       state.workflowsMonitorId = null;
       state.workflowsMonitorRunId = null;
       state.workflowsMonitorCard = null;
-    },
-
-    toggleWorkflowsHubFullscreen(state) {
-      if (state.workflowsHub) {
-        state.workflowsHub.fullscreen = !state.workflowsHub.fullscreen;
-        state.workflowsHub.zOrder = state.nextZOrder++;
-      }
     },
 
     clearWorkflowsAppTarget(state) {
@@ -1261,17 +1255,12 @@ const dashboardLayoutSlice = createSlice({
     closeSettingsCard(state) {
       state.settingsCard = null;
       delete state.minimizedCards[SETTINGS_CARD_ID];
+      delete state.tiledCards[SETTINGS_CARD_ID];
       state.pendingFocusSettingsCard = false;
     },
 
     clearPendingFocusSettingsCard(state) {
       state.pendingFocusSettingsCard = false;
-    },
-
-    toggleSettingsCardFullscreen(state) {
-      if (!state.settingsCard) return;
-      state.settingsCard.fullscreen = !state.settingsCard.fullscreen;
-      state.settingsCard.zOrder = state.nextZOrder++;
     },
 
     setSettingsCardPosition(state, action: PayloadAction<{ x: number; y: number }>) {
@@ -1877,7 +1866,6 @@ export const {
   closeWorkflowsHub,
   openWorkflowsApp,
   closeWorkflowsApp,
-  toggleWorkflowsHubFullscreen,
   clearWorkflowsAppTarget,
   openWorkflowMonitor,
   closeWorkflowMonitor,
@@ -1890,7 +1878,6 @@ export const {
   openSettingsCard,
   closeSettingsCard,
   clearPendingFocusSettingsCard,
-  toggleSettingsCardFullscreen,
   setSettingsCardPosition,
   setSettingsCardSize,
   recordClosedCard,
@@ -1925,8 +1912,9 @@ export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayout
   if (!entry) return null;
   const id = entry[0];
   // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
-  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards;
-  return exists ? id : null;
+  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards
+    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard);
+  return exists && !s.minimizedCards[id] ? id : null;
 };
 
 export default dashboardLayoutSlice.reducer;
