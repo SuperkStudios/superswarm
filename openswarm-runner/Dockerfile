@@ -49,7 +49,6 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
       --prefix=/opt/pydeps -r /tmp/requirements.lock
 
 FROM python:${PYTHON_VERSION}-slim-bookworm
-ARG NODE_VERSION
 
 RUN set -eux; \
     apt-get update; \
@@ -67,8 +66,8 @@ COPY openswarm-runner/runner /app/runner
 COPY --from=uv /stage/uv /app/backend/uv-bin/uv
 COPY --from=uv /stage/uvx /app/backend/uv-bin/uvx
 
-# mcp_config.py points uv at <resources>/python-env so an MCP server never downloads its own interpreter.
 RUN set -eux; \
+    if ls /app/backend/.env* >/dev/null 2>&1; then echo "a dotenv reached the image; fix Dockerfile.dockerignore" >&2; exit 1; fi; \
     mkdir -p /app/python-env/bin; \
     ln -s /usr/local/bin/python3 /app/python-env/bin/python3; \
     find /app/backend -name '__pycache__' -type d -prune -exec rm -rf {} +; \
