@@ -21,7 +21,11 @@ from backend.apps.agents.browser import browser_submit_click
 ToolRunner = Callable[[str, dict, str, str], Awaitable[dict]]
 
 # Hosts known to accept-then-silently-drop an automated post. A newly-found one is a one-line add.
-GHOST_DROP_HOSTS = ("youtube.com",)
+# reddit joined 2026-07-31 on live evidence, twice: the r/test submit form clears the composer and
+# the post never appears in r/test/new (markers canary5ef128b9 and canary99b063a2, both audited
+# absent). Without this the cleared composer is trusted as delivery and the user gets told
+# 'Done, I sent "canary..." for you' about a post that does not exist.
+GHOST_DROP_HOSTS = ("youtube.com", "reddit.com")
 
 # What a site says when it REFUSED the write. Only ever consulted inside a live announcement
 # region, never against the whole page, so an unrelated "failed" in an article body can't match.

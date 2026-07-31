@@ -6,18 +6,24 @@ import pytest
 from backend.apps.agents.browser import browser_delivery_check as dc
 
 
-def test_ghost_drop_host_matches_youtube_only():
+def test_ghost_drop_hosts_are_the_ones_that_eat_a_post():
     assert dc.is_ghost_drop_host("https://www.youtube.com/watch?v=abc")
     assert dc.is_ghost_drop_host("https://youtube.com/watch")
     assert dc.is_ghost_drop_host("https://m.youtube.com/watch")
-    # every proven-good write host stays OFF the ghost path (zero added latency there)
+    # reddit joined 2026-07-31 on live evidence, twice: the r/test submit form clears the composer
+    # and the post never lands in r/test/new (markers canary5ef128b9 and canary99b063a2, both
+    # audited absent) while the run announced 'Done, I sent "canary..." for you'. This assertion
+    # used to say the opposite, on the assumption reddit was a proven-good write host.
+    assert dc.is_ghost_drop_host("https://www.reddit.com/r/test/submit")
+    assert dc.is_ghost_drop_host("https://old.reddit.com/r/test")
+    # every still-proven write host stays OFF the ghost path (zero added latency there)
     assert not dc.is_ghost_drop_host("https://x.com/home")
-    assert not dc.is_ghost_drop_host("https://www.reddit.com/r/test")
     assert not dc.is_ghost_drop_host("https://mail.google.com/mail")
     assert not dc.is_ghost_drop_host("https://www.linkedin.com/feed/")
     assert not dc.is_ghost_drop_host("")
     # a lookalike domain must not match the bare-endswith by accident
     assert not dc.is_ghost_drop_host("https://notyoutube.com.evil.test/")
+    assert not dc.is_ghost_drop_host("https://notreddit.com/r/test")
 
 
 def test_probe_expression_escapes_and_truncates():
