@@ -19,6 +19,7 @@ def test_purge_session_memory_clears_every_structure():
     mgr.sessions = {"dead": object(), "alive": object()}
     mgr.tasks = {"dead": object()}
     mgr.live_partial = {"dead": {"text": "half a reply"}}
+    mgr.pending_messages = {"dead": [object()]}
     vbs.view_builder_render_retry_counts["dead"] = 4
     vbs.view_builder_dirty_sessions.add("dead")
 
@@ -27,6 +28,7 @@ def test_purge_session_memory_clears_every_structure():
     assert "dead" not in mgr.sessions
     assert "dead" not in mgr.tasks
     assert "dead" not in mgr.live_partial
+    assert "dead" not in mgr.pending_messages
     assert "dead" not in vbs.view_builder_render_retry_counts
     assert "dead" not in vbs.view_builder_dirty_sessions
     # Only the target id is purged; an unrelated live session survives.

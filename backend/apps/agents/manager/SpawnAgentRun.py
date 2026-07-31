@@ -88,7 +88,7 @@ class SpawnAgentRun(AgentManagerProtocol):
         if run_in_background:
             # Fire-and-forget; the child's card carries its progress and result. Keep a handle in self.tasks so stop/shutdown machinery sees it.
             task = asyncio.create_task(self.run_agent_loop(child.id, prompt))
-            self.tasks[child.id] = task
+            self.register_turn_task(child.id, task)
             return {"session_id": child.id, "background": True}
 
         await self.run_agent_loop(child.id, prompt)

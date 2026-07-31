@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import List, Optional
 
+from pydantic import BaseModel, ConfigDict
 from typeguard import typechecked
 from uuid import uuid4
 
@@ -22,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 
 from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
+
+
+class QueuedMessage(BaseModel):
+    """A user message that arrived while a turn was live, held until that turn ends.
+    Carries the full send_message argument set so delivery is a faithful replay."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    prompt: str
+    mode: Optional[str] = None
+    model: Optional[str] = None
+    provider: Optional[str] = None
+    images: Optional[List] = None
+    context_paths: Optional[List] = None
+    forced_tools: Optional[List[str]] = None
+    attached_skills: Optional[List] = None
+    hidden: bool = False
+    selected_browser_ids: Optional[List[str]] = None
+    selected_app_output_ids: Optional[List[str]] = None
+    selected_setting_ids: Optional[List[str]] = None
+    client_message_id: Optional[str] = None
 
 
 class Messaging(AgentManagerProtocol):
@@ -57,6 +79,16 @@ class Messaging(AgentManagerProtocol):
         
         existing = self.tasks.get(session_id)
         if existing and not existing.done():
+            # A mid-turn message used to be silently dropped here (no bubble, no trace); queue it and the turn task's done callback replays it.
+            self.pending_messages.setdefault(session_id, []).append(QueuedMessage(
+                prompt=prompt, mode=mode, model=model, provider=provider, images=images,
+                context_paths=context_paths, forced_tools=forced_tools,
+                attached_skills=attached_skills, hidden=hidden,
+                selected_browser_ids=selected_browser_ids,
+                selected_app_output_ids=selected_app_output_ids,
+                selected_setting_ids=selected_setting_ids,
+                client_message_id=client_message_id,
+            ))
             return
 
         session_changed = False
@@ -141,7 +173,37 @@ class Messaging(AgentManagerProtocol):
             task = asyncio.create_task(run_browser_fast_path(session, session_id, prompt, selected_browser_ids, fast_brief, fast_verdict))
         else:
             task = asyncio.create_task(self.run_agent_loop(session_id, prompt, images=images, context_paths=context_paths, forced_tools=forced_tools, attached_skills=attached_skills, selected_browser_ids=selected_browser_ids, selected_app_output_ids=selected_app_output_ids, selected_setting_ids=selected_setting_ids))
+        self.register_turn_task(session_id, task)
+
+    @typechecked
+    def register_turn_task(self, session_id: str, task: asyncio.Task) -> None:
+        """One chokepoint for installing a turn task: every turn end (success, error, stop)
+        fires the done callback, so a queued mid-turn message can never strand."""
         self.tasks[session_id] = task
+        task.add_done_callback(lambda t: self.deliver_next_queued_message(session_id))
+
+    @typechecked
+    def deliver_next_queued_message(self, session_id: str) -> None:
+        """Replay the oldest queued mid-turn message once no turn is live. One at a time:
+        the delivered turn's own done callback drains the rest."""
+        queue = self.pending_messages.get(session_id)
+        if not queue:
+            return
+        live = self.tasks.get(session_id)
+        if live and not live.done():
+            return
+        qm = queue.pop(0)
+        if not queue:
+            self.pending_messages.pop(session_id, None)
+        asyncio.create_task(self.send_message(
+            session_id, qm.prompt, mode=qm.mode, model=qm.model, provider=qm.provider,
+            images=qm.images, context_paths=qm.context_paths, forced_tools=qm.forced_tools,
+            attached_skills=qm.attached_skills, hidden=qm.hidden,
+            selected_browser_ids=qm.selected_browser_ids,
+            selected_app_output_ids=qm.selected_app_output_ids,
+            selected_setting_ids=qm.selected_setting_ids,
+            client_message_id=qm.client_message_id,
+        ))
 
     @typechecked
     async def edit_message(self, session_id: str, message_id: str, new_content: str):
@@ -228,5 +290,5 @@ class Messaging(AgentManagerProtocol):
             attached_skills=target_msg.attached_skills,
             fork_session=True,
         ))
-        self.tasks[session_id] = task
+        self.register_turn_task(session_id, task)
 
