@@ -313,8 +313,16 @@ def is_publish_task(task: str) -> bool:
     `send_button_found=False`, the agent blind-tapped a coordinate, nothing posted, and a one-step
     "skill" (click the body textbox) still got recorded for "create a text post and submit it".
     Replaying that reports done in one turn while posting nothing, the same ghost the removal gate
-    already exists to stop."""
-    return bool(P_PUBLISH_INTENT_RE.search(task or ""))
+    already exists to stop.
+
+    The verbs are also ordinary NOUNS ("the top comment", "the first post", "the first reply"), so
+    an informational ask is excluded: without that, "read the top comment" scored as a publish and
+    the honesty gate told the user their send was never confirmed, on a task that never sent
+    anything. Failing safe here means at worst we skip a gate on a genuine write, never that we
+    call a perfectly good read a failure."""
+    if not P_PUBLISH_INTENT_RE.search(task or ""):
+        return False
+    return not deliverable_is_informational("", task)
 
 
 def deliverable_is_informational(summary: str, task: str = "") -> bool:
@@ -344,7 +352,9 @@ def deliverable_is_informational(summary: str, task: str = "") -> bool:
     return False
 
 
-def completion_is_honest(action_log: list[dict]) -> tuple[bool, str]:
+def completion_is_honest(
+    action_log: list[dict], publish_task: bool = False, send_confirmed: bool = False,
+) -> tuple[bool, str]:
     """Reality-check a run the model declared done. Returns (honest, reason).
 
     Conservative by design (it can flip a 'completed' into an error, so it must
@@ -354,6 +364,17 @@ def completion_is_honest(action_log: list[dict]) -> tuple[bool, str]:
     task stays honest as long as some read came back with content; a partially
     erroring run that still landed a real action stays honest.
     """
+    # A publish task has exactly ONE deliverable: the thing leaving the machine. Clicks that
+    # "succeeded" are not evidence it went out. Measured live on reddit 2026-07-31: the composer
+    # filled, no send control was ever found (`send_button_found=False`), the agent blind-tapped a
+    # percentage coordinate, every action reported ok, and the user was told "Done, I sent it for
+    # you" while r/test never received a thing. Checked FIRST because it is the most serious lie we
+    # can tell. Note the direction of the residual risk: autosend sets send_confirmed the moment its
+    # click runs (a resend guard, not proof), so this can still let a bad send through, but it can
+    # never newly flag a run that had any send signal at all.
+    if publish_task and not send_confirmed:
+        return False, ("the send was never confirmed, so it may not have gone out; "
+                       "check the page before trusting this")
     if not action_log:
         return False, "declared done without taking a single action"
     actions = [a for a in action_log if a.get("tool") in P_PRODUCTIVE_TOOLS]

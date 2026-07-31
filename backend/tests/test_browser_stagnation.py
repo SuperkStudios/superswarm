@@ -7,6 +7,7 @@ from backend.apps.agents.browser.browser_loop import (
     advance_stagnation,
     card_is_unavailable,
     completion_is_honest,
+    is_publish_task,
     deliverable_is_informational,
     is_unproductive,
     stagnation_exhausted,
@@ -180,3 +181,66 @@ def test_deliverable_informational_blocks_gathered_content_records_confirmations
     assert deliverable_is_informational("Here is what I found: " + "x" * 400)
     # empty / trivial -> not informational
     assert not deliverable_is_informational("")
+
+
+# --- a publish task lies loudest ---------------------------------------------------------------
+# Measured live on reddit 2026-07-31: the composer filled, no send control was ever found
+# (send_button_found=False), the agent blind-tapped a percentage coordinate, EVERY action reported
+# ok, and the user was told "Done, I sent it for you" while r/test never received a thing.
+
+def p_reddit_ghost_log():
+    """The real shape: successful-looking clicks, no send receipt."""
+    return [p_ok("BrowserActVerified", "filled:canary5ef128b9"),
+            p_ok("BrowserClickIndex", "Clicked #23"),
+            p_ok("BrowserClickPoint", "tap(63.23%,76.81%)")]
+
+
+def test_a_publish_task_with_no_confirmed_send_is_a_ghost():
+    honest, reason = completion_is_honest(
+        p_reddit_ghost_log(), publish_task=True, send_confirmed=False)
+    assert not honest
+    assert "never confirmed" in reason
+
+
+def test_the_same_run_passes_once_the_send_is_confirmed():
+    honest, reason = completion_is_honest(
+        p_reddit_ghost_log(), publish_task=True, send_confirmed=True)
+    assert honest and reason == ""
+
+
+def test_a_non_publish_task_is_untouched_by_the_send_check():
+    """The gate must not cry wolf. A read or a plain click has no send to confirm, and flagging
+    those would turn every ordinary success into a scary error."""
+    honest, reason = completion_is_honest(
+        [p_ok("BrowserListInteractives", "1 button"), p_ok("BrowserClickIndex", "Clicked")],
+        publish_task=False, send_confirmed=False)
+    assert honest and reason == ""
+
+
+def test_the_default_call_still_behaves_exactly_as_before():
+    """Every existing caller passes only the log; none of them may change verdict."""
+    assert completion_is_honest([p_ok("BrowserClickIndex", "Clicked")]) == (True, "")
+    assert completion_is_honest([])[0] is False
+
+
+def test_publish_verbs_are_also_ordinary_nouns():
+    """"the top comment", "the first post", "the first reply" all carry a publish verb as a NOUN.
+    Without the informational exclusion, "read the top comment" scored as a publish and the honesty
+    gate told the user their send was never confirmed on a task that never sent anything (caught by
+    an existing wall-budget test, not by review). Fails safe: at worst we skip the gate on a genuine
+    write, never call a good read a failure."""
+    for task in (
+        'Go to reddit.com and create a text post in r/test titled "canary" with body "x". Submit it.',
+        'submit the post',
+        'Go to x.com and post this tweet, exactly: "hello"',
+        'Go to linkedin.com and create a post with exactly this text: "hi"',
+    ):
+        assert is_publish_task(task) is True, task
+    for task in (
+        'read the top comment',
+        'Open the top post on the front page and tell me its title',
+        'tell me the handle and the text of the first reply to it',
+        'what does it cost',
+        'click the Search button',
+    ):
+        assert is_publish_task(task) is False, task

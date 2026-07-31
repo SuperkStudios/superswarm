@@ -3010,7 +3010,9 @@ async def run_browser_agent(
         if card_gone_streak >= CARD_GONE_LIMIT:
             honest, dishonest_reason = False, "the browser became unresponsive (the tab hung or was closed); it needs a fresh browser to continue"
         else:
-            honest, dishonest_reason = completion_is_honest(action_log)
+            honest, dishonest_reason = completion_is_honest(
+                action_log, publish_task=is_publish_task(skill_key_task),
+                send_confirmed=send_confirmed)
         final_status = "completed" if honest else "error"
         if not honest:
             summary = f"I was not able to complete this task ({dishonest_reason})."
