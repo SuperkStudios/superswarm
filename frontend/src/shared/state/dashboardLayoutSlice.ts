@@ -1465,8 +1465,14 @@ const dashboardLayoutSlice = createSlice({
       const [moved] = source.tabs.splice(idx, 1);
       // Fresh id: reusing the old one makes the receiving BrowserCard think the tab is already initialized, so its webview never loads the URL and sits at about:blank.
       const tab = { ...moved, id: generateTabId() };
-      if (source.tabs.length === 0) {
+      const spun = {
+        owner: source.spawned_by ?? null,
+        x: source.x, y: source.y, width: source.width, height: source.height, dashboard_id: source.dashboard_id,
+      };
+      const dissolved = source.tabs.length === 0;
+      if (dissolved) {
         delete state.browserCards[fromBrowserId];
+        delete state.suspendedBrowserCards[fromBrowserId];
       } else if (source.activeTabId === tabId) {
         const nextActive = source.tabs[Math.min(idx, source.tabs.length - 1)];
         source.activeTabId = nextActive.id;
@@ -1478,18 +1484,24 @@ const dashboardLayoutSlice = createSlice({
         target.url = tab.url;
         target.zOrder = state.nextZOrder++;
       } else {
-        const id = `browser-${Date.now().toString(36)}`;
+        // The last tab leaving is the card MOVING, so it keeps its id; either way it keeps its agent
+        // owner, or the agent stops recognising its own browser and spawns a second one next time it
+        // browses. keep_open because pulling it out is the user claiming it: the owner finishing must
+        // not delete it out from under them, exactly as when it had no owner at all.
+        const id = dissolved ? fromBrowserId : `browser-${Date.now().toString(36)}`;
         state.browserCards[id] = {
           browser_id: id,
           url: tab.url,
           tabs: [tab],
           activeTabId: tab.id,
-          x: x ?? source.x + 60,
-          y: y ?? source.y + 60,
-          width: source.width,
-          height: source.height,
+          x: x ?? spun.x + 60,
+          y: y ?? spun.y + 60,
+          width: spun.width,
+          height: spun.height,
           zOrder: state.nextZOrder++,
-          dashboard_id: source.dashboard_id,
+          dashboard_id: spun.dashboard_id,
+          spawned_by: spun.owner,
+          keep_open: true,
         };
       }
     },
