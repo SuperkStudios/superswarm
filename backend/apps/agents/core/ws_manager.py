@@ -337,6 +337,15 @@ class ConnectionManager:
                 )
                 if done:
                     return future.result()
+                # The window went away WHILE we were waiting. The entry check above only guards the
+                # START of a command, so re-broadcasting into a closed app just burned the rest of
+                # the leash: measured, a run in flight when the window closed took 240.9s, while one
+                # that started after it was already gone failed honestly in 11.6s. Same reconnect
+                # grace and same error as the entry check, so a real socket blip still rides through
+                # and a genuinely-closed window trips the agent's card-gone streak instead.
+                if not self.global_connections and not await await_reconnect(
+                        lambda: bool(self.global_connections)):
+                    return {"error": "No dashboard is connected. Open the dashboard to use browser tools."}
         finally:
             self.browser_futures.pop(request_id, None)
 
