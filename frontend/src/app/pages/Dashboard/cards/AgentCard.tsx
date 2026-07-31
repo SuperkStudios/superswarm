@@ -43,7 +43,7 @@ import { agentCardMenuRows } from './agentCardMenuRows';
 import { extractLatestTodos } from '../desktop/agentTodos';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
-import { getWebview } from '@/shared/browserRegistry';
+import { useBrowserPillShot } from '../desktop/useBrowserPillShot';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
@@ -741,33 +741,7 @@ const AgentCard: React.FC<Props> = ({
   }, [pillMode, session.messages, session.id, dispatch]);
 
   // f7's collapsed state: a session's browser (spawned by it or docked into it) shows under the pill.
-  const spawnedBrowserId = useAppSelector((s) => {
-    for (const bc of Object.values(s.dashboardLayout.browserCards)) {
-      if (bc.spawned_by === session.id || bc.docked_to === session.id) return bc.browser_id;
-    }
-    return null;
-  });
-  const [browserShot, setBrowserShot] = useState<string | null>(null);
-  useEffect(() => {
-    if (!pillMode || pillArtifact || !spawnedBrowserId) {
-      setBrowserShot(null);
-      return undefined;
-    }
-    let cancelled = false;
-    const capture = (): void => {
-      const wv = getWebview(spawnedBrowserId);
-      const p = wv?.capturePage?.();
-      if (p && typeof (p as Promise<unknown>).then === 'function') {
-        (p as Promise<{ toDataURL(): string }>)
-          .then((img) => { if (!cancelled) setBrowserShot(img.toDataURL()); })
-          .catch(() => undefined);
-      }
-    };
-    capture();
-    // Refresh while the agent is driving so the shot tracks the page; parked cards keep the last frame.
-    const timer = pillRunning ? window.setInterval(capture, 5000) : null;
-    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-  }, [pillMode, pillArtifact, spawnedBrowserId, pillRunning]);
+  const browserShot = useBrowserPillShot(session.id, pillMode && !pillArtifact);
 
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
 

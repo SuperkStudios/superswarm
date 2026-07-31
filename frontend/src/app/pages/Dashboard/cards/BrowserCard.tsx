@@ -46,7 +46,7 @@ import {
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
 import { useTiledStyle, computeTiledStyle } from './tileZones';
-import { saveMinimizedShot } from '../desktop/minimizedShots';
+import { getMinimizedShot, saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -58,6 +58,7 @@ import {
   setActiveTab as setRegistryActiveTab,
   registerPendingLoad,
   wakePendingLoad,
+  hasDomReady,
   type BrowserWebview,
 } from '@/shared/browserRegistry';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
@@ -66,7 +67,7 @@ import BrowserFindBar from './BrowserFindBar';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
 import { browserCardMenuRows, browserTabMenuRows } from './browserCardMenuRows';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
-import { getActionLabel } from '@/shared/browserCommandHandler';
+import { getActionLabel, isAnyBrowserBusy } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
 import BrowserAgentOverlay from './BrowserAgentOverlay';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
@@ -83,6 +84,10 @@ import { useElementSelection } from '@/app/components/editor/ElementSelectionCon
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
+// Pill-preview capture cadence: fast until the card has handed the pill a frame, slow upkeep after.
+const PILL_SHOT_WARMUP_MS = 800;
+const PILL_SHOT_REFRESH_MS = 5000;
+const PILL_SHOT_WARMUP_MAX_MS = 8000;
 const EDGE_THICKNESS = 6;
 const CORNER_SIZE = 14;
 const MIN_W = 400;
@@ -288,6 +293,13 @@ const BrowserCard: React.FC<Props> = ({
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
   const endingState = useAppSelector((state) => state.dashboardLayout.endingBrowserCards[browserId]);
 
+  // An agent's browser is what its collapsed chat shows as a pill preview, so this card owes the pill a frozen frame.
+  const pillShotOwner = useAppSelector((state) => {
+    const card = state.dashboardLayout.browserCards[browserId];
+    return card?.docked_to ?? card?.spawned_by ?? null;
+  });
+  const [pillShotSettled, setPillShotSettled] = useState(() => !!getMinimizedShot(browserId));
+
   // Arm the Windows webview crash-safety marker synchronously, before React commits the <webview> below. Cleared on dom-ready; a leftover marker next launch tells windowsWebviewEnabled() the mount crashed, so it falls back to the iframe. MUST skip parked cards: they render no webview, so dom-ready never fires and a stale marker reads as a phantom crash that locks Windows out of webviews.
   if (isElectron && isWindows && !suspendedSnap) armWindowsWebviewPending();
 
@@ -417,7 +429,14 @@ const BrowserCard: React.FC<Props> = ({
         cleanups.push(() => wv.removeEventListener('dom-ready', onReady));
       }
 
-      const mirrorUrl = () => dispatch(updateBrowserTabUrl({ browserId, tabId, url: wv.getURL() }));
+      // Every guest sits at about:blank before its real load (lazy tabs never leave it); mirroring
+      // that would overwrite the tab's actual url, and a tab dragged into a fresh card then loads
+      // blank and stops looking like the page it is.
+      const mirrorUrl = () => {
+        const live = wv.getURL();
+        if (!live || live === 'about:blank') return;
+        dispatch(updateBrowserTabUrl({ browserId, tabId, url: live }));
+      };
       const onNavigate = () => {
         updateTabLocal(tabId, {
           canGoBack: wv.canGoBack(),
@@ -1004,9 +1023,39 @@ const BrowserCard: React.FC<Props> = ({
             : c.shadow.md;
 
   const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
-  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's live shot,
-  // instead of teleporting back to wherever it sat before docking.
-  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's frozen shot,
+  // instead of teleporting back to wherever it sat before docking. The park waits for that shot:
+  // an off-screen guest never paints again, and capturePage on one never settles (Electron 42).
+  const wantsDockPark = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+  const dockParked = wantsDockPark && pillShotSettled;
+  const pillShotPaintable = !!pillShotOwner && !dockParked && !isMinimized && !keepAliveHidden && !suspendedSnap;
+  useEffect(() => {
+    if (!pillShotPaintable) return undefined;
+    let cancelled = false;
+    let inFlight = false;
+    const freeze = (): void => {
+      // Capturing a webview an agent is mid-command on is the SharedImage-mailbox renderer crash.
+      if (inFlight || isAnyBrowserBusy()) return;
+      const wv = webviewMap.current.get(activeTabId);
+      // capturePage THROWS on a guest that hasn't reached dom-ready yet, and an uncaught one here kills the whole card tree.
+      if (!wv || !hasDomReady(wv)) return;
+      let shot: Promise<{ isEmpty: () => boolean; toDataURL: () => string }> | undefined;
+      try { shot = wv.capturePage(); } catch { return; }
+      if (!shot) return;
+      inFlight = true;
+      shot.then((img) => {
+        inFlight = false;
+        if (cancelled || img.isEmpty()) return;
+        saveMinimizedShot(browserId, img.toDataURL());
+        setPillShotSettled(true);
+      }, () => { inFlight = false; });
+    };
+    freeze();
+    const timer = window.setInterval(freeze, pillShotSettled ? PILL_SHOT_REFRESH_MS : PILL_SHOT_WARMUP_MS);
+    // A page that can never paint (dead guest, about:blank) must not camp on the canvas forever.
+    const giveUp = window.setTimeout(() => setPillShotSettled(true), PILL_SHOT_WARMUP_MAX_MS);
+    return () => { cancelled = true; window.clearInterval(timer); window.clearTimeout(giveUp); };
+  }, [pillShotPaintable, pillShotSettled, browserId, activeTabId]);
 
   return (
     <Box
