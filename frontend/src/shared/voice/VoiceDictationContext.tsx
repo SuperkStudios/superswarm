@@ -28,7 +28,7 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
       // flips state to 'recording', so without this the mic could be started by a click but never
       // stopped by one.
       if (stateRef.current === 'recording') { heldRef.current = false; void stop(); return; }
-      if (stateRef.current === 'idle') { heldRef.current = true; void start(); }
+      if (stateRef.current === 'idle') { heldRef.current = true; void start(true); }
     } else {
       toggle();
     }

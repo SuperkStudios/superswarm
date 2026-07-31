@@ -3,6 +3,7 @@ import { API_BASE } from '@/shared/config';
 import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
 import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
+import { createSilenceDetector } from './createSilenceDetector';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
 
@@ -63,6 +64,8 @@ export function useVoiceDictation() {
   const stateRef = useRef<VoiceState>('idle');
   // Live mic level (0..1) for the aurora; a ref, not state, so 60Hz visuals never re-render React.
   const volumeRef = useRef<number>(0);
+  // The capture callback has to reach stop(), which is defined after start(); a ref breaks the knot.
+  const stopRef = useRef<(() => Promise<void>) | null>(null);
   stateRef.current = state;
 
   // First-run: the model is downloading. Poll progress until it lands, then drop back to idle so the
@@ -95,7 +98,9 @@ export function useVoiceDictation() {
     return out;
   }, []);
 
-  const start = useCallback(async (): Promise<void> => {
+  // `hold` = the user is physically holding a key or button, so they own the end of the utterance
+  // and silence must never cut them off mid-thought. Only a tap session endpoints itself.
+  const start = useCallback(async (hold = false): Promise<void> => {
     if (stateRef.current !== 'idle') return;
     if (!window.openswarm?.voiceTranscribe) { setError('desktop-only'); return; } // no Electron bridge = web build
     setError(null);
@@ -105,6 +110,7 @@ export function useVoiceDictation() {
       const source = ctx.createMediaStreamSource(stream);
       const node = ctx.createScriptProcessor(4096, 1, 1);
       const chunks: Float32Array[] = [];
+      const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
       node.onaudioprocess = (e): void => {
         const data = e.inputBuffer.getChannelData(0);
         chunks.push(new Float32Array(data));
@@ -113,6 +119,7 @@ export function useVoiceDictation() {
         for (let i = 0; i < data.length; i += 8) sum += data[i] * data[i];
         const rms = Math.sqrt(sum / (data.length / 8));
         volumeRef.current = volumeRef.current * 0.7 + Math.min(1, rms * 6) * 0.3;
+        if (endpointer && endpointer.push(data) !== 'listening') void stopRef.current?.();
       };
       source.connect(node);
       node.connect(ctx.destination);
@@ -179,6 +186,8 @@ export function useVoiceDictation() {
       setState('idle');
     }
   }, [teardown, pollModel]);
+
+  stopRef.current = stop;
 
   const toggle = useCallback((): void => {
     if (stateRef.current === 'recording') void stop();
