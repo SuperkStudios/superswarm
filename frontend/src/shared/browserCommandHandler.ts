@@ -1143,7 +1143,34 @@ async function clickBackendNode(
       } catch { /* verified below; the honest error covers this failing too */ }
       got = await readBack();
       if (got !== null) return landedMsg(got, ' (via editor command)');
-      return { error: `Focused ${label} but the text did not register; the box may be a custom editor. Try BrowserPressKey per character or a different element.` };
+      // Third tier: REAL keystrokes. Both attempts above are synthetic, and a whole class of editor
+      // (Lexical, ProseMirror, strict Draft.js) only commits on beforeinput from genuine key events
+      // and drops both of them on the floor. This is the very advice the error below has been
+      // handing out for months, so take it here rather than spending a model turn on it: measured
+      // live on twitch, the composer was found and focused and the fill still errored, which cost
+      // the site its entire write path. Clearing first, because a partial insert plus keystrokes is
+      // how you post the same sentence twice.
+      try {
+        const t = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
+        await sendCdp(wv, 'Runtime.callFunctionOn', {
+          objectId: t.object.objectId,
+          functionDeclaration:
+            'function() { this.focus(); if (this.select) this.select(); document.execCommand("selectAll", false); document.execCommand("delete", false); }',
+        }, sessionId);
+        for (const ch of opts.text) wv.sendInputEvent({ type: 'char', keyCode: ch });
+      } catch { /* verified below; the honest error covers this failing too */ }
+      got = await readBack();
+      if (got !== null) return landedMsg(got, ' (via keystrokes)');
+      // Editors like Reddit's swap the node out on activation, so the original backendNodeId can go
+      // stale even though the keystrokes landed in whatever now holds focus. Same lesson keystrokeFill
+      // already learned; checking both is what survives that re-render.
+      try {
+        const live = await evalInPage(wv, `(() => { const el = document.activeElement;
+          const v = el ? ((el.value != null ? el.value : el.textContent) || '') : '';
+          return v.includes(${JSON.stringify(opts.text)}) ? v.slice(0, 120) : null; })()`);
+        if (typeof live === 'string') return landedMsg(live, ' (via keystrokes)');
+      } catch { /* fall through to the honest error */ }
+      return { error: `Focused ${label} but the text did not register even as real keystrokes; the box may be a custom editor that rejects automation. Try a different element.` };
     }
     return { text: `Focused ${label}; the cursor is in it now (type with BrowserPressKey, or pass a text arg to fill it in one call).` };
   }
