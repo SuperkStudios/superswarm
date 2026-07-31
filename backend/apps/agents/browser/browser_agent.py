@@ -3079,7 +3079,12 @@ async def run_browser_agent(
         # recorded a one-step "skill" (click the body textbox) for "create a text post and submit it".
         # Replaying that reports done in one turn while posting nothing. A write only teaches us
         # something once it actually went through.
-        p_unconfirmed_send = is_publish_task(skill_key_task) and not send_confirmed
+        # delivery_verified, not send_confirmed: the latter is also set by autosend the moment its
+        # click RUNS (a resend guard, not evidence, per its own comment), and that is exactly how a
+        # reddit run that posted NOTHING still recorded a skill after the first version of this gate.
+        # The skill store is the right place to be strict, because the codebase already picked the
+        # failure direction here: when in doubt we don't record, and the worst case is a lost speedup.
+        p_unconfirmed_send = is_publish_task(skill_key_task) and not delivery_verified
         logger.info(f"[browser-skills] record gate: honest={honest} informational={informational} "
                     f"removal={p_is_removal} unconfirmed_send={p_unconfirmed_send}")
         if honest and not informational and not p_is_removal and not p_unconfirmed_send:
