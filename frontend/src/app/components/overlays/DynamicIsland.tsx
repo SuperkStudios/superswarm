@@ -21,14 +21,11 @@ import {
   stopAgent,
   dismissAgentNotification,
   dismissAllFinishedNotifications,
-  clearSessionMessages,
   ApprovalRequest,
   AgentSession,
   HistorySession,
 } from '@/shared/state/agentsSlice';
 import { displaySessionName } from '@/shared/state/sessionDisplay';
-import { API_BASE, getAuthToken } from '@/shared/config';
-import { store } from '@/shared/state/store';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import ApprovalBar, { BatchApprovalBar, parseMcpToolName, useMcpToolMeta, getToolIcon } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import GlobalSearchPalette from '@/app/components/overlays/GlobalSearchPalette';
@@ -255,48 +252,6 @@ const DynamicIsland: React.FC = () => {
     };
   }, []);
 
-  // Cmd/Ctrl+L: clear the chat (focused card > activeSessionId > sole session); same as /clear.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 'l') return;
-
-      let target: string | null = null;
-      const ae = document.activeElement as HTMLElement | null;
-      if (ae) {
-        let el: HTMLElement | null = ae;
-        while (el) {
-          if (el.getAttribute?.('data-select-type') === 'agent-card') {
-            const sid = el.getAttribute('data-select-id');
-            if (sid) { target = sid; break; }
-          }
-          el = el.parentElement;
-        }
-      }
-      const state = store.getState();
-      if (!target) {
-        const activeId = state.agents.activeSessionId;
-        if (activeId) target = activeId;
-      }
-      if (!target) {
-        const ids = Object.keys(state.agents.sessions);
-        if (ids.length === 1) target = ids[0];
-      }
-      if (!target) return;
-
-      e.preventDefault();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      try {
-        const tok = getAuthToken();
-        if (tok) headers['Authorization'] = `Bearer ${tok}`;
-      } catch { /* unauthenticated dev mode */ }
-      fetch(`${API_BASE}/agents/sessions/${target}/clear`, { method: 'POST', headers }).catch(() => {});
-      dispatch(clearSessionMessages(target));
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [dispatch]);
 
   const groups: SessionApprovalGroup[] = useMemo(() => {
     const result: SessionApprovalGroup[] = [];
