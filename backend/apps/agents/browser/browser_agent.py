@@ -61,7 +61,7 @@ P_BATCHABLE_ACTION_TOOLS = {
 # Past this many seconds a run stops exploring and delivers what it has. Sits above every run that
 # actually succeeded in the 2026-07-30 sweeps (slowest good one: 142.8s) and well under the 300s
 # that produced an empty answer. It nudges rather than kills, so the answer still comes from Done.
-P_WALL_BUDGET_S = 180.0
+WALL_BUDGET_S = 180.0
 
 P_WRAPUP_NUDGE = (
     "You've spent several turns looking without finishing. Wrap up NOW: call Done with the "
@@ -2052,7 +2052,7 @@ async def run_browser_agent(
             # task ground past 300s and returned NOTHING, while every run that ever succeeded that
             # day finished inside 143s. So the clock gets the same nudge the turn cap gets, and the
             # answer arrives partial-but-honest instead of never.
-            p_out_of_time = time.time() - metrics_started_at > P_WALL_BUDGET_S
+            p_out_of_time = time.time() - metrics_started_at > WALL_BUDGET_S
             if ((turn >= MAX_TURNS - 4 or p_out_of_time)
                     and not wrapup_nudged and not done_called and not send_confirmed):
                 wrapup_nudged = True

@@ -201,19 +201,12 @@ def parse_retry_after(exc: BaseException, extra_text: str = "") -> int | None:
     return None
 
 
-# Transports that fail without saying anything a pattern can read. anthropic.APIConnectionError
-# stringifies to the bare "Connection error." (no code, no ECONNRESET, nothing), so the list above
-# scores it NON-transient and the retry never fires: one network hiccup then throws away a run that
-# was already several steps in, and the user is told "Error: Connection error." Measured live, twice
-# in one sweep. A transport failure is transient by construction, so classify it by TYPE, which no
-# rewording upstream can break.
+# anthropic.APIConnectionError stringifies to the bare "Connection error.", so the patterns above
+# score it NON-transient and one network hiccup throws away a whole run (measured live, twice). A
+# transport failure is transient by construction, so classify by TYPE, which no rewording breaks.
 P_TRANSIENT_EXC_TYPES: Tuple[type, ...] = (
-    anthropic.APIConnectionError,   # APITimeoutError subclasses this
-    anthropic.InternalServerError,
-    httpx.TransportError,           # connect/read/write/pool timeouts, protocol errors
-    ConnectionError,
-    TimeoutError,
-)
+    anthropic.APIConnectionError, anthropic.InternalServerError,  # APITimeoutError subclasses the first
+    httpx.TransportError, ConnectionError, TimeoutError)          # connect/read/pool timeouts, protocol errors
 
 
 @typechecked

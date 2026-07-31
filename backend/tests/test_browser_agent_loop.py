@@ -373,7 +373,7 @@ def test_a_run_out_of_wall_time_delivers_what_it_has(monkeypatch):
     # clock now gets the same one-shot wrap-up nudge the turn cap gets, so a long errand comes back
     # partial-but-honest instead of never.
     BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
-    monkeypatch.setattr(BA, "P_WALL_BUDGET_S", 0.0)  # over budget from the first turn
+    monkeypatch.setattr(BA, "WALL_BUDGET_S", 0.0)  # over budget from the first turn
     primary = FakeLLM([
         Resp([p_rp("looking around"), p_tu("BrowserGetText")]),
         Resp([p_tu("Done", message="Top comment is from u/someone, 387 upvotes.")]),
@@ -389,7 +389,7 @@ def test_a_run_out_of_wall_time_delivers_what_it_has(monkeypatch):
 def test_a_quick_run_is_never_nudged_by_the_wall_budget(monkeypatch):
     # The budget must not touch normal runs, or it would cut short the very tasks it exists to save.
     BH.BROWSER_HISTORY.clear(); BH.DOMAIN_NOTES.clear()
-    assert BA.P_WALL_BUDGET_S >= 150, "budget must sit above the slowest run that actually succeeded"
+    assert BA.WALL_BUDGET_S >= 150, "budget must sit above the slowest run that actually succeeded"
     primary = FakeLLM([
         Resp([p_rp("reading"), p_tu("BrowserGetText")]),
         Resp([p_tu("Done", message="It costs $9.99.")]),
