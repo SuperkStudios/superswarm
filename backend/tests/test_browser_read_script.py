@@ -132,3 +132,34 @@ def test_no_aux_client_and_tool_error_both_fail_open():
         return {"error": "card is gone"}
     assert asyncio.run(rs.run_read_script(
         Aux("answer"), "m", "t", "b1", "t1", broken_tool)) is None
+
+
+def test_a_prose_decline_is_not_an_answer():
+    """The exact reply that made amazon fail 3/3: the aux explains it cannot reach the page it
+    needs instead of emitting INSUFFICIENT. Accepting it ended the run on the search results and
+    the model loop, which could have clicked through, never got to run."""
+    verbatim = ("I can see this is a search results page for \"usb c cable\" on Amazon, but I "
+                "cannot access the individual product page for the first result. The page shows "
+                "search results with multiple products listed, but to get the exact price, star "
+                "rating, and number of ratings I would need to open the product page.")
+    assert rs.is_answer(verbatim) is None
+
+    for decline in (
+        "I can't open the product page from here.",
+        "I am unable to navigate to that profile.",
+        "You would need to click into the post to see the replies.",
+        "I cannot reach the comments section on this page.",
+    ):
+        assert rs.is_answer(decline) is None, decline
+
+
+def test_a_page_that_simply_lacks_the_field_is_still_an_answer():
+    """The guard must not eat real answers. Per the read-script contract, a page that visibly
+    lacks the field IS the answer, and so is any answer that happens to contain the word 'open'."""
+    for answer in (
+        "The price is $12.99 and it has 4.5 stars from 8,214 ratings.",
+        "The profile does not show a headline; the name is Eric Zeng.",
+        "The first post is by @someone and the shop is open until 5pm.",
+        "Title: 'How to open a jar'. Channel: Kitchen Tips. 1.2M views.",
+    ):
+        assert rs.is_answer(answer) == answer, answer

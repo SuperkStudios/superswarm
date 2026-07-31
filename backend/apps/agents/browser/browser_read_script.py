@@ -8,6 +8,7 @@ Fail-open everywhere: thin page, decline, error = the loop runs exactly as today
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Awaitable, Callable, Dict, Optional
 
@@ -57,11 +58,28 @@ def read_script_enabled() -> bool:
     return os.environ.get("OSW_READ_SCRIPT", "1") != "0"
 
 
+# A decline written as prose instead of the token. The aux is asked to say INSUFFICIENT when the
+# answer lives behind a click, and it usually does, but on a page that is ALMOST right it explains
+# itself instead: "I can see the search results, but I cannot access the individual product page."
+# That reply used to be accepted as the answer, which ended the run at the wrong page and made a
+# perfectly good multi-step task fail 3 times out of 3 on amazon, deterministically. It is a decline,
+# so it has to be read as one. Anchored on the aux declaring it cannot REACH somewhere, never on a
+# page merely lacking a field, because "the page does not show a price" IS a legitimate answer here.
+P_PROSE_DECLINE_RE = re.compile(
+    r"\b(?:cannot|can'?t|unable to|don'?t have (?:the )?ability to)\s+"
+    r"(?:\w+\s+){0,3}?(?:access|open|reach|navigate(?:\s+to)?|visit|click(?:\s+(?:on|into))?|load)\b"
+    r"|\b(?:would|will|you)\s+need\s+to\s+(?:\w+\s+){0,2}?"
+    r"(?:open|click|visit|navigate|go\s+to)\b",
+    re.I)
+
+
 def is_answer(reply: str) -> Optional[str]:
     """The usable answer text, or None. Declines, empties, and hedge-shaped replies
     all fail closed to the loop, so a thin extraction can never become a wrong answer."""
     answer = (reply or "").strip()
     if not answer or answer.upper().startswith("INSUFFICIENT"):
+        return None
+    if P_PROSE_DECLINE_RE.search(answer):
         return None
     return answer
 
