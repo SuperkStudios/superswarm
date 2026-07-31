@@ -39,6 +39,7 @@ export interface ZoneRect {
 
 interface Workspace {
   x0: number;
+  x1: number;
   w: number;
   h: number;
 }
@@ -46,29 +47,41 @@ interface Workspace {
 // Pure layout, never the camera, so a pan/zoom frame reads nothing back out of the DOM.
 let workspace: Workspace | null = null;
 
+const CHROME_SELECTORS = ['[data-canvas-viewport]', '[data-desktop-dock]', '[data-minimized-rail]'];
+
+// How much of one edge a chrome strip claims. It only counts when it is real, overlaps the viewport,
+// and actually hugs the edge it claims, so an absent or collapsed strip yields 0, never a bogus inset.
+function edgeInset(selector: string, vp: DOMRect, side: 'left' | 'right'): number {
+  const r = document.querySelector(selector)?.getBoundingClientRect();
+  if (!r || !(r.width > 0)) return 0;
+  if (side === 'left') {
+    return r.right > vp.left && r.left < vp.left + vp.width * 0.25 ? r.right - vp.left + GAP : 0;
+  }
+  return r.left < vp.right && r.right > vp.left + vp.width * 0.75 ? vp.right - r.left + GAP : 0;
+}
+
 function measureWorkspace(): Workspace {
   const el = document.querySelector('[data-canvas-viewport]');
   const r = el?.getBoundingClientRect();
-  if (!r || !(r.width > 0 && r.height > 0)) return { x0: 0, w: window.innerWidth, h: window.innerHeight };
-  let x0 = 0;
-  const dock = document.querySelector('[data-desktop-dock]');
-  if (dock) {
-    const dr = dock.getBoundingClientRect();
-    // macOS model: a tiled window starts beside the Dock, never underneath it.
-    if (dr.width > 0 && dr.right > r.left && dr.left < r.left + r.width * 0.25) x0 = dr.right - r.left + GAP;
-  }
-  return { x0, w: r.width, h: r.height };
+  if (!r || !(r.width > 0 && r.height > 0)) return { x0: 0, x1: 0, w: window.innerWidth, h: window.innerHeight };
+  // macOS model: a tiled window sits BESIDE the Dock and beside the minimized rail, never under either.
+  return {
+    x0: edgeInset('[data-desktop-dock]', r, 'left'),
+    x1: edgeInset('[data-minimized-rail]', r, 'right'),
+    w: r.width,
+    h: r.height,
+  };
 }
 
 // Screen-space rect (relative to the canvas viewport) that a zone occupies.
 export function zoneRect(zone: string): ZoneRect | null {
   const ws = workspace ?? (workspace = measureWorkspace());
+  const usableW = ws.w - ws.x0 - ws.x1;
   if (zone === 'fullscreen') {
-    return { x: ws.x0 + GAP, y: GAP, w: ws.w - ws.x0 - GAP * 2, h: ws.h - GAP * 2 };
+    return { x: ws.x0 + GAP, y: GAP, w: usableW - GAP * 2, h: ws.h - GAP * 2 };
   }
   const z = TILE_ZONES[zone];
   if (!z) return null;
-  const usableW = ws.w - ws.x0;
   return {
     x: ws.x0 + z.x * usableW + GAP,
     y: z.y * ws.h + GAP,
@@ -90,6 +103,8 @@ const entries = new Map<string, TiledEntry>();
 const workspaceListeners = new Set<() => void>();
 let lastCamera: Camera = { panX: 0, panY: 0, zoom: 1 };
 let observer: ResizeObserver | null = null;
+let chromeMounts: MutationObserver | null = null;
+const observed = new Set<Element>();
 
 function applyEntry(entry: TiledEntry, cam: Camera): void {
   const r = zoneRect(entry.zone);
@@ -108,6 +123,7 @@ export function syncTiledGeometry(cam: Camera): void {
 
 function onWorkspaceChanged(): void {
   workspace = null;
+  observeChrome();
   for (const entry of entries.values()) applyEntry(entry, lastCamera);
   workspaceListeners.forEach((fn) => fn());
 }
@@ -118,19 +134,39 @@ export function subscribeTiledWorkspace(fn: () => void): () => void {
   return () => { workspaceListeners.delete(fn); };
 }
 
+// Re-queried, never cached: the rail unmounts whenever nothing is parked. Re-observing an element the
+// ResizeObserver already holds would re-fire it, so each one is only ever handed over once.
+function observeChrome(): void {
+  if (!observer) return;
+  for (const selector of CHROME_SELECTORS) {
+    const el = document.querySelector(selector);
+    if (el && !observed.has(el)) {
+      observed.add(el);
+      observer.observe(el);
+    }
+  }
+  const strip = document.querySelector('[data-canvas-viewport]')?.parentElement;
+  // A ResizeObserver can't see the rail APPEAR, so watch the row it mounts into; without this a tile
+  // measured on a bare canvas keeps its width and slides under the rail the first card parks in.
+  if (strip && !chromeMounts) {
+    chromeMounts = new MutationObserver(onWorkspaceChanged);
+    chromeMounts.observe(strip, { childList: true });
+  }
+}
+
 function startObserving(): void {
   if (observer) return;
   observer = new ResizeObserver(onWorkspaceChanged);
-  const vp = document.querySelector('[data-canvas-viewport]');
-  if (vp) observer.observe(vp);
-  const dock = document.querySelector('[data-desktop-dock]');
-  if (dock) observer.observe(dock);
+  observeChrome();
   window.addEventListener('resize', onWorkspaceChanged);
 }
 
 function stopObserving(): void {
   observer?.disconnect();
   observer = null;
+  chromeMounts?.disconnect();
+  chromeMounts = null;
+  observed.clear();
   window.removeEventListener('resize', onWorkspaceChanged);
 }
 
