@@ -28,16 +28,17 @@ FULL_TOOLS = [
 def resolve_builtin_tools_option() -> Union[List[str], Dict[str, str]]:
     """The SDK `tools` option (CLI `--tools`), the base set of built-in tools.
 
-    Default: the full claude_code preset, which ships every preset built-in's schema. With
-    OSW_TOOL_MANIFEST=1, an explicit FULL_TOOLS list instead, ONLY the built-ins OpenSwarm exposes,
-    which prunes the ~9 preset extras nothing here references (Cron*/Monitor/Task*/PushNotification/
-    RemoteTrigger/etc) for ~940 schema tokens/turn, cache-stable. MCP tools ride mcp_servers, so
-    SpawnAgent/browser/schedule/skill/web/user MCPs are untouched; ToolSearch stays in FULL_TOOLS so
-    deferred loading survives (live-proven: the model still ToolSearch-loads + calls MCP tools under
-    the manifest). Flag-gated pending a real-app soak before default-on."""
-    if os.environ.get("OSW_TOOL_MANIFEST") == "1":
-        return list(FULL_TOOLS)
-    return {"type": "preset", "preset": "claude_code"}
+    Default: an explicit FULL_TOOLS list, ONLY the built-ins OpenSwarm exposes. The claude_code
+    preset also ships Monitor/PushNotification/RemoteTrigger/ScheduleWakeup/ExitWorktree, which
+    nothing in this repo references, plus a bare `Skill` that build_effective_tool_lists hard-denies
+    anyway. Measured on a live "hi" turn (Anthropic count_tokens on the captured wire request, and
+    the provider's own usage reporting, agreeing within 1 token): 31,091 -> 26,880 prompt tokens,
+    4,211 saved per turn, cache-stable. MCP tools ride mcp_servers, so SpawnAgent/browser/schedule/
+    skill/web/user MCPs are untouched; ToolSearch stays in FULL_TOOLS so deferred loading survives.
+    Kill switch: OSW_TOOL_MANIFEST=0 restores the preset."""
+    if os.environ.get("OSW_TOOL_MANIFEST") == "0":
+        return {"type": "preset", "preset": "claude_code"}
+    return list(FULL_TOOLS)
 
 
 @typechecked
