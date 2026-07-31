@@ -11,10 +11,8 @@ export function useOverlayScrollPassthrough(active: boolean) {
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) return;
-      // Same Google Maps rule as the canvas wheel handler: only the card you clicked INTO gets the
-      // plain wheel. Selected-but-not-focused, the overlay must not swallow it, or zoom dies here.
       const cardId = el.closest('[data-select-id]')?.getAttribute('data-select-id') ?? null;
-      if (cardId && cardId !== getScrollFocusedCard()) return;
+      const cardOwnsScroll = !cardId || cardId === getScrollFocusedCard();
 
       el.style.pointerEvents = 'none';
       const underneath = document.elementFromPoint(e.clientX, e.clientY);
@@ -66,6 +64,9 @@ export function useOverlayScrollPassthrough(active: boolean) {
         }
 
         if (canScrollY || canScrollX) {
+          // Host content under the overlay follows the canvas rule: only the card you clicked INTO
+          // gets the plain wheel, otherwise swallowing it here is what kills zoom over a card.
+          if (!cardOwnsScroll) return;
           e.stopPropagation();
           e.preventDefault();
           node.scrollBy(dx, dy);
