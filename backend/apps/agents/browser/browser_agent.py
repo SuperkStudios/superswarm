@@ -2970,7 +2970,12 @@ async def run_browser_agent(
                 result_text = result.get("text", result.get("error", ""))
                 result_msg = Message(
                     role="tool_result",
-                    content={"text": result_text, "tool_name": tu.name, "elapsed_ms": elapsed_ms},
+                    # `ok` because a failure's text lands in the SAME field as a success's, so the
+                    # live overlay was drawing a click that errored exactly like one that worked.
+                    # A flag rather than sniffing the text: "not found" is a perfectly successful
+                    # read, and a string match would call it a failure forever.
+                    content={"text": result_text, "tool_name": tu.name, "elapsed_ms": elapsed_ms,
+                             "ok": "error" not in result},
                 )
                 session.messages.append(result_msg)
                 await ws_manager.send_to_session(session_id, "agent:message", {
