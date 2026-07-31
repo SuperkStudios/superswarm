@@ -52,29 +52,62 @@ P_CONTAINER_SUBMIT_JS = r"""(() => {
   const ed = deep(document, '[contenteditable="true"],textarea,input', [], 0)
     .find((e) => vis(e) && holds(e));
   if (!ed) return { ok: false, why: 'no editable holding the payload' };
-  const submitIn = (root) => deep(root, 'button,[role="button"]', [], 0)
-    .find((b) => vis(b) && enabled(b) && LABELS.has(labelOf(b)));
+  // Ranked, not exact-match. A closed label set resolves X's "Post" and little else: live, reddit
+  // labels its submit "Post to r/test" and it scored ZERO, so the send fell through to blind-tapping
+  // a coordinate. Exact match still outranks everything, so every site that resolves today resolves
+  // the identical button; the weaker tiers only ever answer where the strong one found nothing.
+  const VERB = /^(send|post|repl(?:y|ies)|comment|tweet|publish|share|submit)\b/;
+  const rank = (b) => {
+    const l = labelOf(b);
+    if (LABELS.has(l)) return 3;                                       // exact: today's behaviour
+    if ((b.getAttribute('type') || '').toLowerCase() === 'submit') return 2;   // the form's own submit
+    if (l.length <= 40 && VERB.test(l)) return 1;                      // "post to r/test", "reply all"
+    return 0;
+  };
+  // A DISABLED submit is not a missing one, and collapsing the two is what made this whole path
+  // lie. Live on reddit: the button is right there, labelled "post", and greyed out because the
+  // form still wants a title. We reported "no submit control", guessed a coordinate, and announced
+  // a delivery. Keeping the blocked candidate lets the caller say the true thing instead.
+  let blocked = null;
+  const submitIn = (root) => {
+    let best = null, bestRank = 0;
+    for (const b of deep(root, 'button,[role="button"],input[type="submit"]', [], 0)) {
+      if (!vis(b)) continue;
+      const r = rank(b);
+      if (!r) continue;
+      if (!enabled(b)) { if (!blocked || r > rank(blocked)) blocked = b; continue; }
+      if (r > bestRank) { bestRank = r; best = b; }
+    }
+    return best;
+  };
   const isScope = (el) => { try { return el.matches('[role="dialog"],[role="alertdialog"],form'); } catch (e) { return false; } };
   let scope = null;
   for (let node = ed; node; node = up(node)) { if (isScope(node)) { scope = node; break; } }
-  let btn = null;
-  if (scope) {
-    btn = submitIn(scope);
-  } else {
+  let btn = scope ? submitIn(scope) : null;
+  if (!btn) {
     // Nearest-scope-first walk: X's inline submit shares an ancestor 20 hops above the Draft.js
     // editable while foreign tweets' buttons only enter at 28 (measured live), so 24 finds the
     // composer's own submit and stops before any wider scope could.
+    //
+    // Also the fallback when a scope WAS found and held no submit. Reddit puts its composer in a
+    // <form> and its submit in a sticky action bar OUTSIDE that form, so scoping alone answered
+    // "no submit control" and the whole write path degraded to a coordinate guess. Walking after a
+    // barren scope cannot reach wider than the walk would have reached anyway.
     let node = up(ed);
     for (let hop = 0; node && node !== document.body && hop < 24; hop++, node = up(node)) {
       btn = submitIn(node);
       if (btn) break;
     }
   }
-  if (!btn) return { ok: false, why: 'no submit control in the composer container' };
+  if (!btn) return blocked
+    ? { ok: false, disabled: true, name: labelOf(blocked),
+        why: 'the submit control is present but DISABLED, so the form is not complete yet '
+             + '(a required field such as a title is still empty, or the editor never registered the text)' }
+    : { ok: false, why: 'no submit control in the composer container' };
   const r0 = btn.getBoundingClientRect();
   if (r0.top < 0 || r0.bottom > window.innerHeight) btn.scrollIntoView({ block: 'center' });
   const r = btn.getBoundingClientRect();
-  return { ok: true, name: labelOf(btn),
+  return { ok: true, name: labelOf(btn), rank: rank(btn),
            xPct: (r.left + r.width / 2) / window.innerWidth * 100,
            yPct: (r.top + r.height / 2) / window.innerHeight * 100 };
 })()"""
