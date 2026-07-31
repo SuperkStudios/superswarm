@@ -1,5 +1,14 @@
 export {};
 
+// One entry in the dictation model catalog, as the main process reports it.
+export interface VoiceModel {
+  id: string;
+  label: string;
+  note: string;
+  sizeMb: number;
+  installed: boolean;
+}
+
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -55,7 +64,9 @@ declare global {
     hardReset?: () => Promise<void>;
     clearBrowserData?: () => Promise<{ ok: boolean }>;
     voiceWarmup?: () => Promise<{ ok: boolean; error?: string }>;
-    voiceStatus?: () => Promise<{ downloading: boolean; pct: number; error: string | null }>;
+    voiceStatus?: () => Promise<{ downloading: boolean; id: string | null; pct: number; error: string | null }>;
+    voiceModels?: () => Promise<{ models: VoiceModel[]; selected: string }>;
+    voiceSetModel?: (id: string) => Promise<{ ok: boolean; ready: boolean }>;
     voiceTranscribe?: (wav: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
     voiceInject?: (text: string) => Promise<{ ok: boolean; pasted?: boolean; error?: string }>;
     onVoiceToggle?: (cb: () => void) => () => void;

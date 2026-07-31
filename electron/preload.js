@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld('openswarm', {
   // text into the frontmost app; warmup pre-loads the model; onVoiceToggle fires on the global hotkey.
   voiceWarmup: () => ipcRenderer.invoke('voice:warmup'),
   voiceStatus: () => ipcRenderer.invoke('voice:status'),
+  // Settings' model picker: the catalog with install state, and switching (downloads on demand).
+  voiceModels: () => ipcRenderer.invoke('voice:models'),
+  voiceSetModel: (id) => ipcRenderer.invoke('voice:set-model', id),
   voiceTranscribe: (wavArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wavArrayBuffer),
   voiceInject: (text) => ipcRenderer.invoke('voice:inject', text),
   onVoiceToggle: (cb) => {

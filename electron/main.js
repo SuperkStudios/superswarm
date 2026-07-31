@@ -1,5 +1,6 @@
 const { app, components, BrowserWindow, ipcMain, shell, session, dialog, crashReporter, powerMonitor, Menu, clipboard, globalShortcut } = require('electron');
 const whisperService = require('./voice/whisperService');
+const whisperModels = require('./voice/whisperModels');
 const { injectText } = require('./voice/textInjector');
 
 // Browser cards live in their own persistent partition so cookies/localStorage/IndexedDB survive reload + quit (Discord etc. stay logged in) and site data stays isolated from the app's defaultSession. The "clear browsing data" wipe nukes only this partition. MUST match BROWSER_PARTITION in frontend BrowserCard.tsx.
@@ -2932,6 +2933,17 @@ ipcMain.handle('voice:warmup', async () => {
 });
 // First-run model download progress so the pill can show "Preparing voice N%".
 ipcMain.handle('voice:status', () => whisperService.modelStatus());
+// Settings' model picker: the catalog with per-model install state, and the user's pick.
+ipcMain.handle('voice:models', () => ({
+  models: whisperModels.catalog(voiceUserDataDir()),
+  selected: whisperService.selectedModel(),
+}));
+ipcMain.handle('voice:set-model', (_e, id) => {
+  const ready = whisperService.setModel(voiceUserDataDir(), String(id || ''));
+  // Already on disk: warm the new one now so the next phrase is instant, same as at boot.
+  if (ready) whisperService.warmInBackground(voiceResourceDir(), voiceUserDataDir());
+  return { ok: true, ready };
+});
 // Paste the text into the frontmost app (dictate-anywhere). Returns whether the OS paste actually fired.
 ipcMain.handle('voice:inject', async (_e, text) => {
   try { const pasted = await injectText(String(text || '')); return { ok: true, pasted }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
