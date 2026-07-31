@@ -1,0 +1,10 @@
+*
+!backend
+!openswarm-runner/runner
+backend/data
+backend/.venv
+backend/uv-bin
+backend/tests
+**/__pycache__
+**/*.pyc
+**/.DS_Store
