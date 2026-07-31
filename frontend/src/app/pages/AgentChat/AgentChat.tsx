@@ -20,6 +20,7 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
+import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { openSettingsModal, dismissMcpSuggestion } from '@/shared/state/settingsSlice';
 import { API_BASE, getAuthToken } from '@/shared/config';
 import {
@@ -694,6 +695,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
       if (e.ctrlKey || e.metaKey) return;
       // Horizontal-dominant gestures must also reach the canvas so a sideways swipe pans the dashboard (chat has no horizontal scroll to absorb).
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      // Google Maps model: a plain wheel over a chat you haven't clicked INTO belongs to the canvas, so let it through instead of swallowing it here (this is what made zoom look dead over any chat).
+      const cardId = el.closest('[data-select-id]')?.getAttribute('data-select-id') ?? null;
+      if (cardId && cardId !== getScrollFocusedCard()) return;
       const atTop = el.scrollTop <= 0;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
       const scrollingDown = e.deltaY > 0;

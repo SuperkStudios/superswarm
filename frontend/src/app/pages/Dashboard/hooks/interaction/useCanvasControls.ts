@@ -1,5 +1,6 @@
-import { useState, useCallback, useRef, useEffect, useMemo, RefObject } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { store } from '@/shared/state/store';
+import { selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
@@ -63,7 +64,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
   const stateRef = useRef(state);
   const liveDirtyRef = useRef(false);
   const spaceRef = useRef(false);
-  const cmdRef = useRef(false);
   const sensitivityRef = useRef(zoomSensitivity);
   sensitivityRef.current = zoomSensitivity;
   const contentBoundsRef = useRef(contentBounds);
@@ -302,12 +302,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     const onWheel = (e: WheelEvent) => {
       // Full size view owns the whole surface: any wheel that escapes the chat's scroll container
       // (side gutters, header) must NOT zoom/pan the hidden canvas underneath, that read as a
-      // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period.
-      const tiledCards = store.getState().dashboardLayout.tiledCards;
-      for (const z of Object.values(tiledCards)) {
-        if (z === 'fullscreen') return;
-      }
-      // ctrl/cmd wheel is a modifier gesture: a real held key (cmd/ctrl + scroll → vertical pan) or a trackpad pinch, which also sets ctrlKey (→ zoom at cursor). Either way it bypasses scrollable children and acts on the canvas.
+      // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period. The selector's
+      // existence check matters: a stale tile entry for a removed card would wedge the wheel forever.
+      if (selectFullscreenCardId(store.getState())) return;
+      // ctrl/cmd wheel is the zoom gesture on every surface: a physically held key or a trackpad pinch (which also sets ctrlKey). It bypasses scrollable children so zoom is always reachable, even over a chat you're typing in.
       const isModifierWheel = e.ctrlKey || e.metaKey;
 
       // Let scrollable children handle the event when appropriate, but fall through to canvas pan if the child is at its scroll boundary.
@@ -375,14 +373,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         inertiaFrameRef.current = null;
       }
 
-      if (isModifierWheel && cmdRef.current) {
-        // Real cmd/ctrl physically held + scroll → vertical pan. cmdRef is set from a keydown; a trackpad pinch sets ctrlKey with no keydown, so it falls through to the zoom branch below and pinch-to-zoom survives.
-        pendingPanDy += dy;
-        scheduleWheelFlush();
-      } else if (isModifierWheel) {
-        // Trackpad pinch → accumulate zoom deltas + last cursor position. factor = 2^(-Σdy·s) which equals the product of per-event factors, so accumulating dy is mathematically identical to applying each event one at a time.
+      if (isModifierWheel) {
+        // Pinch or held cmd/ctrl → accumulate zoom deltas + last cursor position. factor = 2^(-Σdy·s) which equals the product of per-event factors, so accumulating dy is mathematically identical to applying each event one at a time.
         const rect = el.getBoundingClientRect();
-        pendingZoomDy += dy;
+        pendingZoomDy += clamp(dy, -WHEEL_ZOOM_DELTA_CAP, WHEEL_ZOOM_DELTA_CAP);
         pendingZoomCenter = { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
         scheduleWheelFlush();
       } else if (isTrackpadScroll) {
@@ -413,7 +407,8 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         cancelAnimationFrame(inertiaFrameRef.current);
         inertiaFrameRef.current = null;
       }
-      pendingZoomDy += dy;
+      // Same per-event cap as a host-side notch, so one wheel click inside a guest page is a step, not a lurch.
+      pendingZoomDy += clamp(dy, -WHEEL_ZOOM_DELTA_CAP, WHEEL_ZOOM_DELTA_CAP);
       pendingZoomCenter = {
         cx: (detail.clientX ?? 0) - rect.left,
         cy: (detail.clientY ?? 0) - rect.top,
@@ -599,7 +594,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         setSpaceHeld(true);
       }
       if ((e.key === 'Meta' || e.key === 'Control') && !e.repeat) {
-        cmdRef.current = true;
         setCmdHeld(true);
       }
       if (e.ctrlKey || e.metaKey) {
@@ -627,7 +621,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         setSpaceHeld(false);
       }
       if (e.key === 'Meta' || e.key === 'Control') {
-        cmdRef.current = false;
         setCmdHeld(false);
       }
     };

@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 
 /** Forwards wheel events through an overlay to the content beneath while keeping overlay click/drag; passes pinch-zoom. */
 export function useOverlayScrollPassthrough(active: boolean) {
@@ -10,6 +11,10 @@ export function useOverlayScrollPassthrough(active: boolean) {
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) return;
+      // Same Google Maps rule as the canvas wheel handler: only the card you clicked INTO gets the
+      // plain wheel. Selected-but-not-focused, the overlay must not swallow it, or zoom dies here.
+      const cardId = el.closest('[data-select-id]')?.getAttribute('data-select-id') ?? null;
+      if (cardId && cardId !== getScrollFocusedCard()) return;
 
       el.style.pointerEvents = 'none';
       const underneath = document.elementFromPoint(e.clientX, e.clientY);
