@@ -6,8 +6,12 @@ import sys
 P_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 p_is_packaged = os.environ.get("OPENSWARM_PACKAGED") == "1"
+p_data_root_override = os.environ.get("OPENSWARM_DATA_ROOT", "").strip()
 
-if p_is_packaged:
+if p_data_root_override:
+    # A container has no home to speak of, so the runner points this straight at its mounted volume.
+    DATA_ROOT = os.path.abspath(p_data_root_override)
+elif p_is_packaged:
     if sys.platform == "darwin":
         p_app_support = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "OpenSwarm")
     elif sys.platform == "win32":
