@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -13,6 +13,8 @@ import { getWebview } from '@/shared/browserRegistry';
 import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
 import { openCardContextMenu } from './openCardContextMenu';
 import { dockTileMenuRows } from './dockTileMenuRows';
+import { useDockLayout } from './useDockLayout';
+import { DockTileIcon } from './DockTileIcon';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -35,23 +37,9 @@ interface DesktopDockProps {
   onAddBrowser: () => void;
 }
 
-const TILE = 30;
 const PREVIEW_W = 190;
-
-/** A tile shows its site favicon OR the generic glyph, never the glyph peeking out from behind the favicon. */
-function DockTileIcon({ entry }: { entry: DockEntry }): React.ReactElement {
-  const [faviconFailed, setFaviconFailed] = useState(false);
-  if (!entry.faviconUrl || faviconFailed) return <>{entry.icon}</>;
-  return (
-    <Box
-      component="img"
-      src={entry.faviconUrl}
-      alt=""
-      onError={() => setFaviconFailed(true)}
-      sx={{ width: 18, height: 18, borderRadius: '6px' }}
-    />
-  );
-}
+const ACTION_COUNT = 4;
+const FADE = 18;
 
 /** Left-edge desktop dock: one tile per open card, hover previews, click focuses the window. */
 function DesktopDock({
@@ -68,39 +56,9 @@ function DesktopDock({
 }: DesktopDockProps): React.ReactElement | null {
   const dispatch = useAppDispatch();
   const accent = useClaudeTokens().accent.primary;
-  const dockBodyRef = useRef<HTMLDivElement | null>(null);
-  // macOS Dock magnification: the tile under the cursor grows on a bell curve and its neighbors
-  // SLIDE AWAY to make room (no horizontal pop-out, the part that read as wobble). Each tile that
-  // grows by `extra` pushes every tile past it by extra/2, so the column opens up smoothly.
-  const applyDockMagnify = useCallback((clientY: number | null) => {
-    const root = dockBodyRef.current;
-    if (!root) return;
-    const tiles = Array.from(root.querySelectorAll<HTMLElement>('.osw-dock-tile'));
-    if (tiles.length === 0) return;
-    if (clientY == null) {
-      tiles.forEach((t) => { t.style.transform = ''; t.style.zIndex = ''; });
-      return;
-    }
-    const rootTop = root.getBoundingClientRect().top;
-    const cy = clientY - rootTop;
-    const BOOST = 0.5;   // hovered tile grows to 1.5x
-    const FALLOFF = 44;  // px spread of the bell curve (how many neighbors react)
-    const bases = tiles.map((t) => t.offsetTop + t.offsetHeight / 2);
-    const scales = bases.map((b) => 1 + BOOST * Math.exp(-(((cy - b) / FALLOFF) ** 2)));
-    const extra = scales.map((s) => TILE * (s - 1));
-    tiles.forEach((t, i) => {
-      let shift = 0;
-      for (let j = 0; j < tiles.length; j++) {
-        if (j === i) continue;
-        shift += (extra[j] / 2) * Math.sign(bases[i] - bases[j]);
-      }
-      t.style.transform = `translateY(${shift.toFixed(1)}px) scale(${scales[i].toFixed(3)})`;
-      t.style.transformOrigin = 'left center';
-      t.style.zIndex = String(10 + Math.round((scales[i] - 1) * 100));
-    });
-  }, []);
   const [hovered, setHovered] = useState<{ id: string; top: number } | null>(null);
   const [liveShot, setLiveShot] = useState<{ id: string; dataUrl: string } | null>(null);
+  const [edges, setEdges] = useState<{ top: boolean; bottom: boolean }>({ top: false, bottom: false });
   const hoverTimer = useRef<number | null>(null);
 
   const entries = useMemo<DockEntry[]>(
@@ -108,10 +66,23 @@ function DesktopDock({
     [sessions, cards, viewCards, browserCards, workflowCards, outputs],
   );
 
+  const { dockRef, scrollRef, tile, gap, iconSize, scrolls, scrollHeight, bleed, applyMagnify } = useDockLayout({
+    cardCount: entries.length,
+    actionCount: ACTION_COUNT,
+    dividerCount: entries.length > 0 ? 2 : 1,
+  });
+
+  const endHover = useCallback(() => {
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
+    setHovered(null);
+    setLiveShot(null);
+  }, []);
+
   const beginHover = useCallback(
     (entry: DockEntry, target: HTMLElement) => {
       if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
-      const top = target.offsetTop;
+      const box = scrollRef.current;
+      const top = target.offsetTop + (box?.contains(target) ? box.offsetTop - box.scrollTop : 0);
       hoverTimer.current = window.setTimeout(() => {
         setHovered({ id: entry.id, top });
         if (entry.browserId) {
@@ -125,14 +96,25 @@ function DesktopDock({
         }
       }, 220);
     },
-    [],
+    [scrollRef],
   );
 
-  const endHover = useCallback(() => {
-    if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
-    setHovered(null);
-    setLiveShot(null);
+  const readEdges = useCallback((el: HTMLDivElement) => {
+    const top = el.scrollTop > 1;
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setEdges((prev) => (prev.top === top && prev.bottom === bottom ? prev : { top, bottom }));
   }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el && scrolls) readEdges(el);
+    else setEdges((prev) => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
+  }, [scrolls, scrollHeight, entries.length, readEdges, scrollRef]);
+
+  // Only fade the end that still has tiles behind it, so a magnified first or last tile stays crisp.
+  const mask = scrolls
+    ? `linear-gradient(to bottom, rgba(0,0,0,${edges.top ? 0 : 1}) 0px, #000 ${FADE}px, #000 calc(100% - ${FADE}px), rgba(0,0,0,${edges.bottom ? 0 : 1}) 100%)`
+    : undefined;
 
   const hoveredEntry = hovered ? entries.find((e) => e.id === hovered.id) : undefined;
   const previewImage = hoveredEntry
@@ -141,10 +123,10 @@ function DesktopDock({
 
   return (
     <Box
-      ref={dockBodyRef}
+      ref={dockRef}
       data-desktop-dock
-      onMouseMove={(e: React.MouseEvent) => applyDockMagnify(e.clientY)}
-      onMouseLeave={() => { endHover(); applyDockMagnify(null); }}
+      onMouseMove={(e: React.MouseEvent) => applyMagnify(e.clientY)}
+      onMouseLeave={() => { endHover(); applyMagnify(null); }}
       sx={{
         position: 'absolute',
         left: 12,
@@ -154,7 +136,7 @@ function DesktopDock({
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: '9px',
+        gap: `${gap}px`,
         p: '7px',
         borderRadius: '16px',
         background: 'rgba(22,12,34,0.66)',
@@ -162,76 +144,107 @@ function DesktopDock({
         WebkitBackdropFilter: 'blur(20px) saturate(160%)',
         boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
         // Rounder squircle tiles (real app icons, not lame squares). The magnify transform is set
-        // imperatively per-frame by applyDockMagnify; a short ease smooths the chase + the reset.
+        // imperatively per-frame by applyMagnify; a short ease smooths the chase + the reset.
         '& .osw-dock-tile': {
           borderRadius: '12px',
           transition: 'transform 0.12s ease-out',
           willChange: 'transform',
         },
+        // One source of truth for glyph size, so favicons and every icon pack shrink with the tile.
+        '& .osw-dock-tile svg, & .osw-dock-tile img': { width: iconSize, height: iconSize },
       }}
     >
-      {entries.map((entry) => {
-        const isActive = selectedIds.includes(entry.id);
-        return (
-          <Box
-            key={entry.id}
-            className="osw-dock-tile"
-            onMouseEnter={(e) => beginHover(entry, e.currentTarget as HTMLElement)}
-            onClick={() => {
-              endHover();
-              onFocusCard(entry.id, entry.rect);
-            }}
-            onContextMenu={(e: React.MouseEvent) => {
-              endHover();
-              openCardContextMenu(e, { items: dockTileMenuRows(entry, dispatch, () => onFocusCard(entry.id, entry.rect)) });
-            }}
-            sx={{
-              position: 'relative',
-              width: TILE,
-              height: TILE,
-              borderRadius: '12px',
-              background: entry.tileBg,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              overflow: 'hidden',
-              flexShrink: 0,
-              transition: 'box-shadow 140ms ease, background 140ms ease',
-              // Same grammar as the minimized rail: soft accent tint, ONE accent inner ring as the carrier, and the icon lifts. The outer glow is decoration, never the signal.
-              ...(isActive && {
-                background: `linear-gradient(0deg, ${accent}1f, ${accent}1f), ${entry.tileBg}`,
-                boxShadow: `inset 0 0 0 1px ${accent}, 0 0 24px ${accent}26`,
-                '& > *': { filter: 'brightness(1.25)' },
-              }),
-            }}
-          >
-            {/* Keyed by url so navigating to a new site re-arms the favicon after a previous one failed. */}
-            <DockTileIcon key={entry.faviconUrl || 'glyph'} entry={entry} />
-          </Box>
-        );
-      })}
+      {entries.length > 0 && (
+        <Box
+          ref={scrollRef}
+          onScroll={scrolls ? (e: React.UIEvent<HTMLDivElement>) => { readEdges(e.currentTarget); endHover(); } : undefined}
+          // The canvas zooms on wheel; a wheel we consume here must never reach it.
+          onWheel={scrolls ? (e: React.WheelEvent) => e.stopPropagation() : undefined}
+          sx={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: `${gap}px`,
+            ...(scrolls && {
+              height: `${scrollHeight}px`,
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
+              // Bleed the clip box past the column so scrolling doesn't crop the magnified tiles.
+              width: `${tile + bleed * 2}px`,
+              mx: `${-bleed}px`,
+              py: `${bleed}px`,
+              scrollbarWidth: 'none',
+              '&::-webkit-scrollbar': { display: 'none' },
+              maskImage: mask,
+              WebkitMaskImage: mask,
+            }),
+          }}
+        >
+          {entries.map((entry) => {
+            const isActive = selectedIds.includes(entry.id);
+            return (
+              <Box
+                key={entry.id}
+                className="osw-dock-tile"
+                onMouseEnter={(e) => beginHover(entry, e.currentTarget as HTMLElement)}
+                onClick={() => {
+                  endHover();
+                  onFocusCard(entry.id, entry.rect);
+                }}
+                onContextMenu={(e: React.MouseEvent) => {
+                  endHover();
+                  openCardContextMenu(e, { items: dockTileMenuRows(entry, dispatch, () => onFocusCard(entry.id, entry.rect)) });
+                }}
+                sx={{
+                  position: 'relative',
+                  width: tile,
+                  height: tile,
+                  borderRadius: '12px',
+                  background: entry.tileBg,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  transition: 'box-shadow 140ms ease, background 140ms ease',
+                  // Same grammar as the minimized rail: soft accent tint, ONE accent inner ring as the carrier, and the icon lifts. The outer glow is decoration, never the signal.
+                  ...(isActive && {
+                    background: `linear-gradient(0deg, ${accent}1f, ${accent}1f), ${entry.tileBg}`,
+                    boxShadow: `inset 0 0 0 1px ${accent}, 0 0 24px ${accent}26`,
+                    '& > *': { filter: 'brightness(1.25)' },
+                  }),
+                }}
+              >
+                {/* Keyed by url so navigating to a new site re-arms the favicon after a previous one failed. */}
+                <DockTileIcon key={entry.faviconUrl || 'glyph'} entry={entry} />
+              </Box>
+            );
+          })}
+        </Box>
+      )}
 
       {entries.length > 0 && (
-        <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
+        <Box sx={{ width: tile - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
       )}
       {/* The og toolbar's actions, dock-resident: browser, workflow, then settings + apps below their own divider. New-chat lives in the spawn pill, history on the top island. */}
       {([
-        { label: 'New browser', icon: <LanguageIcon sx={{ fontSize: 17, color: '#e8e8ee' }} />, act: onAddBrowser },
-        { label: 'Workflows', icon: <EventRepeatIcon sx={{ fontSize: 16, color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
-        { label: 'Settings', icon: <SettingsIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: () => dispatch(openSettingsCard()), divider: true },
-        { label: 'Applications', icon: <AppsRoundedIcon sx={{ fontSize: 18, color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
+        { label: 'New browser', icon: <LanguageIcon sx={{ color: '#e8e8ee' }} />, act: onAddBrowser },
+        { label: 'Workflows', icon: <EventRepeatIcon sx={{ color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
+        { label: 'Settings', icon: <SettingsIcon sx={{ color: '#e8e8ee' }} />, act: () => dispatch(openSettingsCard()), divider: true },
+        { label: 'Applications', icon: <AppsRoundedIcon sx={{ color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
       ] as { label: string; icon: React.ReactNode; act: () => void; divider?: boolean; bg?: string }[]).map((a) => (
         <React.Fragment key={a.label}>
-          {a.divider && <Box sx={{ width: TILE - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />}
+          {a.divider && <Box sx={{ width: tile - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />}
           <Tooltip title={a.label} placement="right">
             <Box
               className="osw-dock-tile"
               onClick={a.act}
               onMouseEnter={endHover}
               sx={{
-                width: TILE,
-                height: TILE,
+                width: tile,
+                height: tile,
                 borderRadius: '12px',
                 background: a.bg ?? 'linear-gradient(135deg, #5a5a62, #34343c)',
                 display: 'flex',
