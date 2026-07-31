@@ -53,12 +53,15 @@ def tier_cooldown_left(name: str, now: Optional[float] = None) -> float:
 
 
 @typechecked
-def record_tier_failure(name: str, now: Optional[float] = None) -> None:
-    """A timeout or exception. Three in a row shuts the tier for a doubling cooldown."""
+def record_tier_failure(name: str, now: Optional[float] = None, *, conclusive: bool = False) -> None:
+    """A failure. An error ANSWER is one strike of three, because a 202 or a 403 can be a bad
+    minute. SILENCE is conclusive and shuts the tier at once: a frontend that returns nothing at
+    all in the time a healthy one answers three times over is not having a bad minute, and making
+    the user prove it three times is what put 8.8s on their first three searches after launch."""
     stamp = time.monotonic() if now is None else now
     entry = p_entry(name)
     entry.consecutive_failures += 1
-    if entry.consecutive_failures < FAILURES_TO_OPEN:
+    if not conclusive and entry.consecutive_failures < FAILURES_TO_OPEN:
         return
     # The half-open probe that fails again doubles the wait, so a permanently dead engine stops costing anything.
     entry.cooldown = min(max(entry.cooldown * 2, FIRST_COOLDOWN_SECONDS), MAX_COOLDOWN_SECONDS)

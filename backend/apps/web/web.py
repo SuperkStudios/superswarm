@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from typeguard import typechecked
 
 from backend.apps.web.cascade import CascadeTier, run_cascade
+from backend.apps.web.keyless_race import KeylessEngine, race_keyless
 from backend.apps.web.grounded import (
     format_grounded_as_fetch,
     format_grounded_as_search_results,
@@ -189,9 +190,20 @@ async def search(body: SearchBody) -> Dict:
         return {"query": body.query, "results": format_grounded_as_search_results(grounded, body.query),
                 "backend": "openai_subscription"}
 
+    # Collected out-of-band because the race reports per-engine outcomes and a cascade tier can only report one.
+    keyless_errors: List[str] = []
+
+    async def try_keyless_engines() -> Optional[Dict]:
+        outcome = await race_keyless(
+            [KeylessEngine(name="ddg", run=try_keyless),
+             KeylessEngine(name="startpage", run=try_startpage)],
+            KEYLESS_TIER_SECONDS,
+        )
+        keyless_errors.extend(outcome.errors)
+        return outcome.result
+
     tiers = [
-        CascadeTier(name="ddg", run=try_keyless, budget=KEYLESS_TIER_SECONDS, breaker=True),
-        CascadeTier(name="startpage", run=try_startpage, budget=KEYLESS_TIER_SECONDS, breaker=True),
+        CascadeTier(name="keyless", run=try_keyless_engines, budget=KEYLESS_TIER_SECONDS),
         CascadeTier(name="browser_search", run=try_browser_search, budget=BROWSER_TIER_SECONDS),
     ] + p_grounded_tiers("search", body.primary, {
         "gemini_native": try_gemini,
@@ -201,10 +213,20 @@ async def search(body: SearchBody) -> Dict:
     })
 
     outcome = await run_cascade(tiers, SEARCH_BUDGET_SECONDS)
+    outcome.errors = keyless_errors + [e for e in outcome.errors if not e.startswith("keyless:")]
     if outcome.result is not None:
         if outcome.errors:
             outcome.result["cascade_errors"] = outcome.errors
         return outcome.result
+
+    # Nothing refused us, the engines simply had no matches; saying otherwise sends the model hunting for an outage that isn't there.
+    if not keyless_errors:
+        return {
+            "query": body.query,
+            "results": f"No results for: {body.query}\n\nThe search engines answered normally "
+                       "and had no matches for this query.",
+            "backend": "none",
+        }
 
     # Everything failed. Be honest about why instead of an empty "no results".
     connected = await refresh_9r_connected()

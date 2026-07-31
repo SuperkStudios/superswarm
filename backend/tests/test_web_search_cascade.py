@@ -213,3 +213,26 @@ async def test_an_honestly_empty_startpage_does_not_count_against_it(monkeypatch
         out = await search(SearchBody(query="zxqvbnmklwertyuiopasdfg", num_results=5))
         assert out["backend"] == "none"
     assert tier_cooldown_left("startpage") == 0.0
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_empty_search_does_not_claim_an_outage(monkeypatch):
+    """Both engines answering 'no matches' is an answer; calling it a refusal sends the model
+    hunting for an outage that isn't there."""
+    ddg_returns(monkeypatch, "")
+    startpage_returns(monkeypatch, "")
+    out = await search(SearchBody(query="xyzzyplughnothinghere1234567", num_results=5))
+    assert out["backend"] == "none"
+    assert "had no matches" in out["results"]
+    assert "refused" not in out["results"]
+    assert not out.get("cascade_errors")
+
+
+@pytest.mark.asyncio
+async def test_a_real_outage_still_says_so(monkeypatch):
+    ddg_throttled(monkeypatch)
+    startpage_refuses(monkeypatch)
+    out = await search(SearchBody(query="capital of Burkina Faso", num_results=5))
+    assert out["backend"] == "none"
+    assert "refused" in out["results"]
+    assert out["cascade_errors"]
