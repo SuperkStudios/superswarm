@@ -38,9 +38,13 @@ P_LOGIN_WALL_URL_RE = re.compile(
     r"/(?:log[_-]?in|sign[_-]?in|signin|logon)(?:[/?#]|$)",
     re.I,
 )
+# A password box disqualifies the page whoever is signed in: whatever that form is for, typing a
+# post into it is wrong. Kept apart from the softer copy below because only this one is absolute.
+P_PASSWORD_FIELD_RE = re.compile(r'<\s*textbox\s+"[^"]*(?:password|passwd)', re.I)
+# Wording a login screen uses. Also, unfortunately, wording a signed-IN page uses in its footer and
+# its upsells, which is why this half is overridable and the password field is not.
 P_LOGIN_WALL_STATE_RE = re.compile(
-    r'<\s*textbox\s+"[^"]*(?:password|passwd)|(?:log|sign)\s?in to |'
-    r"continue with (?:google|apple|facebook)",
+    r"(?:log|sign)\s?in to |continue with (?:google|apple|facebook)",
     re.I,
 )
 
@@ -64,13 +68,37 @@ P_READONLY_RE = re.compile(
 )
 
 
+def login_wall_reason(current_url: str, state_text: str) -> str:
+    """WHY this page reads as a login wall, or "" when it does not.
+
+    The bool alone sent a whole site to the model path with nothing to debug against: substack
+    declined as a wall on `https://substack.com/` while the account was demonstrably signed in, and
+    no amount of staring at the regexes reproduced it. A gate that can silently cost a site its
+    entire write path should be able to say which words convinced it."""
+    if current_url and P_LOGIN_WALL_URL_RE.search(current_url):
+        return f"url: {P_LOGIN_WALL_URL_RE.search(current_url).group(0)}"
+    if not state_text:
+        return ""
+    pw = P_PASSWORD_FIELD_RE.search(state_text)
+    if pw:
+        return f"password field: {pw.group(0)[:60]}"
+    soft = P_LOGIN_WALL_STATE_RE.search(state_text)
+    if not soft:
+        return ""
+    # "Sign in to ..." and "Continue with Google" are what a login screen says, and ALSO what a
+    # signed-in page's footer, upsell and embedded-content strip say. Treating them as proof cost
+    # substack its whole write path. The veto looks_signed_out already trusts settles it: a control
+    # that is meaningless unless you are authenticated outranks marketing copy.
+    if P_SIGNED_IN_RE.search(state_text):
+        return ""
+    return f"copy: {soft.group(0)[:60]}"
+
+
 def looks_like_login_wall(current_url: str, state_text: str) -> bool:
     """A login/auth page (by URL) or an auth form in the perception (a password field, a
     'Log in to X' heading, an OAuth 'Continue with ...'). The scripted send declines here:
     a real composer never shares a page with these, and filling here types a login field."""
-    if current_url and P_LOGIN_WALL_URL_RE.search(current_url):
-        return True
-    return bool(state_text and P_LOGIN_WALL_STATE_RE.search(state_text))
+    return bool(login_wall_reason(current_url, state_text))
 
 
 # SOFT signed-out: the site serves a browsable page with no auth form and no login URL, it just
