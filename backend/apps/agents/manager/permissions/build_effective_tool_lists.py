@@ -137,6 +137,10 @@ def build_effective_tool_lists(
     for bt in path_gate.CLAUDE_INTERNAL_SCHEDULER_TOOLS:
         if bt not in effective_disallowed:
             effective_disallowed.append(bt)
+    # Nothing consumes a between-turn event here, so arming one of these strands the user waiting on a report that can never arrive.
+    for bt in path_gate.UNDELIVERABLE_BACKGROUND_TOOLS:
+        if bt not in effective_disallowed:
+            effective_disallowed.append(bt)
     # The claude_code preset ships its own bare `Skill` tool that reads ~/.claude/skills directly; always withhold it so skills only ever load through our provider-agnostic mcp__openswarm-skill__Skill (or not at all).
     if "Skill" not in effective_disallowed:
         effective_disallowed.append("Skill")
