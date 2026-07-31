@@ -15,7 +15,7 @@ import os
 from collections import OrderedDict
 from typing import Literal
 
-from backend.apps.outputs.executor import get_code_warnings
+from backend.apps.outputs.code_safety import get_code_warnings
 from backend.apps.outputs.models import Output, PublishReview
 from backend.apps.outputs.publish_common import is_webapp, workspace_dir
 from backend.apps.outputs.workspace_io import WALK_SKIP_DIRS

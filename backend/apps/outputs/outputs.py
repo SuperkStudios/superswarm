@@ -15,7 +15,8 @@ from backend.apps.outputs.models import (
     PublishPreflightRequest, PublishRequest, PublishPreflightResponse,
     PublishResult, PublishReview,
 )
-from backend.apps.outputs.executor import execute_backend_code, get_code_warnings
+from backend.apps.outputs.code_safety import get_code_warnings
+from backend.apps.outputs.executor import execute_backend_code
 from backend.apps.outputs.publish_common import slugify, PublishError
 from backend.apps.outputs.publish_scan import scan_for_publish, quick_ast_gate
 from backend.apps.outputs.publish_build import build_static, collect_bundle
@@ -723,9 +724,9 @@ async def execute_output(body: OutputExecute):
                 code_preview = output.backend_code
         if not warnings_out:
             try:
-                # We've either already vetted (no warnings above) or the user explicitly opted in with force=True. Pass skip_validation=True so we don't pay for a redundant AST walk inside execute_backend_code.
+                # `approved` is body.force alone: code that merely passed the gate above still runs sandboxed, because a clean scan is not consent.
                 exec_result = await execute_backend_code(
-                    output.backend_code, body.input_data, skip_validation=True
+                    output.backend_code, body.input_data, approved=bool(body.force)
                 )
                 backend_result = exec_result.result
                 stdout_text = exec_result.stdout

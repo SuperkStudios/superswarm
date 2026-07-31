@@ -6,7 +6,7 @@ user choosing to open/run the app and the flat-app /execute HITL. A full semanti
 LLM scan is the separate App Publishing feature, not this."""
 from __future__ import annotations
 
-from backend.apps.outputs.executor import get_code_warnings
+from backend.apps.outputs.code_safety import get_code_warnings
 
 from backend.apps.swarm.models import ReviewSummary
 
