@@ -58,7 +58,7 @@ def p_router(tmp_path, monkeypatch):
     monkeypatch.setattr(process, "is_running", lambda: state["running"])
     monkeypatch.setattr(process, "ensure_running", p_ensure)
     # Hard-stubbed: without this the suite would POST /shutdown at whatever real router owns the port.
-    monkeypatch.setattr(store, "p_request_shutdown", p_no_http)
+    monkeypatch.setattr(store, "request_shutdown", p_no_http)
     return state
 
 

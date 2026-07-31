@@ -114,7 +114,7 @@ def list_oauth_connection_ids() -> List[str]:
 
 
 @typechecked
-async def p_request_shutdown() -> None:
+async def request_shutdown() -> None:
     """Ask the router to exit over HTTP. Its own seam so a test can never reach a real router."""
     try:
         async with httpx.AsyncClient(timeout=P_SHUTDOWN_TIMEOUT_S, headers=process.cli_auth_headers()) as client:
@@ -127,7 +127,7 @@ async def p_request_shutdown() -> None:
 async def p_stop_router() -> bool:
     """Down the router however we can reach it. `stop()` alone only kills one we spawned; an
     adopted port-holder has no handle, so ask it to shut itself down over HTTP first."""
-    await p_request_shutdown()
+    await request_shutdown()
     process.stop()
     waited = 0.0
     while waited < P_DOWN_WAIT_S:
