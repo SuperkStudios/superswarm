@@ -11,11 +11,23 @@ import {
   setSubscriptionStatus,
   markSubscriptionConnected,
   selectSubscriptionConnections,
+  type SubscriptionConnection,
 } from '@/shared/state/subscriptionsSlice';
 import { API_BASE } from '@/shared/config';
 import { SUBSCRIPTION_PROVIDERS } from './subscriptionProviders';
 import SubscriptionCard from './SubscriptionCard';
 import { runConnectFlow } from './subscriptionConnect';
+
+/** What POST /agents/subscriptions/disconnect answers; `ok` is the backend's verified end state, never a guess. */
+interface DisconnectResponse {
+  ok?: boolean;
+  removed?: number;
+  error?: string;
+}
+
+function isProviderActive(connections: SubscriptionConnection[], providerId: string): boolean {
+  return connections.some((p) => p.provider === providerId && (p.isActive || p.testStatus === 'active'));
+}
 
 function friendlyConnectError(detail: string): string {
   const d = (detail || '').trim();
@@ -36,6 +48,8 @@ const SubscriptionCards: React.FC = () => {
   const connections = useAppSelector(selectSubscriptionConnections);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [confirmingDisconnect, setConfirmingDisconnect] = useState<string | null>(null);
+  const [disconnectError, setDisconnectError] = useState<{ provider: string; message: string } | null>(null);
   const [userCode, setUserCode] = useState('');
   const [pollTimer, setPollTimer] = useState<any>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -70,15 +84,18 @@ const SubscriptionCards: React.FC = () => {
     return () => { cancelled = true; clearInterval(interval); };
   }, [fetchStatus]);
 
-  const isConnected = (providerId: string) =>
-    connections.some(
-      (p: any) =>
-        p.provider === providerId && (p.isActive || p.testStatus === 'active'),
-    );
+  const isConnected = (providerId: string) => isProviderActive(connections, providerId);
+
+  // A pending confirm on a lane that died some other way (reconnect, cascade wipe) would pop back on reconnect.
+  useEffect(() => {
+    if (confirmingDisconnect && !isProviderActive(connections, confirmingDisconnect)) setConfirmingDisconnect(null);
+  }, [confirmingDisconnect, connections]);
 
   const handleConnect = async (providerId: string) => {
     if (pollTimer) { clearInterval(pollTimer); setPollTimer(null); }
     setConnectError(null);
+    setConfirmingDisconnect(null);
+    setDisconnectError(null);
     setConnecting(providerId);
     setUserCode('');
 
@@ -105,20 +122,27 @@ const SubscriptionCards: React.FC = () => {
   };
 
   const handleDisconnect = async (providerId: string) => {
+    if (disconnecting) return;
+    setConfirmingDisconnect(null);
+    setDisconnectError(null);
     setDisconnecting(providerId);
+    // No settle delay: the backend only answers ok after re-reading 9Router, so the lane is already gone.
     try {
-      await fetch(`${API_BASE}/agents/subscriptions/disconnect`, {
+      const r = await fetch(`${API_BASE}/agents/subscriptions/disconnect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: providerId }),
       });
-    } catch {}
-    // Wait briefly for 9Router to process, then refresh subscription status + model picker.
-    setTimeout(() => {
-      fetchStatus();
-      refreshPickerModels();
-      setDisconnecting(null);
-    }, 500);
+      const data = (await r.json().catch(() => ({}))) as DisconnectResponse;
+      if (!r.ok || !data.ok) {
+        setDisconnectError({ provider: providerId, message: data.error || 'Could not disconnect. Please try again.' });
+      }
+    } catch {
+      setDisconnectError({ provider: providerId, message: 'Could not reach OpenSwarm. Please try again.' });
+    }
+    await fetchStatus();
+    refreshPickerModels();
+    setDisconnecting(null);
   };
 
   // 4s safety-net poller while connecting; clears Connecting state whenever 9Router reports the provider isActive (handles Windows postMessage failures).
@@ -206,9 +230,13 @@ const SubscriptionCards: React.FC = () => {
           provider={p}
           connected={isConnected(p.id)}
           onConnect={() => handleConnect(p.id)}
+          onRequestDisconnect={() => { setDisconnectError(null); setConfirmingDisconnect(p.id); }}
+          onCancelDisconnect={() => setConfirmingDisconnect(null)}
           onDisconnect={() => handleDisconnect(p.id)}
           connecting={connecting === p.id}
+          confirmingDisconnect={confirmingDisconnect === p.id}
           disconnecting={disconnecting === p.id}
+          error={disconnectError?.provider === p.id ? disconnectError.message : undefined}
           userCode={connecting === p.id ? userCode : undefined}
         />
       ))}

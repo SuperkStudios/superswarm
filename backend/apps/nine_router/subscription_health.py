@@ -44,6 +44,14 @@ def health_probe_enabled() -> bool:
 
 
 @typechecked
+def invalidate_health_cache() -> None:
+    """Drop the cached verdict after a deliberate connect/disconnect, which makes it stale by definition."""
+    global p_cached_result, p_cached_at
+    p_cached_result = None
+    p_cached_at = 0.0
+
+
+@typechecked
 def classify_auth_dead(status_code: int, body_text: str) -> bool:
     """Dead ONLY on a definitive auth failure; anything ambiguous reads healthy (silence beats a false reconnect prompt)."""
     if status_code not in (401, 403):
