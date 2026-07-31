@@ -133,6 +133,39 @@ def build_browser_context(dashboard_id: Optional[str], selected_browser_ids: Opt
 
 
 @typechecked
+def build_unselected_app_context() -> Optional[str]:
+    """Name the user's existing apps when none is selected.
+
+    Selecting a card is what grants edit access, but a user who has not learned that ritual just
+    sees an agent that appears not to know their app exists, and the agent cannot tell them what to
+    do because it was never told the app was there either. Names only, no paths: enough to say
+    "select it and I can edit it", not enough to start editing something the user did not point at.
+    """
+    from backend.apps.outputs.workspace_io import load_all
+    try:
+        apps = [o for o in load_all() if o.workspace_id and not getattr(o, "deleted_at", None)]
+    except Exception:
+        return None
+    if not apps:
+        return None
+    names = ", ".join(f'"{o.name or "Untitled App"}"' for o in apps[:P_UNSELECTED_APP_CAP])
+    more = "" if len(apps) <= P_UNSELECTED_APP_CAP else f", and {len(apps) - P_UNSELECTED_APP_CAP} more"
+    return (
+        "<available_apps>\n"
+        f"The user has these Apps on their dashboard: {names}{more}.\n"
+        "You do NOT have access to their files right now. If the user asks you to change, look at, "
+        "or use one of them, say so plainly and tell them to click the App card to select it, then "
+        "resend. Do not guess at file paths, do not scaffold a replacement, and do not claim the app "
+        "does not exist.\n"
+        "</available_apps>"
+    )
+
+
+# A long list burns prompt tokens for no gain; past a handful the agent only needs to know apps exist.
+P_UNSELECTED_APP_CAP = 12
+
+
+@typechecked
 def build_selected_app_context(selected_app_output_ids: Optional[List[str]]) -> Optional[str]:
     """Build a context block for dashboard App cards the user selected to edit.
 
