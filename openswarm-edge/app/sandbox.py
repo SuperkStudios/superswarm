@@ -1,13 +1,13 @@
 """Sandboxed Python runner for published apps' backend.py compute.
 
 VENDORED from backend/apps/outputs/executor.py (the desktop App Builder runtime).
-Keep the allow/deny lists + the subprocess hardening in sync with that file; this
-is the same data-shaping sandbox, just running in the edge instead of on the
-desktop. Pure compute only: no network, no disk, no subprocess, no secrets. Safe
-to run multi-tenant on one machine because nothing here can reach shared state."""
+Keep the subprocess hardening in sync with that file; this is the same
+data-shaping sandbox, just running in the edge instead of on the desktop. The
+static gate it runs on every call lives in the vendored app/code_safety.py. Pure
+compute only: no network, no disk, no subprocess, no secrets. Safe to run
+multi-tenant on one machine because nothing here can reach shared state."""
 from __future__ import annotations
 
-import ast
 import asyncio
 import json
 import os
@@ -15,45 +15,9 @@ import sys
 import tempfile
 from dataclasses import dataclass
 
+from app.code_safety import ALLOWED_MODULES, validate_code_safety
+
 TIMEOUT_SECONDS = 30
-
-_ALLOWED_MODULES = frozenset({
-    "json", "math", "re", "datetime", "collections", "itertools",
-    "functools", "statistics", "decimal", "fractions", "random",
-    "string", "textwrap", "unicodedata", "csv", "copy", "enum",
-    "dataclasses", "typing", "abc", "numbers", "uuid", "hashlib",
-    "base64", "binascii", "operator", "heapq", "bisect", "array",
-})
-
-_BLOCKED_BUILTINS = frozenset({
-    "exec", "eval", "compile", "__import__", "open", "input",
-    "breakpoint", "exit", "quit",
-})
-
-
-class UnsafeCodeError(Exception):
-    """AST validation rejected the backend code."""
-
-
-def validate_code_safety(code: str) -> None:
-    """Raise UnsafeCodeError on the first AST-visible risk. Published apps are
-    vetted at publish time, but we re-check here: the edge never trusts that the
-    bundle in storage matches what was scanned."""
-    try:
-        tree = ast.parse(code)
-    except SyntaxError as e:
-        raise UnsafeCodeError(f"Syntax error: {e}")
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.split(".")[0] not in _ALLOWED_MODULES:
-                    raise UnsafeCodeError(f"import '{alias.name}' is not allowed")
-        elif isinstance(node, ast.ImportFrom):
-            if node.module and node.module.split(".")[0] not in _ALLOWED_MODULES:
-                raise UnsafeCodeError(f"import from '{node.module}' is not allowed")
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id in _BLOCKED_BUILTINS:
-                raise UnsafeCodeError(f"builtin '{node.func.id}()' is not allowed")
 
 
 def _minimal_env() -> dict:
@@ -79,19 +43,22 @@ async def run_backend(code: str, input_data: dict) -> ComputeResult:
 
     preamble = (
         "import json, sys, io, builtins\n"
-        "for _b in ('exec','eval','compile','open','input',\n"
-        "           'breakpoint','exit','quit'):\n"
-        "    try: delattr(builtins, _b)\n"
-        "    except AttributeError: pass\n"
-        "_orig_stdout = sys.stdout\n"
-        "_capture = io.StringIO()\n"
-        "sys.stdout = _capture\n"
+        "p_stdout = sys.stdout\n"
+        "p_capture = io.StringIO()\n"
+        "sys.stdout = p_capture\n"
         "input_data = json.loads(sys.stdin.read())\n"
         "result = {}\n"
+        # Warm the allowlist BEFORE scrubbing builtins: half the stdlib borrows the builtins the scrub deletes while it loads (tokenize does `from builtins import open`, taking `import dataclasses` with it). Then the module handles go, because leaving `sys` bound hands gate-passing code a live `sys.modules['os']` with no import statement in sight.
+        f"for p_name in {tuple(sorted(ALLOWED_MODULES))!r}:\n"
+        "    try: __import__(p_name)\n"
+        "    except ImportError: pass\n"
+        "for p_name in ('open','input','breakpoint','exit','quit'):\n"
+        "    try: delattr(builtins, p_name)\n"
+        "    except AttributeError: pass\n"
+        "del sys, io, builtins, p_name\n"
     )
     postamble = (
-        "\nsys.stdout = _orig_stdout\n"
-        'json.dump({"__stdout__": _capture.getvalue(), "__result__": result}, sys.stdout)\n'
+        "\np_stdout.write(json.dumps({\"__stdout__\": p_capture.getvalue(), \"__result__\": result}))\n"
     )
     wrapper = preamble + code + postamble
 

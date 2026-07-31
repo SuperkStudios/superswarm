@@ -21,7 +21,9 @@ from app.main import slug_from_host
 from app.bundles import unpack, resolve_file
 from app.inject import inject_runtime
 from app.ratelimit import RateLimiter
-from app.sandbox import validate_code_safety, run_backend, UnsafeCodeError
+from app.code_safety import validate_code_safety, UnsafeCodeError
+from app import sandbox as edge_sandbox
+from app.sandbox import run_backend
 
 
 def test_slug_from_host():
@@ -179,9 +181,49 @@ def test_sandbox_rejects_unsafe_and_allows_safe():
     validate_code_safety("import math\nresult={'x': math.pi}")  # no raise
 
 
+def test_sandbox_rejects_the_module_handle_escapes():
+    """Issue #134 at the public tier: the preamble's own `sys`/`io` handles, an
+    attribute chain onto a withheld module, and the dunder walk."""
+    for code in (
+        "result = {'cwd': sys.modules['os'].getcwd()}",
+        "result = {'x': str(io.open)}",
+        "result = {'c': str(json.codecs)}",
+        "result = {'n': len(().__class__.__bases__[0].__subclasses__())}",
+        "result = {'c': str(getattr(json, 'codecs'))}",
+    ):
+        try:
+            validate_code_safety(code)
+            assert False, f"expected UnsafeCodeError for {code!r}"
+        except UnsafeCodeError:
+            pass
+
+
 def test_sandbox_runs_safe_code():
     res = asyncio.run(run_backend("result = {'sum': sum(input_data['nums'])}", {"nums": [1, 2, 3]}))
     assert res.result == {"sum": 6}
+
+
+def test_sandbox_runs_allowlisted_imports():
+    """The builtins scrub used to delete exec/eval, which broke `import statistics`
+    and every namedtuple; a sandbox that can't run real code isn't secure, it's off."""
+    res = asyncio.run(run_backend(
+        "import statistics, datetime\n"
+        "result = {'mean': statistics.mean(input_data['nums']), 'd': datetime.time(9, 0).isoformat()}",
+        {"nums": [1, 2, 3]},
+    ))
+    assert res.result == {"mean": 2, "d": "09:00:00"}
+
+
+def test_sandbox_subprocess_has_no_module_handles(monkeypatch):
+    """Second wall: pretend a payload beats the gate, and the subprocess still
+    has no module left to grab."""
+    monkeypatch.setattr(edge_sandbox, "validate_code_safety", lambda code: None)
+    for handle in ("sys", "io", "builtins"):
+        try:
+            asyncio.run(run_backend(f"result = {{'x': str({handle})}}", {}))
+            assert False, f"{handle} was still reachable"
+        except RuntimeError as e:
+            assert "NameError" in str(e)
 
 
 def test_inject_runtime():
