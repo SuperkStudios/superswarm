@@ -40,11 +40,16 @@ p_last_field_digests: Dict[str, Dict[str, str]] = {}
 def boot_fingerprint(options_kwargs: Dict, session: AgentSession) -> str:
     """Hash of every input the CLI subprocess freezes at boot. Includes the full mcp_servers config
     (so MCPActivate / model-env changes respawn), the composed system prompt (so per-turn selection
-    context respawns instead of silently not applying), branch, and the compaction cutoff (else a
-    live client would keep the untrimmed transcript forever)."""
+    context respawns instead of silently not applying), and the branch.
+
+    The compaction cutoff is deliberately NOT hashed. It only ever changes prompt_content (the
+    rebuilt history prefix), which is sent per query, never frozen at boot, and on the resume path
+    the CLI replays its own untrimmed transcript regardless. Every path that does rebuild history
+    (needs_fresh_session / needs_fork / fork) already forces a respawn through force_respawn. Hashing
+    it bought nothing and cost a full CLI respawn on EVERY turn once a session crossed
+    compact_threshold_pct, measured at +1.0s TTFT per turn."""
     frozen = {k: v for k, v in options_kwargs.items() if k not in P_NON_BOOT_KEYS}
     frozen["p_branch"] = session.active_branch_id
-    frozen["p_compacted_through"] = session.compacted_through_msg_id
     # Pool diagnostics (OPENSWARM_POOL_DIAG=1): on a respawn, names WHICH boot field drifted; the tool for debugging respawn churn (e.g. the thinking short/long-prompt flip) in the field.
     if os.environ.get("OPENSWARM_POOL_DIAG") == "1":
         digests = {k: hashlib.sha256(json.dumps(v, sort_keys=True, default=str).encode()).hexdigest()[:10] for k, v in frozen.items()}
