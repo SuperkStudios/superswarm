@@ -289,12 +289,21 @@ def _disable_schedule(wf: Workflow) -> None:
     storage.save_workflow(wf)
 
 
+def p_timer_is_ours(wf: Workflow) -> bool:
+    """Whether this process owns a workflow's timer. Both the fire loop and the sleep math must
+    agree: if only one of them skipped cloud-hosted workflows, an overdue one would never roll
+    forward and the loop would spin at its 1s floor forever."""
+    return wf.execution_target != "cloud"
+
+
 async def _tick() -> None:
     now_utc = datetime.now(timezone.utc)
     if storage.get_paused():
         return
     due: list[Workflow] = []
     for wf in storage.list_workflows():
+        if not p_timer_is_ours(wf):
+            continue
         if not wf.schedule.enabled:
             continue
         if not is_schedule_configured(wf.schedule):
@@ -330,6 +339,8 @@ def seconds_to_next_fire() -> Optional[float]:
     now_utc = datetime.now(timezone.utc)
     soonest: Optional[datetime] = None
     for wf in storage.list_workflows():
+        if not p_timer_is_ours(wf):
+            continue
         if not wf.schedule.enabled:
             continue
         nra = _as_utc(wf.next_run_at)
@@ -452,6 +463,8 @@ def reconcile_on_startup() -> None:
     """
     now_utc = datetime.now(timezone.utc)
     for wf in storage.list_workflows():
+        if not p_timer_is_ours(wf):
+            continue
         if not wf.schedule.enabled:
             wf.next_run_at = None
             storage.save_workflow(wf)

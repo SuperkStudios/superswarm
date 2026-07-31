@@ -91,6 +91,8 @@ class Workflow(BaseModel):
     steps: list[WorkflowStep] = Field(default_factory=list)
     actions: ActionsConfig = Field(default_factory=ActionsConfig)
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
+    # Where a SCHEDULED fire runs. "cloud" hands the timer to our servers outright, so this machine must never fire it nor roll next_run_at, or the same slot runs twice. Manual Run-now always stays local.
+    execution_target: Literal["device", "cloud"] = "device"
     permissions: list[PermissionTier] = Field(
         default_factory=lambda: [PermissionTier(kind="notify")]
     )
