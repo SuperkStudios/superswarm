@@ -18,6 +18,7 @@ from backend.apps.tools_lib.tools_lib import (
     load_all_tools as load_all_tools,
     sanitize_server_name as sanitize_server_name,
 )
+from backend.config.headless import apply_headless_denies
 
 # Mutation/exec tools a read-only session must never reach: Edit (rewrites files), Bash (rm/mv/overwrite),
 # NotebookEdit (rewrites notebooks). Write is intentionally NOT here, the audit needs its one report.
@@ -33,6 +34,8 @@ def build_effective_tool_lists(
     browser_delegation_tools: List[str],
     invoke_agent_tools: List[str],
 ) -> Tuple[List[str], List[str]]:
+    # Same shadow the server registration takes: headless, the renderer-bound built-ins go straight onto disallowed instead of being offered and failing when called.
+    builtin_perms = apply_headless_denies(builtin_perms)
     effective_allowed = [
         t for t in session.allowed_tools
         if t in FULL_TOOLS and builtin_perms.get(t, "always_allow") == "always_allow"

@@ -1,0 +1,18 @@
+*
+!backend
+!openswarm-runner/runner
+
+# A developer's real OAuth client secrets live here; baking them into an image that
+# gets pushed to a registry is how a laptop leaks credentials. The Dockerfile asserts
+# they are gone, so this list failing open fails the build instead of shipping.
+backend/.env
+backend/.env.*
+
+backend/data
+backend/.venv
+backend/uv-bin
+backend/tests
+backend/.pytest_cache
+**/__pycache__
+**/*.pyc
+**/.DS_Store

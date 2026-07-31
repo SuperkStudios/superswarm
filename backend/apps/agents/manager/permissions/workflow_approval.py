@@ -16,6 +16,7 @@ from typeguard import typechecked
 from backend.apps.agents.manager.permissions.ApprovalDecision import ApprovalDecision
 from backend.apps.agents.manager.permissions.decision import request_user_approval
 from backend.apps.agents.manager.streaming.HookContext import HookContext
+from backend.config.headless import is_headless
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +91,8 @@ async def resolve_ask(
 ) -> ApprovalDecision:
     """Resolve an 'ask' policy. On a workflow run, reuse a remembered decision
     (this step first, then the workflow-level fallback) instead of prompting, and
-    persist any fresh non-sensitive answer so later fires don't re-ask. Shared by
+    persist any fresh non-sensitive answer so later fires don't re-ask. Headless,
+    anything still unresolved is denied on the spot instead of prompting. Shared by
     both gates so they can't disagree (and so the first one's answer is reused by
     the second within the same call)."""
     mem = p_approval_memory.get(ctx.session_id)
@@ -113,6 +115,12 @@ async def resolve_ask(
         if prior == "deny":
             note_tool_used(ctx.session_id, tool_name, False)
             return ApprovalDecision(behavior="deny", message="Denied by a remembered workflow permission")
+    # Headless there is no one to ask, so the request would just be broadcast into the void and come back denied ten minutes later; deny now, but only after the remembered decisions above got their say.
+    if is_headless():
+        return ApprovalDecision(
+            behavior="deny",
+            message="This run is headless, so nobody can approve a tool that asks. Use a tool that doesn't need approval, or report what you'd need permission for.",
+        )
     timeout = mem.ask_timeout if mem is not None else 600.0
     decision = await request_user_approval(
         ctx.session, ctx.session_id, tool_name, tool_input, ctx.builtin_perms,
