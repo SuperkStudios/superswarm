@@ -1,9 +1,10 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
-import Typography from '@mui/material/Typography';
 import LanguageIcon from '@mui/icons-material/Language';
 import EventRepeatIcon from '@mui/icons-material/EventRepeat';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
@@ -15,6 +16,7 @@ import { openCardContextMenu } from './openCardContextMenu';
 import { dockTileMenuRows } from './dockTileMenuRows';
 import { useDockLayout } from './useDockLayout';
 import { DockTileIcon } from './DockTileIcon';
+import DockHoverPreview from './DockHoverPreview';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -37,9 +39,8 @@ interface DesktopDockProps {
   onAddBrowser: () => void;
 }
 
-const PREVIEW_W = 190;
 const ACTION_COUNT = 4;
-const FADE = 18;
+const CARET_H = 13;
 
 /** Left-edge desktop dock: one tile per open card, hover previews, click focuses the window. */
 function DesktopDock({
@@ -111,15 +112,21 @@ function DesktopDock({
     else setEdges((prev) => (prev.top || prev.bottom ? { top: false, bottom: false } : prev));
   }, [scrolls, scrollHeight, entries.length, readEdges, scrollRef]);
 
-  // Only fade the end that still has tiles behind it, so a magnified first or last tile stays crisp.
+  // The fade is exactly the bleed band, which (since scrolling only happens at the tile floor, where bleed > tile)
+  // is the only place a partly-scrolled tile can ever show: so a cut icon always fades out, never hard-clips.
   const mask = scrolls
-    ? `linear-gradient(to bottom, rgba(0,0,0,${edges.top ? 0 : 1}) 0px, #000 ${FADE}px, #000 calc(100% - ${FADE}px), rgba(0,0,0,${edges.bottom ? 0 : 1}) 100%)`
+    ? `linear-gradient(to bottom, rgba(0,0,0,${edges.top ? 0 : 1}) 0px, #000 ${bleed}px, #000 calc(100% - ${bleed}px), rgba(0,0,0,${edges.bottom ? 0 : 1}) 100%)`
     : undefined;
 
   const hoveredEntry = hovered ? entries.find((e) => e.id === hovered.id) : undefined;
   const previewImage = hoveredEntry
     ? (liveShot?.id === hoveredEntry.id ? liveShot.dataUrl : hoveredEntry.thumbnail || undefined)
     : undefined;
+
+  // Past the shrink floor the column scrolls, and a hidden scrollbar with no caret reads as "the rest is gone".
+  const carets: { key: string; top: number; icon: React.ReactNode }[] = [];
+  if (scrolls && edges.top) carets.push({ key: 'up', top: 0, icon: <KeyboardArrowUpRoundedIcon sx={{ fontSize: '0.75rem' }} /> });
+  if (scrolls && edges.bottom) carets.push({ key: 'down', top: scrollHeight - CARET_H, icon: <KeyboardArrowDownRoundedIcon sx={{ fontSize: '0.75rem' }} /> });
 
   return (
     <Box
@@ -148,6 +155,7 @@ function DesktopDock({
         '& .osw-dock-tile': {
           borderRadius: '12px',
           transition: 'transform 0.12s ease-out',
+          transformOrigin: 'left center',
           willChange: 'transform',
         },
         // One source of truth for glyph size, so favicons and every icon pack shrink with the tile.
@@ -157,6 +165,7 @@ function DesktopDock({
       {entries.length > 0 && (
         <Box
           ref={scrollRef}
+          data-dock-scroll
           onScroll={scrolls ? (e: React.UIEvent<HTMLDivElement>) => { readEdges(e.currentTarget); endHover(); } : undefined}
           // The canvas zooms on wheel; a wheel we consume here must never reach it.
           onWheel={scrolls ? (e: React.WheelEvent) => e.stopPropagation() : undefined}
@@ -260,36 +269,29 @@ function DesktopDock({
         </React.Fragment>
       ))}
 
-      {hoveredEntry && (
+      {/* Anchored to the root's padding box, whose top edge IS the scroll box's top edge. */}
+      {carets.map((c) => (
         <Box
+          key={c.key}
           sx={{
             position: 'absolute',
-            left: 'calc(100% + 10px)',
-            top: Math.max(0, hovered!.top - 34),
-            width: PREVIEW_W,
-            borderRadius: '10px',
-            overflow: 'hidden',
-            background: previewImage ? '#fff' : 'rgba(22,12,34,0.9)',
-            boxShadow: '0 12px 32px rgba(0,0,0,0.4)',
+            left: 0,
+            right: 0,
+            top: `${c.top}px`,
+            height: `${CARET_H}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(255,255,255,0.72)',
             pointerEvents: 'none',
+            zIndex: 40,
           }}
         >
-          {previewImage ? (
-            <Box component="img" src={previewImage} alt="" sx={{ width: '100%', display: 'block' }} />
-          ) : (
-            <Box sx={{ p: 1.25 }}>
-              <Typography sx={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {hoveredEntry.label}
-              </Typography>
-              {hoveredEntry.snippet && (
-                <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.6875rem', mt: 0.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                  {hoveredEntry.snippet}
-                </Typography>
-              )}
-            </Box>
-          )}
+          {c.icon}
         </Box>
-      )}
+      ))}
+
+      {hoveredEntry && <DockHoverPreview entry={hoveredEntry} top={hovered!.top} image={previewImage} />}
     </Box>
   );
 }
