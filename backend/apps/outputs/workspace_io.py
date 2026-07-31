@@ -3,6 +3,7 @@ the workspace file-tree walk used by the polling read endpoint."""
 
 import logging
 import os
+from typing import Optional
 
 from fastapi import HTTPException
 
@@ -56,6 +57,29 @@ def app_workspace_dir(output_id: str) -> str | None:
         return None
     path = os.path.abspath(os.path.join(OUTPUTS_WORKSPACE_DIR, output.workspace_id))
     return path if os.path.isdir(path) else None
+
+
+def workspace_root(folder: str) -> str:
+    """The canonical form of a workspace folder. Every containment check and
+    every path handed back to a caller is anchored here."""
+    return os.path.realpath(folder)
+
+
+def resolve_in_workspace(folder: str, relative_path: str) -> Optional[str]:
+    """Resolve `relative_path` under workspace `folder`, or None if it escapes.
+
+    The single containment guard for every workspace read/write/delete.
+    `realpath`, never `normpath`: normpath is string math that strolls straight
+    through a symlink pointing out of the workspace. Both sides are resolved so
+    a symlinked ancestor (macOS `/var` -> `/private/var`, every tempdir) doesn't
+    reject a legitimate file. It also compares whole path COMPONENTS, not
+    strings: without the trailing separator, workspace `abc` owns `abc-evil`.
+    """
+    root = workspace_root(folder)
+    target = os.path.realpath(os.path.join(root, relative_path))
+    if target != root and not target.startswith(root + os.sep):
+        return None
+    return target
 
 
 # Build/install/cache directories that the polling endpoint must never descend into. Without this skip-list the workspace endpoint reads `node_modules/` (300 MB of MUI source, when it's a real dir and not a symlink), `.venv/` (10k+ Python files from the hardlinked cache), `__pycache__/`, `dist/`, `.git/`, etc; every 2 seconds while the agent is active. Result: backend CPU pegged on JSON-serializing auto-generated chunks the frontend will then throw away. The frontend already filters these for display; this skip is the real fix.
