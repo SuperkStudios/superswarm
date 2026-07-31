@@ -971,6 +971,20 @@ const FLASH_COLORS = {
 // short because the outcome flash is right behind it.
 const FLASH_MS = { acting: 450, ok: 900, fail: 1200 } as const;
 
+// The outline dance itself, over a variable `el`. One source, because it is now applied from two
+// places (straight away, and from a listener the page fires later) and they must not drift.
+// Saved-once + timer-reset, because a fill flashes twice in a row (intent, then outcome) and a
+// naive save would capture the FIRST flash's own outline as the "original" and leave it painted.
+function flashBody(el: string, kind: keyof typeof FLASH_COLORS): string {
+  return `if (${el}.oswFlashTimer) clearTimeout(${el}.oswFlashTimer);`
+    + ` if (!${el}.oswFlashSaved) ${el}.oswFlashSaved = [${el}.style.outline, ${el}.style.outlineOffset];`
+    + ` ${el}.style.outline = "3px solid ${FLASH_COLORS[kind]}"; ${el}.style.outlineOffset = "2px";`
+    + ` ${el}.oswFlashTimer = setTimeout(function () {`
+    + `   ${el}.style.outline = ${el}.oswFlashSaved[0]; ${el}.style.outlineOffset = ${el}.oswFlashSaved[1];`
+    + `   ${el}.oswFlashSaved = null; ${el}.oswFlashTimer = null;`
+    + ` }, ${FLASH_MS[kind]});`;
+}
+
 // Outline only, NEVER an injected node. A little "filled!" label with text in it would land in
 // document.body.innerText, which is exactly what BrowserGetText returns and what the send path
 // diffs to prove a composer cleared. Decorating the page must never change what the page SAYS.
@@ -982,19 +996,7 @@ function flashField(
   if (!objectId) return;
   sendCdp(wv, 'Runtime.callFunctionOn', {
     objectId,
-    // Saved-once + timer-reset, because a fill flashes twice in a row (intent, then outcome) and a
-    // naive save would capture the FIRST flash's own outline as the "original" and leave it painted.
-    functionDeclaration:
-      'function() {'
-      + ' if (this.oswFlashTimer) clearTimeout(this.oswFlashTimer);'
-      + ' if (!this.oswFlashSaved) this.oswFlashSaved = [this.style.outline, this.style.outlineOffset];'
-      + ` this.style.outline = "3px solid ${FLASH_COLORS[kind]}"; this.style.outlineOffset = "2px";`
-      + ' var el = this;'
-      + ' this.oswFlashTimer = setTimeout(function () {'
-      + '   el.style.outline = el.oswFlashSaved[0]; el.style.outlineOffset = el.oswFlashSaved[1];'
-      + '   el.oswFlashSaved = null; el.oswFlashTimer = null;'
-      + ` }, ${FLASH_MS[kind]});`
-      + ' }',
+    functionDeclaration: `function() { var el = this; ${flashBody('el', kind)} }`,
   }, sessionId).catch(() => {});
 }
 
