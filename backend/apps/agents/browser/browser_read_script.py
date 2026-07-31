@@ -43,6 +43,12 @@ P_SYSTEM = (
     "Answer the user's request using ONLY the page text provided. Be direct and "
     "complete in a few sentences; quote exact titles/values from the page. End "
     "with nothing else.\n"
+    # The old prompt said 'the page text provided' and the model echoed that phrasing straight
+    # back, so nearly every answer opened with 'Based on the page text provided...'. The person
+    # asked what the price is; they should read the price first, and never read about our plumbing.
+    "Lead with the answer itself. Never open with 'Based on', 'I can see', 'The page shows' or "
+    "any other preamble, and never mention the page, the text, the browser or how you got the "
+    "information: they asked a question, not for a description of your process.\n"
     "Reply with exactly the single word INSUFFICIENT only when the requested "
     "information would live somewhere this page is not (a different page, behind "
     "a click), so the caller should go get it. If THIS page is the right place "
