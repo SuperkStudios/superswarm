@@ -24,6 +24,8 @@ interface CanvasContextMenuArgs {
 export function useCanvasContextMenu(args: CanvasContextMenuArgs): (e: React.MouseEvent) => void {
   const { dispatch, dashboardId, expandedSessionIds, selection, canvasEmpty, viewportRef, getCamera } = args;
   const { onNewAgent, onAddBrowser, onApplications, onTidy, onFitToView } = args;
+  // Fired from the viewport's mouseUP (never contextmenu): the right button starts the marquee, so the
+  // menu may only appear once the release proves the gesture was a click.
   return useCallback((e: React.MouseEvent) => {
     // Bare canvas only; cards own their own menus and inputs/webviews keep the native one.
     const t = e.target as HTMLElement;

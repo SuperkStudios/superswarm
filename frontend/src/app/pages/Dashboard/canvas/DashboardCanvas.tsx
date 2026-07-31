@@ -74,7 +74,8 @@ interface DashboardCanvasProps {
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   onViewportMouseDown: (e: React.MouseEvent) => void;
   onViewportMouseMove: (e: React.MouseEvent) => void;
-  onViewportMouseUp: (e: React.MouseEvent) => void;
+  /** Returns true when the release ended a marquee drag rather than a plain click. */
+  onViewportMouseUp: (e: React.MouseEvent) => boolean;
   onViewportDoubleClick: (e: React.MouseEvent) => void;
   onCardSelect: (id: string, type: CardType, shiftKey: boolean, originTarget?: EventTarget | null) => void;
   onDragStart: (id: string, type: CardType) => void;
@@ -173,12 +174,10 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   const dispatch = useAppDispatch();
   const fullscreenCardId = useAppSelector(selectFullscreenCardId);
   const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
-  // The singleton app windows (Workflows, Settings) carry their own fullscreen flag, not a tiledCard; their fill also hides the dock.
-  const settingsFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
-  const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen || settingsFullscreen;
+  const anyFullscreen = !!fullscreenCardId;
   const [headerRevealed, setHeaderRevealed] = React.useState(false);
   const [appsWindowOpen, setAppsWindowOpen] = React.useState(false);
-  const onCanvasContextMenu = useCanvasContextMenu({
+  const openCanvasMenu = useCanvasContextMenu({
     dispatch, dashboardId, expandedSessionIds, selection, canvasEmpty,
     viewportRef: canvas.viewportRef, getCamera: canvas.actions.getLiveState,
     onNewAgent, onAddBrowser, onApplications: () => setAppsWindowOpen(true), onTidy, onFitToView,
@@ -254,7 +253,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           // page->transparent fade here just read as a light-leak band over the themed canvas.
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', pointerEvents: 'auto' }}>
+        {/* Must follow the reveal: an always-auto child overrides the hidden overlay's pointer-events:none and swallowed the whole top strip, so a top/left-tiled window's traffic lights were unclickable. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', pointerEvents: headerRevealed ? 'auto' : 'none' }}>
           <DashboardHeader
             dashboardName={dashboardName}
             sessions={sessions}
@@ -320,9 +320,18 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         data-canvas-viewport
         onMouseDown={onViewportMouseDown}
         onMouseMove={onViewportMouseMove}
-        onMouseUp={onViewportMouseUp}
+        onMouseUp={(e) => {
+          const marqueed = onViewportMouseUp(e);
+          // The right button belongs to the marquee, so the canvas menu waits for the release and
+          // only opens when nothing was rubber-banded. Opening on press stole the drag.
+          if (e.button === 2 && !marqueed) openCanvasMenu(e);
+        }}
         onDoubleClick={onViewportDoubleClick}
-        onContextMenu={onCanvasContextMenu}
+        onContextMenu={(e: React.MouseEvent) => {
+          // Bare canvas: kill the native menu (Inspect Element in dev) so the right-drag stays clean.
+          const t = e.target as HTMLElement;
+          if (!t.closest('[data-select-id]') && !t.closest('input, textarea, [contenteditable]')) e.preventDefault();
+        }}
         sx={{
           position: 'absolute',
           inset: 0,

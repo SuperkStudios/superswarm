@@ -244,22 +244,22 @@ export function useDashboardSelection(
     [screenToCanvas, computeMarqueeSelection],
   );
 
+  // Returns true when the release ended a real marquee DRAG, so the caller can tell a rubber-band
+  // gesture from a plain click without duplicating the threshold bookkeeping.
   const handleCanvasMouseUp = useCallback(
-    (e: MouseEvent) => {
+    (e: MouseEvent): boolean => {
       const origin = marqueeOriginRef.current;
-      if (!origin) return;
+      if (!origin) return false;
 
-      if (!isDraggingMarqueeRef.current) {
-        if (!e.shiftKey) {
-          deselectAll();
-        }
-      }
+      const dragged = isDraggingMarqueeRef.current;
+      if (!dragged && !e.shiftKey) deselectAll();
 
       marqueeOriginRef.current = null;
       isDraggingMarqueeRef.current = false;
       setMarquee(null);
       document.body.style.userSelect = '';
       document.body.classList.remove('dashboard-marquee-active');
+      return dragged;
     },
     [deselectAll],
   );
