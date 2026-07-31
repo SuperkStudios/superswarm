@@ -11,7 +11,6 @@ from typeguard import typechecked
 
 from backend.apps.agents.core.models import AgentSession, Message
 from backend.apps.agents.core.ws_manager import ws_manager
-from backend.apps.settings.settings import load_settings
 from backend.apps.agents.manager import context_budget
 from backend.apps.agents.manager import metadata
 from backend.apps.agents.manager.streaming.upsert_message import upsert_message
