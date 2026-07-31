@@ -43,8 +43,17 @@ def test_manifest_drops_only_builtins_nothing_in_the_repo_references(monkeypatch
     # Live-measured saving comes from exactly these; if one ever gains a caller, it must come back.
     monkeypatch.delenv("OSW_TOOL_MANIFEST", raising=False)
     out = resolve_builtin_tools_option()
-    for dead in ("Monitor", "PushNotification", "RemoteTrigger", "ScheduleWakeup", "ExitWorktree", "Skill"):
+    for dead in ("Monitor", "PushNotification", "RemoteTrigger", "ScheduleWakeup", "Skill"):
         assert dead not in out
+
+
+def test_both_halves_of_a_paired_tool_ship_together(monkeypatch):
+    """An Enter with no Exit strands the agent in whatever mode it entered. ExitWorktree was pruned
+    as "unreferenced" while EnterWorktree stayed, which is how that gap got in."""
+    monkeypatch.delenv("OSW_TOOL_MANIFEST", raising=False)
+    out = resolve_builtin_tools_option()
+    for enter, exit_ in (("EnterPlanMode", "ExitPlanMode"), ("EnterWorktree", "ExitWorktree")):
+        assert (enter in out) == (exit_ in out), f"{enter} and {exit_} must ship together"
 
 
 def test_only_the_exact_kill_switch_value_flips_it(monkeypatch):
