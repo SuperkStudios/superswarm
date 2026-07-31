@@ -959,6 +959,45 @@ function axNodesToCandidates(nodes: any[], sessionId?: string): RankItem[] {
   return out;
 }
 
+// What the user watching a form get filled sees on the page itself: blue when the agent picks a
+// field, green once the value is VERIFIED in it, red when it never landed. Green and red are the
+// point: a fill that silently failed used to look exactly like one that worked.
+const FLASH_COLORS = {
+  acting: 'rgba(77,163,255,0.9)',
+  ok: 'rgba(52,199,89,0.95)',
+  fail: 'rgba(248,113,113,0.95)',
+} as const;
+// Long enough for a human to catch a field going green as the form fills; the intent flash stays
+// short because the outcome flash is right behind it.
+const FLASH_MS = { acting: 450, ok: 900, fail: 1200 } as const;
+
+// Outline only, NEVER an injected node. A little "filled!" label with text in it would land in
+// document.body.innerText, which is exactly what BrowserGetText returns and what the send path
+// diffs to prove a composer cleared. Decorating the page must never change what the page SAYS.
+// (browser-use needed a whole data-browser-use-exclude mechanism because their panel does inject.)
+function flashField(
+  wv: BrowserWebview, objectId: string | undefined, sessionId: string | undefined,
+  kind: keyof typeof FLASH_COLORS,
+): void {
+  if (!objectId) return;
+  sendCdp(wv, 'Runtime.callFunctionOn', {
+    objectId,
+    // Saved-once + timer-reset, because a fill flashes twice in a row (intent, then outcome) and a
+    // naive save would capture the FIRST flash's own outline as the "original" and leave it painted.
+    functionDeclaration:
+      'function() {'
+      + ' if (this.oswFlashTimer) clearTimeout(this.oswFlashTimer);'
+      + ' if (!this.oswFlashSaved) this.oswFlashSaved = [this.style.outline, this.style.outlineOffset];'
+      + ` this.style.outline = "3px solid ${FLASH_COLORS[kind]}"; this.style.outlineOffset = "2px";`
+      + ' var el = this;'
+      + ' this.oswFlashTimer = setTimeout(function () {'
+      + '   el.style.outline = el.oswFlashSaved[0]; el.style.outlineOffset = el.oswFlashSaved[1];'
+      + '   el.oswFlashSaved = null; el.oswFlashTimer = null;'
+      + ` }, ${FLASH_MS[kind]});`
+      + ' }',
+  }, sessionId).catch(() => {});
+}
+
 // Cumulative top-left offset of a frame within the root viewport: climb the session chain adding each owning <iframe>'s top-left. Used ONLY to place the cosmetic click ripple; the click itself dispatches in the element's own frame, so this is best-effort. Verified getFrameOwner works through Electron.
 async function frameOffset(
   wv: BrowserWebview, sessionId: string | undefined, children: ChildSession[],
@@ -1086,18 +1125,8 @@ async function clickBackendNode(
     return { error: `${label} is no longer valid (${err.message || 'node not found'}). The page may have changed.` };
   }
 
-  // Brief outline pulse on the element the agent chose, so a watching user sees WHAT is being acted on, not just a ripple somewhere on the page.
-  if (resolvedObjectId) {
-    sendCdp(wv, 'Runtime.callFunctionOn', {
-      objectId: resolvedObjectId,
-      functionDeclaration:
-        'function() {'
-        + ' const o = this.style.outline, f = this.style.outlineOffset;'
-        + ' this.style.outline = "3px solid rgba(77,163,255,0.9)"; this.style.outlineOffset = "2px";'
-        + ' setTimeout(() => { this.style.outline = o; this.style.outlineOffset = f; }, 450);'
-        + ' }',
-    }, sessionId).catch(() => {});
-  }
+  // Blue = about to act on this. The outcome colors land later, once we know it.
+  flashField(wv, resolvedObjectId, sessionId, 'acting');
 
   // A text box is focused DIRECTLY by node id, never by screen coordinates. Inside an about:blank compose iframe (LinkedIn/Gmail messaging) the coordinate path lands on the wrong element (the box model is frame-local but the click dispatches in the root frame), while DOM.focus reaches the node in any frame. With a `text` arg we then insert the whole string at once, no clicking, no character-by-character typing.
   const _role = opts.role || '';
@@ -1123,8 +1152,13 @@ async function clickBackendNode(
           return typeof r?.result?.value === 'string' ? r.result.value : null;
         } catch { return opts.text ?? ''; } // unverifiable beats a false alarm
       };
-      const landedMsg = (got: string, via = '') =>
-        ({ text: `Focused ${label} and typed the text in${via}. Verified: the box now contains "${got}". Do NOT type it again.` });
+      // Every one of the four fill tiers exits through here, so the green flash is tied to the
+      // read-back rather than to any single mechanism: the field goes green exactly when the value
+      // is provably in it, never merely because a tier ran.
+      const landedMsg = (got: string, via = '') => {
+        flashField(wv, resolvedObjectId, sessionId, 'ok');
+        return { text: `Focused ${label} and typed the text in${via}. Verified: the box now contains "${got}". Do NOT type it again.` };
+      };
       try {
         await sendCdp(wv, 'Input.insertText', { text: opts.text }, sessionId);
       } catch (err: any) {
@@ -1170,6 +1204,7 @@ async function clickBackendNode(
           return v.includes(${JSON.stringify(opts.text)}) ? v.slice(0, 120) : null; })()`);
         if (typeof live === 'string') return landedMsg(live, ' (via keystrokes)');
       } catch { /* fall through to the honest error */ }
+      flashField(wv, resolvedObjectId, sessionId, 'fail');
       return { error: `Focused ${label} but the text did not register even as real keystrokes; the box may be a custom editor that rejects automation. Try a different element.` };
     }
     return { text: `Focused ${label}; the cursor is in it now (type with BrowserPressKey, or pass a text arg to fill it in one call).` };
@@ -1241,11 +1276,40 @@ async function clickBackendNode(
     }
   }
 
+  // A dropdown, checkbox or radio is the rest of a form, and the click path could not say whether
+  // any of them actually took: only a typed field ever went green. So read the control's state
+  // either side of the click and let the CHANGE be the proof. Deliberately not "it holds a value
+  // now", which would paint a pre-filled field green and claim credit for work nobody did.
+  const controlState = async (): Promise<string | null> => {
+    if (!targetObjectId) return null;
+    try {
+      const r = await sendCdp(wv, 'Runtime.callFunctionOn', {
+        objectId: targetObjectId,
+        functionDeclaration:
+          'function() { var t = this.tagName; '
+          + 'if (t !== "SELECT" && t !== "INPUT" && t !== "TEXTAREA") return null; '
+          + 'return String(this.checked) + "\\u0000" + String(this.value); }',
+        returnByValue: true,
+      }, sessionId);
+      const v = r?.result?.value;
+      return typeof v === 'string' ? v : null;
+    } catch { return null; }
+  };
+  const p_before = await controlState();
+
   try {
     await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mousePressed', x: lx, y: ly, button: 'left', clickCount: 1 }, sessionId);
     await sendCdp(wv, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x: lx, y: ly, button: 'left', clickCount: 1 }, sessionId);
   } catch (err: any) {
+    flashField(wv, resolvedObjectId, sessionId, 'fail');
     return { error: `Click failed: ${err.message || String(err)}` };
+  }
+  if (p_before !== null) {
+    const p_after = await controlState();
+    // Only a real change earns the green. No change is left alone rather than painted red: plenty
+    // of legitimate clicks on a control change nothing yet (opening a native select is one), and
+    // crying failure there would be the same overclaim pointed the other way.
+    if (p_after !== null && p_after !== p_before) flashField(wv, resolvedObjectId, sessionId, 'ok');
   }
   return {
     text: `Clicked ${label} at (${Math.round(rx)}, ${Math.round(ry)})`,
