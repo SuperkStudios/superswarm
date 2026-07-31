@@ -150,8 +150,8 @@ def p_source_session_memory(session_id: Optional[str]) -> tuple[dict[str, str], 
         messages = getattr(sess, "messages", None) if sess is not None else None
         tool_latencies = getattr(sess, "tool_latencies", None) if sess is not None else None
         if decisions is None:
-            from backend.apps.agents.manager.session.session_store import _load_session_data
-            data = _load_session_data(session_id) or {}
+            from backend.apps.agents.manager.session.session_store import load_session_data
+            data = load_session_data(session_id) or {}
             decisions = data.get("approval_decisions") or []
             messages = data.get("messages") or []
             tool_latencies = data.get("tool_latencies") or {}
@@ -940,8 +940,8 @@ async def edit_agent_session(workflow_id: str):
             p_sess.dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
             p_sess.workflow_edit_id = wf.id
             try:
-                from backend.apps.agents.manager.session.session_store import _save_session
-                _save_session(p_sess.id, p_sess.model_dump(mode="json"))
+                from backend.apps.agents.manager.session.session_store import save_session
+                save_session(p_sess.id, p_sess.model_dump(mode="json"))
             except Exception:
                 logger.debug("could not persist reattached edit-agent markers", exc_info=True)
             try:
@@ -1033,8 +1033,8 @@ async def edit_agent_session(workflow_id: str):
         from backend.apps.agents.core.models import Message
         session.messages.append(Message(role="assistant", content=EDIT_AGENT_INTRO))
     try:
-        from backend.apps.agents.manager.session.session_store import _save_session
-        _save_session(session.id, session.model_dump(mode="json"))
+        from backend.apps.agents.manager.session.session_store import save_session
+        save_session(session.id, session.model_dump(mode="json"))
     except Exception:
         logger.debug("could not persist edit-agent session", exc_info=True)
     try:
