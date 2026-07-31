@@ -712,7 +712,8 @@ const AgentCard: React.FC<Props> = ({
     () => (session.status === 'running' ? extractPendingAskUi(session.messages || []) : null),
     [session.messages, session.status],
   );
-  const pillMode = !expanded && !hasPending && !isDraft && !tileZone;
+  // Drafts collapse to the pill like everything else; only a pending approval keeps the full card, since you have to see what you are approving.
+  const pillMode = !expanded && !hasPending && !tileZone;
   // Glass bubble + fullscreen scrim are both dark in either theme, so the title goes light on them.
   const titleColor = expanded ? GLASS_SURFACE_TEXT : c.text.primary;
   // The answer a finished turn actually spoke, for pills with no widget/plan to show. Only the last assistant say, never a tool line.
