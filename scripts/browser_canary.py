@@ -47,17 +47,23 @@ SITES: Dict[str, Dict[str, str]] = {
         "probe": 'Go to x.com. Do NOT type or post anything. Is the tweet compose box present on the page? Answer with exactly one word: YES or NO.',
         "post": 'Go to x.com and post this tweet, exactly: "{m}"',
         "delete": 'Go to x.com/{handle} and delete the post that says "{m}"',
+        "verify": ('Go to x.com/{handle}. Do NOT post, delete or change anything. Is there a post '
+                   'containing "{m}"? Answer with exactly one word: GONE if absent, PRESENT if there.'),
         "handle_env": "OSW_CANARY_X_HANDLE",
     },
     "linkedin": {
         "probe": 'Go to linkedin.com. Do NOT type or post anything. Is the "Start a post" compose control present on the feed? Answer with exactly one word: YES or NO.',
         "post": 'Go to linkedin.com and create a post with exactly this text: "{m}"',
         "delete": 'Go to my LinkedIn activity and delete the post that says "{m}"',
+        "verify": ('Go to my LinkedIn activity. Do NOT post, delete or change anything. Is there a post '
+                   'containing "{m}"? Answer with exactly one word: GONE if absent, PRESENT if there.'),
     },
     "reddit": {
         "probe": 'Go to reddit.com/r/test/submit. Do NOT type or submit anything. Is the post title/body compose form present? Answer with exactly one word: YES or NO.',
         "post": 'Go to reddit.com and create a text post in r/test titled "{m}" with body "canary check". Submit it.',
         "delete": 'Go to reddit.com and delete my post titled "{m}"',
+        "verify": ('Go to my reddit profile. Do NOT post, delete or change anything. Is there a post '
+                   'titled "{m}"? Answer with exactly one word: GONE if absent, PRESENT if there.'),
     },
 }
 
@@ -153,6 +159,17 @@ def check_site(site: str, cfg: Dict[str, str], live: bool) -> Dict[str, object]:
     dlog = str(d["log"])
     removed = "removed=True" in dlog
     res["delete_wall"] = d["wall"]
+    if not removed and cfg.get("verify"):
+        # `removed=True` only exists on the BrowserDeleteItem dispatch path. A model-driven delete is
+        # every bit as real, and grepping for the mechanism called DRIFT on a delete that had plainly
+        # worked: X said "Your post was deleted" and an independent profile audit found the marker
+        # gone, twice. A canary that cries wolf gets ignored, which is worse than no canary, so the
+        # authority here is the OUTCOME (is it still on the page?) and never the implementation detail.
+        v = run_task(cfg["verify"].format(m=marker, handle=handle), f"canary-verify-{site}")
+        vsaid = str(v["said"])
+        removed = bool(re.search(r"\bGONE\b", vsaid, re.I)) and not re.search(r"\bPRESENT\b", vsaid, re.I)
+        res["verify_wall"] = v["wall"]
+        res["verified_by"] = "re-read" if removed else "re-read (still present)"
     if not removed:
         res.update(stage="cleanup", ok=False,
                    detail=f"POSTED BUT NOT CLEANED, marker {marker} may be live: {str(d['said'])[:100]}")
