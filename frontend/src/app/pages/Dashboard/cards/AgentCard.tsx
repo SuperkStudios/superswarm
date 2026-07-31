@@ -32,7 +32,6 @@ import {
   clearGlowingAgentCard,
   removeCard,
   recordClosedCard,
-  clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
 import { useTiledCard } from './useTiledCard';
@@ -301,13 +300,23 @@ const GLOW_FADE_MS = 2500;
 const SNAP_THRESHOLD = 60;
 
 const AgentCard: React.FC<Props> = ({
-  session, expanded, cardX, cardY, cardWidth, cardHeight, getCanvasState, spawnFrom, exitTarget,
+  session, expanded: expandedInStore, cardX, cardY, cardWidth, cardHeight, getCanvasState, spawnFrom, exitTarget,
   isSelected = false, isHighlighted = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
   onBranch, onMeasuredHeight, snapColumn, autoFocusInput, cardZOrder = 0, onDoubleClick, onBringToFront,
   shakeDirection,
 }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
+  const commitPosition = useCallback((x: number, y: number) => {
+    dispatch(setCardPosition({ sessionId: session.id, x, y }));
+  }, [dispatch, session.id]);
+  const tiling = useCardTiling({ cardId: session.id, getCanvasState, commitPosition });
+  const tileZone = tiling.zone;
+  const isTiled = !!tileZone;
+  const isFullscreen = tileZone === 'fullscreen';
+  // A tiled chat IS an open chat. One flag drives the window's SIZE and its SKIN together, so a tile
+  // can never wear the collapsed card's light surface (that was "fullscreen turns white").
+  const expanded = expandedInStore || isTiled;
   const isDashboardActive = useDashboardActive();
   const hasApiKey = !!useAppSelector((s) => s.settings.data.anthropic_api_key);
   const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
@@ -446,11 +455,6 @@ const AgentCard: React.FC<Props> = ({
   const justDraggedRef = useRef(false);
   const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
 
-  const commitPosition = useCallback((x: number, y: number) => {
-    dispatch(setCardPosition({ sessionId: session.id, x, y }));
-  }, [dispatch, session.id]);
-  const tiling = useCardTiling({ cardId: session.id, getCanvasState, commitPosition });
-  const tileZone = tiling.zone;
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
     e.preventDefault();
@@ -659,20 +663,12 @@ const AgentCard: React.FC<Props> = ({
     }
   };
 
-  const isFullscreen = tileZone === 'fullscreen';
-  const isTiled = !!tileZone;
-  // A collapsed chat can never stay tiled: collapsing while fullscreen left a white full-window shell
-  // (the header collapse control still fires in full size view). Seal the state instead of the path.
-  useEffect(() => {
-    if (tileZone && !expanded) dispatch(clearTiledCard(session.id));
-  }, [tileZone, expanded, dispatch, session.id]);
   const onMinimize = (): void => { dispatch(collapseSession(session.id)); };
   const onTile = (zone: string): void => {
     // A collapsed chat has nothing to fill a zone with, so tiling one opens it first.
-    if (zone !== 'restore' && !expanded) dispatch(expandSession(session.id));
+    if (zone !== 'restore') dispatch(expandSession(session.id));
     tiling.applyZone(zone);
   };
-
 
   const lastMessage = session.messages[session.messages.length - 1];
   // Subscribe to this card's own streaming entry so per-character mutations don't churn other cards.
@@ -1014,7 +1010,7 @@ const AgentCard: React.FC<Props> = ({
             <WindowControls
               onClose={() => handleRemove()}
               onMinimize={() => dispatch(expandSession(session.id))}
-              onTile={(zone: string) => { dispatch(expandSession(session.id)); onTile(zone); }}
+              onTile={onTile}
               tiled={false}
             />
           </Box>

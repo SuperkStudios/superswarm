@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction, createAction } from '@reduxjs/toolkit';
-import { launchAndSendFirstMessage, resumeSession } from './agentsSlice';
+import { launchAndSendFirstMessage, resumeSession, collapseSession, collapseAllSessions, setExpandedSessionIds } from './agentsSlice';
+import { untileClosedChats } from './untileClosedChats';
 import { API_BASE } from '@/shared/config';
 import { getLastDashboardId } from '@/shared/lastDashboardId';
 
@@ -1759,6 +1760,17 @@ const dashboardLayoutSlice = createSlice({
         // Fail-open for RENDERING only; saveArmed stays false so this client can never persist the empty layout it booted with over the server's real one (the wipe that hit 2026-07-20).
         state.initialized = true;
       })
+      // Rule 8 of the tiling set: a chat's zone belongs to its OPEN state, so every action that closes
+      // chats untiles them here, in the same dispatch. See untileClosedChats.
+      .addCase(collapseSession, (state, action) => {
+        untileClosedChats(state.tiledCards, [action.payload], []);
+      })
+      .addCase(collapseAllSessions, (state) => {
+        untileClosedChats(state.tiledCards, Object.keys(state.cards), []);
+      })
+      .addCase(setExpandedSessionIds, (state, action) => {
+        untileClosedChats(state.tiledCards, Object.keys(state.cards), action.payload);
+      })
       .addCase(fetchSessionRejectedAction, (state, action) => {
         // 404/410 means permanent; strip the card. Other failure modes leave it (next fetch may succeed).
         const payload = action.payload;
@@ -1778,6 +1790,13 @@ const dashboardLayoutSlice = createSlice({
         if (card) {
           delete state.cards[draftId];
           state.cards[session.id] = { ...card, session_id: session.id, zOrder: state.nextZOrder++ };
+        }
+        // The zone rides the re-key too: left behind, a tiled draft pops out of its tile AND strands an
+        // entry no reader can ever clear (a stranded 'fullscreen' hides the whole shell until reload).
+        const draftZone = state.tiledCards[draftId];
+        if (draftZone) {
+          delete state.tiledCards[draftId];
+          state.tiledCards[session.id] = draftZone;
         }
         // Carry an optimistic browser tether from the draft id to the real session id, in place (no flicker, no stale draft endpoint).
         for (const entry of Object.values(state.glowingBrowserCards)) {

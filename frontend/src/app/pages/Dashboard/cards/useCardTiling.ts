@@ -14,6 +14,8 @@ import { zoneRect } from '../canvas/tiledGeometry';
 //   6. Minimizing keeps the zone (the rail puts you back in it); only 'fullscreen' is dropped, since
 //      a parked card must not keep hiding the whole shell.
 //   7. Closing a card drops its zone (the reducers own that; an orphan entry poisons every reader).
+//   8. A chat's zone is bound to its OPEN state: collapsing a chat untiles it in the SAME dispatch
+//      (dashboardLayoutSlice extraReducers), and a tiled chat renders as an open one either way.
 
 export interface CardFrame {
   x: number;
