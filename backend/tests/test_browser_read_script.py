@@ -165,25 +165,40 @@ def test_a_page_that_simply_lacks_the_field_is_still_an_answer():
         assert rs.is_answer(answer) == answer, answer
 
 
-def test_the_read_asks_for_its_whole_budget_not_the_loops_default():
-    """The handler's default char cap is sized for the MAIN model loop's context, not for this one
-    cheap aux call. Taking that default silently truncated the page: measured, 9 of 18 live reads
-    came back at EXACTLY the cap, and on a reddit thread the comment scores sit past the post body,
-    so the answer was cut off and a 100-220s model loop went looking for what we had removed."""
-    asked = {}
+def test_the_first_look_is_cheap_and_only_a_decline_buys_the_big_read():
+    """Reading the whole page every time made a search-results page (which we ALWAYS leave, one
+    click deeper) pay for chars it could never answer from: amazon's median went 26.1s -> 58.5s.
+    So the first look is the modest slice and only an INSUFFICIENT escalates."""
+    caps = []
 
     async def run_tool(name, params, browser_id, tab_id):
-        asked.update(params or {})
+        caps.append((params or {}).get("max_chars"))
         return {"text": PAGE, "url": "https://www.reddit.com/r/x/comments/1/y"}
 
     aux = Aux("The top comment is by u/someone with 387 upvotes.")
     out = asyncio.run(rs.run_read_script(aux, "m", "top comment?", "b1", "t1", run_tool))
     assert out == "The top comment is by u/someone with 387 upvotes."
-    assert asked.get("max_chars") == rs.MAX_PAGE_CHARS, (
-        f"read must ask for the {rs.MAX_PAGE_CHARS} chars it can use, asked {asked!r}")
+    assert set(caps) == {rs.FIRST_READ_CHARS}, f"an answered page must never buy the big read, got {caps}"
+
+
+def test_a_decline_escalates_to_the_full_page():
+    """The big read exists for the page that IS the right page but was cut off. On a decline we
+    re-read at the full budget before giving the task up to the model loop."""
+    caps = []
+
+    async def run_tool(name, params, browser_id, tab_id):
+        caps.append((params or {}).get("max_chars"))
+        return {"text": PAGE, "url": "https://www.reddit.com/r/x/comments/1/y"}
+
+    aux = Aux("INSUFFICIENT")
+    out = asyncio.run(rs.run_read_script(aux, "m", "top comment?", "b1", "t1", run_tool))
+    assert out is None                       # still fails open to the loop
+    assert rs.FIRST_READ_CHARS in caps     # cheap first
+    assert rs.MAX_PAGE_CHARS in caps, f"a decline must escalate to the full page, got {caps}"
 
 
 def test_the_budget_it_asks_for_is_the_budget_it_sends():
     """If the ask and the send drift apart we are either paying for text we discard, or discarding
     text we paid for. They are the same number by construction."""
     assert rs.MAX_PAGE_CHARS >= 24000
+    assert rs.FIRST_READ_CHARS < rs.MAX_PAGE_CHARS

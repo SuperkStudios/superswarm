@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 ToolRunner = Callable[[str, Dict, str, str], Awaitable[Dict]]
 
 P_MIN_PAGE_CHARS = 500
+# First look: the same modest slice the main loop reads. Most pages answer from this.
+FIRST_READ_CHARS = 15000
+# Second look, only after a decline: everything we can actually use. Half our live reads used to
+# arrive pinned at exactly the smaller cap, with the answer (a reddit thread's comment scores sit
+# after the post body) sitting just past the cut, so the aux declined and a 100-220s model loop went
+# scrolling for text we had truncated ourselves.
 MAX_PAGE_CHARS = 24000
 P_TEXT_TIMEOUT_S = 8.0
 P_AUX_TIMEOUT_S = 12.0
@@ -102,16 +108,13 @@ async def run_read_script(
     try:
         from backend.apps.agents.core.aux_llm import safe_resp_text
 
-        async def p_page_text() -> tuple:
+        async def p_page_text(cap: int) -> tuple:
             """Page text, but only once two consecutive reads agree it has stopped growing."""
             prev = -1
             text, url = "", ""
             for attempt in range(MAX_READS):
-                # Ask for the whole budget we can actually use. The handler's default is sized for the
-                # main loop's context, not for this one aux call, and taking that default meant half
-                # our reads arrived pre-truncated with the answer sitting just past the cut.
                 r = await asyncio.wait_for(
-                    execute_tool("BrowserGetText", {"max_chars": MAX_PAGE_CHARS}, browser_id, tab_id),
+                    execute_tool("BrowserGetText", {"max_chars": cap}, browser_id, tab_id),
                     timeout=P_TEXT_TIMEOUT_S)
                 text = str(r.get("text") or "") if isinstance(r, dict) and "error" not in r else ""
                 url = str(r.get("url") or "") if isinstance(r, dict) else ""
@@ -125,7 +128,13 @@ async def run_read_script(
             return (text, url) if len(text) >= P_MIN_PAGE_CHARS else ("", "")
 
         for ask in range(1 + P_INSUFFICIENT_RETRIES):
-            page, p_live_url = await p_page_text()
+            # Cheap read first, full read only if that one came up short. A search-results page is one
+            # we ALWAYS leave (the answer is a click deeper), so buying the whole thing up front is
+            # text we can never answer from. Note the wall-clock case for this is NOT proven: live
+            # sweeps of these tasks vary 5-12x run to run, which buries an effect this size. It stands
+            # on the shape alone, never pay for what you don't need, and the retry is where the big
+            # read earns its keep, on a page that IS the right page but got cut off.
+            page, p_live_url = await p_page_text(FIRST_READ_CHARS if ask == 0 else MAX_PAGE_CHARS)
             if len(page) < P_MIN_PAGE_CHARS:
                 logger.info(f"[browser-readscript] page too thin ({len(page)} chars); loop runs")
                 return None
