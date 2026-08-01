@@ -72,3 +72,9 @@ resolve_forced_tools
 used_llm
 usage_summary
 last_run_at
+
+# config/entity_references.py: the cross-entity reference registry. Its consumer is
+# the dangling-refs linter check, which reads the file as data rather than importing
+# it, so vulture sees two module-level tables nobody touches.
+ENTITY_STORES
+CROSS_ENTITY_REFERENCES
