@@ -26,6 +26,7 @@ from backend.apps.workflows.owned_sessions import (
     REFERENCED_SESSION_FIELDS,
     owned_session_ids,
     purge_owned_sessions,
+    retire_previous_test_session,
 )
 from backend.apps.workflows.reconcile_references import reconcile_workflow_sessions
 
@@ -85,6 +86,31 @@ async def test_purge_spares_the_originating_chat(make_wf):
 
     assert not p_session_exists("s-edit")
     assert p_session_exists("s-users-own-chat"), "the user's own chat outlives the workflow"
+
+
+@pytest.mark.asyncio
+async def test_a_second_test_run_retires_the_first(make_wf):
+    """Live: building one workflow ran five tests and left five orphan cards on the canvas. Each new
+    test overwrites last_test_session_id, so the displaced chat had no pointer left and would have
+    survived a hard delete of the workflow."""
+    wf = make_wf(last_test_session_id="s-test-1")
+    p_session_on_disk("s-test-1")
+
+    await retire_previous_test_session(wf)
+
+    assert wf.last_test_session_id is None
+    assert not p_session_exists("s-test-1"), "the displaced test chat must not outlive its pointer"
+
+
+@pytest.mark.asyncio
+async def test_retiring_with_no_previous_test_is_a_no_op(make_wf):
+    """The discriminating half: the first test of a workflow must not try to drop anything."""
+    wf = make_wf(edit_agent_session_id="s-edit")
+    p_session_on_disk("s-edit")
+
+    await retire_previous_test_session(wf)
+
+    assert p_session_exists("s-edit"), "retiring a test must never touch the edit chat"
 
 
 def test_reconcile_nulls_a_pointer_whose_session_is_gone(make_wf):

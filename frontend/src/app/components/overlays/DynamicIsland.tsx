@@ -26,6 +26,7 @@ import {
   HistorySession,
 } from '@/shared/state/agentsSlice';
 import { displaySessionName } from '@/shared/state/sessionDisplay';
+import { isUserLaunchedSession } from '@/shared/state/isUserLaunchedSession';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import ApprovalBar, { BatchApprovalBar, parseMcpToolName, useMcpToolMeta, getToolIcon } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import GlobalSearchPalette from '@/app/components/overlays/GlobalSearchPalette';
@@ -180,6 +181,7 @@ type DiSession = {
   name: string;
   status: string;
   dashboard_id?: string;
+  userLaunched: boolean;
   pending_approvals: AgentSession['pending_approvals'];
 };
 
@@ -207,6 +209,7 @@ const selectDynamicIslandSessions = createSelector(
           name: s.name,
           status: s.status,
           dashboard_id: s.dashboard_id,
+          userLaunched: isUserLaunchedSession(s),
           pending_approvals: s.pending_approvals,
         };
         _diSessionCache.set(sid, next);
@@ -277,10 +280,11 @@ const DynamicIsland: React.FC = () => {
       .map((id): TrackedAgent | null => {
         const session = sessions[id];
         if (session && session.status !== 'draft') {
+          if (!session.userLaunched) return null;
           return { id, name: session.name, status: session.status, dashboardId: session.dashboard_id };
         }
         const hist: HistorySession | undefined = history[id];
-        if (hist) {
+        if (hist && isUserLaunchedSession(hist)) {
           return { id, name: hist.name, status: hist.status, dashboardId: hist.dashboard_id };
         }
         return null;
@@ -291,7 +295,7 @@ const DynamicIsland: React.FC = () => {
     for (const g of groups) {
       if (!trackedIdSet.has(g.sessionId)) {
         const session = sessions[g.sessionId];
-        if (session && session.status !== 'draft') {
+        if (session && session.status !== 'draft' && session.userLaunched) {
           agents.push({ id: g.sessionId, name: session.name, status: session.status, dashboardId: session.dashboard_id });
         }
       }

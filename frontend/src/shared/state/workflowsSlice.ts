@@ -414,9 +414,12 @@ export const fetchDeletedWorkflows = createAsyncThunk('workflows/fetchDeleted', 
   return data.workflows as Workflow[];
 });
 
-export const restoreWorkflow = createAsyncThunk('workflows/restore', async (id: string) => {
+export const restoreWorkflow = createAsyncThunk('workflows/restore', async (id: string, { dispatch }) => {
   const res = await fetch(`${API}/${id}/restore`, { method: 'POST' });
   if (!res.ok) throw new Error(`restore failed ${res.status}`);
+  // Trashing drops the run rows from the store; the server kept them, so pull them back or a restored workflow claims "No runs yet" over a real history.
+  void dispatch(fetchRuns(id));
+  void dispatch(fetchAllRuns(200));
   return (await res.json()) as Workflow;
 });
 

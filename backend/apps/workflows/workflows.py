@@ -1254,7 +1254,10 @@ async def test_run_workflow(workflow_id: str, body: dict):
         set_workflow_approval_step,
     )
     from backend.apps.workflows import executor
+    from backend.apps.workflows.owned_sessions import retire_previous_test_session
 
+    # One test card at a time: the previous test's chat is about to lose the only pointer to it, so retire it now rather than leave an orphan card on the canvas.
+    await retire_previous_test_session(wf)
     # Like a real run, the test must attach to the dashboard the user is watching, else its browser tools have no card to drive and the test "runs" but visibly does nothing. Prefer the live active dashboard over the workflow's stored home.
     from backend.apps.agents.core.ws_manager import ws_manager as p_wsm
     test_dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)

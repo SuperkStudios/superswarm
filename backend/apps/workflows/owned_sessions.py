@@ -42,26 +42,49 @@ def owned_session_ids(wf: Workflow) -> List[str]:
 
 
 @typechecked
-async def purge_owned_sessions(wf: Workflow) -> int:
-    """Close and delete the workflow's own chats. Returns how many were removed.
-
-    Best-effort per session: one unreadable file must not strand the rest, because a partial purge
-    is the state that leaves a transcript behind.
-    """
+async def drop_session(sid: str) -> bool:
+    """Close one chat and delete its file. Best effort: one unreadable file must not strand the rest."""
     import logging
     from backend.apps.agents.manager.session.session_store import delete_session_file
 
     logger = logging.getLogger(__name__)
+    try:
+        from backend.apps.agents.agent_manager import agent_manager
+        await agent_manager.close_session(sid)
+    except Exception:
+        logger.debug("could not close session %s", sid, exc_info=True)
+    try:
+        delete_session_file(sid)
+        return True
+    except Exception:
+        logger.warning("could not delete session file %s", sid, exc_info=True)
+        return False
+
+
+@typechecked
+async def purge_owned_sessions(wf: Workflow) -> int:
+    """Close and delete the workflow's own chats. Returns how many were removed.
+
+    Best-effort per session, because a partial purge is the state that leaves a transcript behind.
+    """
     removed = 0
     for sid in owned_session_ids(wf):
-        try:
-            from backend.apps.agents.agent_manager import agent_manager
-            await agent_manager.close_session(sid)
-        except Exception:
-            logger.debug("could not close session %s during purge", sid, exc_info=True)
-        try:
-            delete_session_file(sid)
+        if await drop_session(sid):
             removed += 1
-        except Exception:
-            logger.warning("could not delete session file %s during purge", sid, exc_info=True)
     return removed
+
+
+@typechecked
+async def retire_previous_test_session(wf: Workflow) -> None:
+    """Drop the old test chat before a new one takes its place.
+
+    `last_test_session_id` holds exactly one pointer, so a second test used to strand the first
+    session: an orphan card sitting on the user's canvas that nothing references any more, and a
+    transcript that outlives a hard delete of the workflow, which is the very leak this module
+    exists to prevent.
+    """
+    sid = getattr(wf, "last_test_session_id", None)
+    if not isinstance(sid, str) or not sid:
+        return
+    await drop_session(sid)
+    wf.last_test_session_id = None
