@@ -115,8 +115,7 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
     underscore_errors = run_underscore_check(root, exceptions, excludes, ignores) if enabled.get("no-underscore-names", False) else []
     p_private_errors = run_p_private_check(root, exceptions, excludes, ignores) if enabled.get("p-private", False) else []
 
-    # Cross-entity id fields must name the entity they point at, so a dangling reference is a
-    # linter error at declaration time instead of a blank card six months later.
+    # A dangling reference becomes a linter error at declaration time, not a blank card six months later.
     dangling_ref_errors: list[str] = []
     if enabled.get("dangling-refs", False):
         try:

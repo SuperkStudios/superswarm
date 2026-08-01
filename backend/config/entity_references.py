@@ -56,8 +56,7 @@ ENTITY_STORES: List[EntityStore] = [
     EntityStore(kind=EntityKind.SESSION, module="backend.apps.agents.manager.session.session_store", lookup="load_session_data"),
     EntityStore(kind=EntityKind.DASHBOARD, module="backend.apps.dashboards.dashboards", lookup="load"),
     EntityStore(kind=EntityKind.WORKFLOW, module="backend.apps.workflows.storage", lookup="get_workflow"),
-    # No get_run(run_id) exists; a run is found by scanning the listing, which is why a stale
-    # last_run_id reads as "no run" rather than as an error.
+    # No get_run(run_id) exists, so a run is found by scanning the listing; a stale last_run_id just reads as "no run".
     EntityStore(kind=EntityKind.WORKFLOW_RUN, module="backend.apps.workflows.storage", lookup="list_all_runs"),
     EntityStore(kind=EntityKind.OUTPUT, module="backend.apps.outputs.workspace_io", lookup="load_output"),
     # A workspace is a folder on disk, not a record, so its only by-id lookup is the read route.
