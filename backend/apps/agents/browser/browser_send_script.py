@@ -207,19 +207,27 @@ async def run_send_script(
     prompt; the composed task carries the routing brief whose own quoted strings
     made every real payload look ambiguous (r242/r243)."""
     t0 = time.monotonic()
-    # Default ON as of 2026-07-31, on a measured sweep over the 9 sites this profile is genuinely
-    # signed into: composer reach 3/9 -> 6/9, submit resolution 2/9 -> 5/9. The name-based detector
-    # it backs up only sees a composer that carries a recognisable accessible name, which is a
-    # minority of the web; instagram reached its composer on this tier and nothing else. It costs
-    # one page scan on a page that has no composer, and every gate downstream (quoted payload,
-    # fill-seen-committed, two-sided receipt) is unchanged, so a wider search cannot loosen safety.
+    # Default ON, but the number that justified it was inflated: "composer reach 3/9 -> 6/9" counted
+    # instagram's DM box (a wrong surface, now refused) and a twitch win that did not reproduce on a
+    # clean re-sweep. Honest re-measure over the same 9 signed-in sites: 3/9 -> 4/9 composer, 2/9 ->
+    # 3/9 submit, and youtube is the only site this tier reliably wins. Kept on because it cannot
+    # loosen safety (every downstream gate is unchanged) and costs one page scan where there is none.
     p_struct = os.environ.get("OSW_COMPOSER_STRUCT", "1") != "0"
 
+    # current_url is prestage's, frozen before any opener click or reveal navigation, so on exactly
+    # the sites where a send goes somewhere surprising it names the wrong page. Track what we last
+    # actually looked at instead.
+    p_live_url = current_url
+
     async def fresh_list() -> str:
+        nonlocal p_live_url
         try:
             r = await asyncio.wait_for(
                 execute_tool("BrowserListInteractives", {}, browser_id, tab_id), timeout=6.0)
-            return str(r.get("text") or "") if isinstance(r, dict) and "error" not in r else ""
+            if not (isinstance(r, dict) and "error" not in r):
+                return ""
+            p_live_url = str(r.get("url") or "") or p_live_url
+            return str(r.get("text") or "")
         except Exception:
             return ""
 
@@ -372,7 +380,7 @@ async def run_send_script(
                 logger.info("[browser-sendscript] decline: no composer, opener, or structural editable")
             return None
     # No Send-button precondition: composer sites (LinkedIn) lazy-render Send only AFTER text commits, so it's resolved post-fill; never appearing = clean pre-click abort.
-    logger.info(f"[browser-sendscript] fill target {composer[1]!r} [{composer[0]}]")
+    logger.info(f"[browser-sendscript] fill target {composer[1]!r} [{composer[0]}] on {p_live_url[:90]}")
 
     if p_struct_selector:
         # The finder already filled + read-back-verified in-page; nothing to re-fill or re-check.

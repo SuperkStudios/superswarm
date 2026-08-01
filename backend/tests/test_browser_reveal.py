@@ -68,7 +68,7 @@ async def test_structural_finder_declines_when_no_editable(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_structural_kill_switch_really_kills_it(monkeypatch):
-    """The finder went default-ON (composer reach 3/9 -> 6/9 measured live), so the thing worth
+    """The finder went default-ON (composer reach 3/9 -> 4/9 on an honest re-sweep), so the thing worth
     pinning is no longer the default but the escape hatch: =0 must fall all the way back to the
     proven name path with the finder never invoked, so a site it upsets is fixable without a build."""
     monkeypatch.setenv("OSW_COMPOSER_STRUCT", "0")
