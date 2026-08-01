@@ -10,6 +10,7 @@ import DesktopSpawnPill from './desktop/DesktopSpawnPill';
 import SearchIcon from '@mui/icons-material/Search';
 import { motion } from 'framer-motion';
 import ChatInput from '@/app/pages/AgentChat/ChatInput';
+import { EmptyState } from '@/app/components/feedback/Loading';
 import type { ContextPath } from '@/app/components/editor/DirectoryBrowser';
 import SchedulePopover from '@/app/pages/Workflows/SchedulePopover';
 import { openWorkflowCard, fetchAllRuns, upsertRun } from '@/shared/state/workflowsSlice';
@@ -537,11 +538,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               }}
             >
               {filteredOutputs.length === 0 ? (
-                <Box sx={{ px: 2, py: 3, textAlign: 'center' }}>
-                  <Typography sx={{ fontSize: '0.8125rem', color: c.text.muted }}>
-                    {outputList.length === 0 ? 'No apps created yet' : 'No matching apps'}
-                  </Typography>
-                </Box>
+                <EmptyState title={outputList.length === 0 ? 'No apps created yet' : 'No matching apps'} />
               ) : (
                 filteredOutputs.map((output) => (
                   <Box
