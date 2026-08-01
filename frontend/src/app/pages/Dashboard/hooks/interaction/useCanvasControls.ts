@@ -7,8 +7,14 @@ import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import { syncTiledGeometry } from '../../canvas/tiledGeometry';
+import { revealZoom } from '../../canvas/revealZoom';
 
 const MIN_ZOOM = 0.15;
+// The floor for AUTOMATIC reveals only. revealCards takes min(current, fit), which can only ever go
+// down, so every spawn that did not fit ratcheted the camera out and nothing ever brought it back:
+// measured 100% -> 88% -> 79% -> 61% -> 36% -> 18% over one ordinary session, at which point no word
+// on the canvas is readable. A hand-driven zoom can still go all the way to MIN_ZOOM.
+
 const MAX_ZOOM = 3.0;
 const ZOOM_IN_FACTOR = 1.1;
 const ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR;
@@ -792,7 +798,8 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         (v.width - REVEAL_MARGIN * 2) / (maxX - minX),
         (v.height - REVEAL_MARGIN * 2) / (maxY - minY),
       );
-      const zoom = clamp(Math.min(cur.zoom, fitZoom), MIN_ZOOM, MAX_ZOOM);
+      // Never auto-zoom below readable: showing every card at 18% is worse than showing the new one at 50%, and the pan below still brings it into view.
+      const zoom = clamp(revealZoom(cur.zoom, fitZoom, MIN_ZOOM, MAX_ZOOM), MIN_ZOOM, MAX_ZOOM);
       // If zooming out, keep the viewport-center world point fixed first, then clamp.
       const ratio = zoom / cur.zoom;
       let panX = v.width / 2 - (v.width / 2 - cur.panX) * ratio;
