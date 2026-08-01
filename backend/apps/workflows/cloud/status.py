@@ -16,7 +16,7 @@ from typeguard import typechecked
 from backend.apps.workflows import storage
 from backend.apps.workflows.cloud import client as cloud
 from backend.apps.workflows.cloud.definition import cloud_definition, definition_signature
-from backend.apps.workflows.cloud.schedule import ScheduleSupported, to_cloud_schedule
+from backend.apps.workflows.cloud.schedule import ScheduleSupported, to_cloud_schedule, wire
 from backend.apps.workflows.models import Workflow
 
 
@@ -74,7 +74,7 @@ def current_signature(wf: Workflow) -> Optional[str]:
     mapping = to_cloud_schedule(wf.schedule)
     if not isinstance(mapping, ScheduleSupported):
         return None
-    return definition_signature(cloud_definition(wf), mapping.schedule.model_dump())
+    return definition_signature(cloud_definition(wf), wire(mapping.schedule))
 
 
 @typechecked
@@ -90,6 +90,11 @@ def p_mirror_cloud_state(wf: Workflow, hosted: Optional[cloud.HostedWorkflow]) -
     wf.next_run_at = wanted
     if hosted and wf.schedule.enabled != hosted.enabled:
         wf.schedule.enabled = hosted.enabled
+        changed = True
+    # Runs the cloud performed count against a max_runs cap the same as ours do, so copy its total
+    # back. Without this, taking a nearly-spent schedule off the cloud would restart it at zero.
+    if hosted and hosted.runs_done is not None and wf.schedule.runs_count != hosted.runs_done:
+        wf.schedule.runs_count = hosted.runs_done
         changed = True
     if changed:
         storage.save_workflow(wf)

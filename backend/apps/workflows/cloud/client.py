@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from typeguard import typechecked
 
 from backend.apps.settings.credentials import account_auth
-from backend.apps.workflows.cloud.schedule import CloudSchedule
+from backend.apps.workflows.cloud.schedule import CloudSchedule, wire
 
 # The cloud router is mounted at /api/workflows and a trailing slash 404s there, so the collection paths are the empty string, not "/".
 COLLECTION = ""
@@ -71,6 +71,9 @@ class HostedWorkflow(BaseModel):
     id: str
     enabled: bool = False
     next_run_at: Optional[int] = None
+    # Total fires, cloud plus the ones done here before the handover. None from a control plane that
+    # predates the count, and a "we were not told" must never be read as a zero.
+    runs_done: Optional[int] = None
 
 
 class CloudPreflight(BaseModel):
@@ -160,10 +163,12 @@ def p_hosted(raw: Any) -> Optional[HostedWorkflow]:
     if not isinstance(ident, str):
         return None
     nxt = raw.get("next_run_at")
+    done = raw.get("runs_done")
     return HostedWorkflow(
         id=ident,
         enabled=bool(raw.get("enabled")),
         next_run_at=nxt if isinstance(nxt, int) else None,
+        runs_done=done if isinstance(done, int) else None,
     )
 
 
@@ -202,16 +207,13 @@ async def preflight(definition: Dict[str, Any], hosted_id: Optional[str]) -> Clo
     if not isinstance(raw, dict):
         raise CloudUnreachable("the cloud sent a preflight we could not read")
     limits, usage = p_allowance(raw)
-    capability = raw.get("capability")
+    cap = raw.get("capability")
     return CloudPreflight(
         plan=raw.get("plan") if isinstance(raw.get("plan"), str) else None,
         limits=limits,
         usage=usage,
-        capability=(
-            CloudCapability(ok=bool(capability.get("ok")), reason=capability.get("reason"))
-            if isinstance(capability, dict)
-            else None
-        ),
+        capability=CloudCapability(ok=bool(cap.get("ok")), reason=cap.get("reason"))
+        if isinstance(cap, dict) else None,
         hosted=p_hosted(raw.get("hosted")),
     )
 
@@ -229,11 +231,13 @@ async def p_preflight_from_list(hosted_id: Optional[str]) -> CloudPreflight:
 
 @typechecked
 async def put_workflow(
-    *, hosted_id: Optional[str], name: str, definition: Dict[str, Any], schedule: CloudSchedule
+    *, hosted_id: Optional[str], name: str, definition: Dict[str, Any],
+    schedule: CloudSchedule, runs_before: int = 0,
 ) -> HostedWorkflow:
-    """Create the hosted copy, or re-push onto the existing row so an edited
-    workflow stops running last week's prose."""
-    body = {"name": name, "definition": definition, "schedule": schedule.model_dump()}
+    """Create the hosted copy, or re-push onto the existing row so an edited workflow stops running
+    last week's prose. runs_before rides only on the create: an edit that resent it would hand a
+    nearly-spent run cap its whole budget back."""
+    body: Dict[str, Any] = {"name": name, "definition": definition, "schedule": wire(schedule)}
     if hosted_id:
         try:
             raw = await p_call("POST", f"/{hosted_id}/update", body)
@@ -244,7 +248,7 @@ async def put_workflow(
             # 404 is the row being gone (deleted elsewhere, or a control plane with no update route); make a fresh one.
             if exc.status != 404:
                 raise
-    raw = await p_call("POST", COLLECTION, body)
+    raw = await p_call("POST", COLLECTION, {**body, "runs_before": max(0, runs_before)})
     hosted = p_hosted(raw)
     if not hosted:
         raise CloudUnreachable("the cloud accepted the workflow but did not say which one")
@@ -281,16 +285,14 @@ async def list_runs(hosted_id: str) -> List[CloudRun]:
         if not isinstance(row, dict):
             continue
         notices = row.get("notices")
-        out.append(
-            CloudRun(
-                id=str(row.get("id") or ""),
-                status=str(row.get("status") or "unknown"),
-                started_at=row.get("started_at") if isinstance(row.get("started_at"), int) else None,
-                finished_at=row.get("finished_at") if isinstance(row.get("finished_at"), int) else None,
-                error=row.get("error") if isinstance(row.get("error"), str) else None,
-                answer=row.get("answer") if isinstance(row.get("answer"), str) else None,
-                notices=[n for n in notices if isinstance(n, str)] if isinstance(notices, list) else [],
-                cost_usd=row.get("cost_usd") if isinstance(row.get("cost_usd"), (int, float)) else None,
-            )
-        )
+        out.append(CloudRun(
+            id=str(row.get("id") or ""),
+            status=str(row.get("status") or "unknown"),
+            started_at=row.get("started_at") if isinstance(row.get("started_at"), int) else None,
+            finished_at=row.get("finished_at") if isinstance(row.get("finished_at"), int) else None,
+            error=row.get("error") if isinstance(row.get("error"), str) else None,
+            answer=row.get("answer") if isinstance(row.get("answer"), str) else None,
+            notices=[n for n in notices if isinstance(n, str)] if isinstance(notices, list) else [],
+            cost_usd=row.get("cost_usd") if isinstance(row.get("cost_usd"), (int, float)) else None,
+        ))
     return out
