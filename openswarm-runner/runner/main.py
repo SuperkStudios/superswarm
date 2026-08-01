@@ -16,9 +16,10 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict
 from typeguard import typechecked
 
-from runner.backend_process import BackendProcess, BackendUnavailable, start_backend, stop_backend
+from runner.boot.backend_process import BackendProcess, BackendUnavailable, start_backend, stop_backend
+from runner.boot.renderer_process import RendererProcess, RendererUnavailable, start_renderer, stop_renderer
 from runner.report import RunReport, send_report
-from runner.run_spec import CallbackTarget, InvalidRunSpec, RunSpec, load_run_spec
+from runner.run_spec import CLOUD_RUN_DASHBOARD_ID, CallbackTarget, InvalidRunSpec, RunSpec, load_run_spec
 from runner.seed.data_root import seed_data_root
 from runner.seed.router_credentials import write_router_db
 from runner.workflow_run import RunOutcome, RunProgress, WorkflowRunFailed, execute_workflow
@@ -30,8 +31,10 @@ EXIT_CREDENTIAL_EXPIRED = 3
 EXIT_BACKEND_UNAVAILABLE = 4
 EXIT_WORKFLOW_FAILED = 5
 EXIT_DEADLINE = 6
+EXIT_RENDERER_UNAVAILABLE = 7
 
 DEFAULT_APP_ROOT = "/app"
+DEFAULT_FRONTEND_DIR = "/app/frontend"
 DEFAULT_DATA_ROOT = "/data/openswarm"
 DEFAULT_ROUTER_DATA_DIR = "/data/9router"
 DEFAULT_PORT = 8324
@@ -138,10 +141,23 @@ def p_run(spec: RunSpec, deadline: float) -> int:
 
     backend: Optional[BackendProcess] = None
     process: Optional[subprocess.Popen] = None
+    renderer: Optional[RendererProcess] = None
     try:
         backend = start_backend(app_root, data_root, port, deadline)
         process = backend.process
         logger.info("backend healthy at %s", backend.base_url)
+
+        if spec.needs_browser:
+            renderer = start_renderer(
+                app_root=app_root,
+                frontend_dir=os.environ.get("OPENSWARM_FRONTEND_DIR", DEFAULT_FRONTEND_DIR),
+                backend_base_url=backend.base_url,
+                backend_headers=backend.headers(),
+                backend_port=port,
+                dashboard_id=CLOUD_RUN_DASHBOARD_ID,
+                deadline=deadline,
+            )
+            logger.info("renderer attached at %s, browser tools are live", renderer.url)
 
         send_report(spec.callback, RunReport(run_id=spec.run_id, phase="started", status="running"))
         heartbeat = Heartbeat(
@@ -152,9 +168,14 @@ def p_run(spec: RunSpec, deadline: float) -> int:
         outcome = execute_workflow(backend, spec.workflow.id, deadline, heartbeat.maybe_send)
     except BackendUnavailable as exc:
         return p_fail(spec, "failure", str(exc), EXIT_BACKEND_UNAVAILABLE)
+    except RendererUnavailable as exc:
+        # Loud, not silent: a browser workflow that quietly ran without a window produces a
+        # confident wrong answer, which is worse than no answer.
+        return p_fail(spec, "failure", str(exc), EXIT_RENDERER_UNAVAILABLE)
     except WorkflowRunFailed as exc:
         return p_fail(spec, "failure", str(exc), EXIT_WORKFLOW_FAILED)
     finally:
+        stop_renderer(renderer)
         stop_backend(process)
 
     code = p_exit_code_for(outcome)

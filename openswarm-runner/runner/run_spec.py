@@ -19,6 +19,11 @@ from backend.apps.workflows.models import Workflow
 SPEC_ENV = "OPENSWARM_RUN_SPEC"
 SPEC_FILE_ENV = "OPENSWARM_RUN_SPEC_FILE"
 
+# The one dashboard a cloud run has. Fixed rather than generated so the Electron window can be
+# deep-linked at it before the backend has even booted, and so a workflow arriving with the
+# laptop dashboard id it was authored against gets repointed at a dashboard that exists here.
+CLOUD_RUN_DASHBOARD_ID = "cloud-run"
+
 # Headroom the access token must still have on arrival. The control plane refreshes right before dispatch; anything thinner than this means its clock or its queue is broken, and we must not paper over that by refreshing ourselves.
 MIN_TOKEN_LIFETIME = timedelta(minutes=2)
 
@@ -88,6 +93,10 @@ class RunSpec(BaseModel):
     callback: Optional[CallbackTarget] = None
     # Hard wall-clock ceiling. Fly bills by machine-second, so an agent that wedges must cost a bounded amount.
     max_run_seconds: int = Field(default=1800, ge=60, le=7200)
+    # Boot Electron under a virtual display so browser steps work. On by default: parity is the
+    # point of running in a container at all, and a workflow that never touches a browser is the
+    # exception that should have to say so. Costs a few seconds and a few hundred MB when on.
+    needs_browser: bool = True
 
     @typechecked
     def expired_credentials(self, now: datetime) -> List[ProviderCredential]:
@@ -106,8 +115,13 @@ class RunSpec(BaseModel):
         A cloud-executed workflow arrives with its schedule still configured. Left
         enabled, the container's own scheduler would fire it a second time inside
         the box, so the timer is stripped here rather than trusted to stay off.
+
+        It also arrives pointing at whatever dashboard it was authored on, which does not
+        exist in this container; left alone, the first browser card would 404 looking for
+        it. Repointed at the one dashboard this run has.
         """
         copy = self.workflow.model_copy(deep=True)
+        copy.dashboard_id = CLOUD_RUN_DASHBOARD_ID
         copy.schedule.enabled = False
         copy.deleted_at = None
         copy.draft_steps = None

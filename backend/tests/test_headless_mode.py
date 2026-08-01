@@ -1,7 +1,9 @@
-"""OPENSWARM_HEADLESS=1 gating: the tools that dead-end at an Electron renderer (browser/app
-delegation, ShowUI/AskUI, AskUserQuestion) must be gone from the effective tool surface, and an
-'ask' must deny on the spot instead of parking on the 600s approval timeout. Every case is paired
-with its headless-off twin, because a gate that can't be seen switching off proves nothing."""
+"""Headless gating: the tools that dead-end must be gone from the effective tool surface, and an
+'ask' must deny on the spot instead of parking on the 600s approval timeout. Two gates, not one:
+ShowUI/AskUI and AskUserQuestion need a person, so OPENSWARM_HEADLESS=1 alone kills them, while
+browser/app delegation only needs a window, so a headless box that boots one (the cloud runner
+under Xvfb) keeps them. Every case is paired with its twin, because a gate that can't be seen
+switching off proves nothing."""
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -11,7 +13,8 @@ from backend.apps.agents.manager.permissions import workflow_approval
 from backend.apps.agents.manager.permissions.build_effective_tool_lists import build_effective_tool_lists
 from backend.apps.agents.manager.register_builtin_mcp_servers import register_builtin_mcp_servers
 from backend.apps.agents.manager.streaming.HookContext import HookContext
-from backend.config.headless import HEADLESS_DENIED_TOOLS
+from backend.apps.agents.core.ws_manager import ws_manager
+from backend.config.headless import HUMAN_BOUND_TOOLS, RENDERER_BOUND_TOOLS, denied_tools
 
 BROWSER_DELEGATION = ("CreateBrowserAgent", "BrowserAgent", "BrowserAgents", "AppAgent")
 
@@ -45,11 +48,45 @@ def p_ctx() -> HookContext:
     )
 
 
-def test_the_denied_set_is_exactly_the_renderer_bound_tools():
-    assert HEADLESS_DENIED_TOOLS == frozenset(BROWSER_DELEGATION) | {"ShowUI", "AskUserQuestion"}
+@pytest.fixture
+def no_renderer(monkeypatch):
+    """No window has ever attached, the state a container starts in."""
+    monkeypatch.setattr(ws_manager, "renderer_ever_attached", False, raising=False)
 
 
-def test_headless_drops_the_renderer_bound_servers_and_tools(monkeypatch):
+@pytest.fixture
+def renderer_attached(monkeypatch):
+    """A window registered on the dashboard socket, the state the runner waits for."""
+    monkeypatch.setattr(ws_manager, "renderer_ever_attached", True, raising=False)
+
+
+def test_the_two_denied_sets_split_by_what_they_actually_need():
+    assert RENDERER_BOUND_TOOLS == frozenset(BROWSER_DELEGATION)
+    assert HUMAN_BOUND_TOOLS == frozenset({"ShowUI", "AskUserQuestion"})
+
+
+def test_a_renderer_buys_back_the_browser_tools_but_never_the_human_ones(monkeypatch, renderer_attached):
+    monkeypatch.setenv("OPENSWARM_HEADLESS", "1")
+    assert denied_tools() == HUMAN_BOUND_TOOLS
+
+
+def test_a_desktop_launch_denies_nothing_even_before_its_window_loads(monkeypatch, no_renderer):
+    monkeypatch.delenv("OPENSWARM_HEADLESS", raising=False)
+    assert denied_tools() == frozenset()
+
+
+def test_headless_with_a_renderer_offers_the_browser_server_again(monkeypatch, renderer_attached):
+    monkeypatch.setenv("OPENSWARM_HEADLESS", "1")
+    mcp_servers, allowed, disallowed = p_run_the_real_pipeline()
+    assert "openswarm-browser-agent" in mcp_servers
+    for tool in BROWSER_DELEGATION:
+        assert f"mcp__openswarm-browser-agent__{tool}" in allowed
+    # Still nobody to answer, so the human-bound pair stays gone.
+    assert "openswarm-ui" not in mcp_servers
+    assert "AskUserQuestion" in disallowed
+
+
+def test_headless_drops_the_renderer_bound_servers_and_tools(monkeypatch, no_renderer):
     monkeypatch.setenv("OPENSWARM_HEADLESS", "1")
     mcp_servers, allowed, disallowed = p_run_the_real_pipeline()
     assert "openswarm-browser-agent" not in mcp_servers
@@ -66,7 +103,7 @@ def test_headless_drops_the_renderer_bound_servers_and_tools(monkeypatch):
     assert "openswarm-apps" in mcp_servers
 
 
-def test_without_headless_every_one_of_them_is_offered(monkeypatch):
+def test_without_headless_every_one_of_them_is_offered(monkeypatch, no_renderer):
     monkeypatch.delenv("OPENSWARM_HEADLESS", raising=False)
     mcp_servers, allowed, _ = p_run_the_real_pipeline()
     assert "openswarm-browser-agent" in mcp_servers
@@ -87,7 +124,7 @@ def test_askuserquestion_survives_when_the_ui_server_is_absent(monkeypatch):
     assert "AskUserQuestion" not in allowed and "AskUserQuestion" in disallowed
 
 
-def test_only_the_exact_flag_value_turns_headless_on(monkeypatch):
+def test_only_the_exact_flag_value_turns_headless_on(monkeypatch, no_renderer):
     monkeypatch.setenv("OPENSWARM_HEADLESS", "0")
     _, allowed, _ = p_run_the_real_pipeline()
     assert "mcp__openswarm-ui__ShowUI" in allowed
