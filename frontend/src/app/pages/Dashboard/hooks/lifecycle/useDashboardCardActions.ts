@@ -111,6 +111,7 @@ export function useDashboardCardActions({
     const {
       cards: tidied, viewCards: tidiedViews, browserCards: tidiedBrowsers,
       workflowCards: tidiedWorkflows, workflowsHub: tidiedHub,
+      workflowsMonitorCard: tidiedMonitor, settingsCard: tidiedSettings,
     } = store.getState().dashboardLayout;
     const allRects = [
       ...Object.values(tidied).map((c) => ({
@@ -120,9 +121,12 @@ export function useDashboardCardActions({
       ...Object.values(tidiedViews).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
       ...Object.values(tidiedBrowsers).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
       ...Object.values(tidiedWorkflows).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
-      ...(tidiedHub ? [{ x: tidiedHub.x, y: tidiedHub.y, width: tidiedHub.width, height: tidiedHub.height }] : []),
+      // The hub, the monitor and Settings get tidied into the grid too, so the camera has to know about them or it frames a stale box.
+      ...[tidiedHub, tidiedMonitor, tidiedSettings]
+        .filter((c): c is NonNullable<typeof c> => !!c)
+        .map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
     ];
-    canvasActions.fitToCards(allRects);
+    canvasActions.fitTidy(allRects);
   }, [dispatch, canvasActions]);
 
   return {
