@@ -439,6 +439,11 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // timeout the moment the user looked away. Same lever VS Code ships with.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
+// The other half of that same problem: those two keep a guest's SCRIPTS running, this keeps its
+// PIXELS coming. Chromium marks a fully covered window occluded and stops compositing it, and a
+// guest with no composited frame cannot be screenshotted at all (capturePage never even settles),
+// so the agent went blind the moment you put another window in front of OpenSwarm.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 // Heavy WebGL/webview churn (spam-switching apps, busy dashboards) can crash the
 // shared GPU process; Chromium kills the whole app after a few GPU crashes. Lift
 // that cap so a GPU hiccup recovers by restarting the GPU process instead of
