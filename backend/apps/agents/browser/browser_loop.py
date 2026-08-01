@@ -10,6 +10,8 @@ prevents the model from burning the entire turn budget on a failing approach.
 import json
 import re
 
+from backend.apps.agents.browser import browser_send_parse
+
 # Tools that are read-only / idempotent and should NOT count toward loop detection. Repeating these is normal (scrolling through a feed, taking successive screenshots, polling for an element to appear).
 LOOP_DETECTION_EXCLUDED_TOOLS = {
     "BrowserScreenshot",
@@ -321,6 +323,14 @@ def is_publish_task(task: str) -> bool:
     anything. Failing safe here means at worst we skip a gate on a genuine write, never that we
     call a perfectly good read a failure."""
     if not P_PUBLISH_INTENT_RE.search(task or ""):
+        return False
+    # An explicit read-only directive settles it: the user said "do NOT submit anything", so nothing
+    # was ever supposed to leave, and demanding a send receipt turns a correct read into a reported
+    # failure. Measured live on reddit's own discovery probe ("Do NOT type or submit anything. Is
+    # the post title/body compose form present?"), which the informational heuristic below scored as
+    # a publish and this gate then failed. Reuses the SAME authority the send script declines on,
+    # rather than growing a second opinion that can drift away from it.
+    if browser_send_parse.is_readonly(task or ""):
         return False
     return not deliverable_is_informational("", task)
 

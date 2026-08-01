@@ -244,3 +244,25 @@ def test_publish_verbs_are_also_ordinary_nouns():
         'click the Search button',
     ):
         assert is_publish_task(task) is False, task
+
+
+def test_an_explicit_read_only_directive_is_never_a_publish():
+    """The user saying "do NOT submit anything" settles it, whatever verbs the rest of the sentence
+    carries. Measured live 2026-07-31: the reddit canary's own discovery probe, which is read-only
+    by construction, scored as a publish and this gate reported "the send was never confirmed" on a
+    probe that was never supposed to send. The informational heuristic alone missed it, because the
+    task is stuffed with publish nouns ("post title/body compose form", "/r/test/submit").
+
+    Uses the same is_readonly authority the send script declines on, rather than a second opinion
+    that can drift away from it. Direction is safe: this can only ever REMOVE a publish
+    classification, so it can never newly flag a run that genuinely sent something."""
+    for task in (
+        'Go to reddit.com/r/test/submit. Do NOT type or submit anything. Is the post title/body '
+        'compose form present? Answer with exactly one word: YES or NO.',
+        'Go to x.com/me. Do NOT post, delete or change anything. Is there a post containing "abc"?',
+        'Go to my LinkedIn activity. Do NOT post, delete or change anything. Is there a post '
+        'titled "canary"? Answer GONE or PRESENT.',
+    ):
+        assert is_publish_task(task) is False, task
+    # ...and a real write with no read-only directive still gates.
+    assert is_publish_task('Go to reddit and submit a text post titled "x" with body "y"') is True
