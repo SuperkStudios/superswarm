@@ -40,6 +40,23 @@ declare global {
     total: number;
   }
 
+  // A finished-run notification handed to the OS by the Electron main process.
+  interface OpenSwarmNotifyRequest {
+    title: string;
+    body?: string;
+    deepLink?: string;
+    runId?: string;
+    workflowId?: string;
+    actions?: Array<{ text: string; outcome: 'open' | 'ack' | 'rerun' | 'edit' }>;
+  }
+
+  interface OpenSwarmNotifyAction {
+    outcome: 'open' | 'ack' | 'rerun' | 'edit';
+    runId?: string;
+    workflowId?: string;
+    deepLink?: string;
+  }
+
   interface OpenSwarmAPI {
     getBackendPort: () => number;
     getWebviewPreloadPath: () => string;
@@ -74,6 +91,8 @@ declare global {
     voiceRequestHoldPermission?: () => Promise<boolean>;
     onAuthUrl?: (cb: (url: string) => void) => () => void;
     onOauthClaim?: (cb: (url: string) => void) => () => void;
+    notify?: (payload: OpenSwarmNotifyRequest) => Promise<boolean>;
+    onNotificationAction?: (cb: (payload: OpenSwarmNotifyAction) => void) => () => void;
   }
 
   interface Window {

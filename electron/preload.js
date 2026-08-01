@@ -76,6 +76,18 @@ contextBridge.exposeInMainWorld('openswarm', {
   },
   // Reveal a diagnostics folder in Finder/Explorer (path validated in main; diagnostics dir only).
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
+
+  // Native OS notification for a finished workflow run, posted by the MAIN process
+  // so it survives a minimized/hidden/backgrounded renderer (the renderer's own
+  // Notification API does not). Resolves true once it is handed to the OS, which can
+  // still refuse it afterwards (main logs that). Fields are clamped in main;
+  // onNotificationAction carries the clicked outcome back.
+  notify: (payload) => ipcRenderer.invoke('workflow:notify', payload),
+  onNotificationAction: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('workflow:notification-action', listener);
+    return () => ipcRenderer.removeListener('workflow:notification-action', listener);
+  },
   // True keyboard hold-to-talk needs the native key tap; renderers ask so Settings copy stays honest,
   // and request triggers the macOS Accessibility prompt when the tap is blocked on permission.
   setVoiceHotkey: (combo) => ipcRenderer.send('voice:set-hotkey', combo),

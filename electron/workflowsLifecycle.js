@@ -126,12 +126,20 @@ function drainOnQuit(maxSeconds = 30) {
   });
 }
 
+// Who receives the notification outcome. main.js injects the main window;
+// BrowserWindow.getAllWindows()[0] is not it after a window recreate (the
+// splash and browser popups get in front of it in creation order).
+let notificationTarget = () => null;
+
+function setNotificationTarget(fn) {
+  notificationTarget = typeof fn === 'function' ? fn : () => null;
+}
+
 // Native OS notification. Falls back silently when Notification isn't
 // supported (some Linux setups, headless test envs). When `actions` is
 // provided AND we're on macOS, attaches button actions so the user can
 // ack/re-run/open without the app taking focus. Routes the chosen
-// outcome back to the renderer via an IPC channel that the renderer's
-// WebSocketManager already listens for.
+// outcome back to the renderer over 'workflow:notification-action'.
 function showNativeNotification({ title, body, deepLink, runId, workflowId, actions }) {
   if (!Notification || !Notification.isSupported()) return null;
   try {
@@ -141,23 +149,39 @@ function showNativeNotification({ title, body, deepLink, runId, workflowId, acti
       : undefined;
     if (platformActions && platformActions.length) opts.actions = platformActions;
     const n = new Notification(opts);
-    const route = (outcome) => {
-      try {
-        const { BrowserWindow } = require('electron');
-        const wins = BrowserWindow.getAllWindows();
-        const wc = wins[0]?.webContents;
-        if (wc) wc.send('workflow:notification-action', { outcome, runId, workflowId, deepLink });
-      } catch (_) {}
+    const win = () => {
+      const w = notificationTarget();
+      return w && !w.isDestroyed() ? w : null;
     };
+    const route = (outcome) => {
+      const w = win();
+      if (!w) return false;
+      try {
+        w.webContents.send('workflow:notification-action', { outcome, runId, workflowId, deepLink });
+        return true;
+      } catch (_) { return false; }
+    };
+    // The OS can refuse after show() returns (unauthorized app, notifications off).
+    // Silence here is how a dead notifier looks exactly like a working one, so say it out loud.
+    n.on('failed', (_event, error) => {
+      console.warn('[notify] the OS refused a workflow notification:', error);
+    });
     n.on('action', (_event, idx) => {
       const a = (actions || [])[idx];
       if (a) route(a.outcome);
     });
     n.on('click', () => {
-      if (deepLink) {
+      const w = win();
+      if (w) {
+        try { if (!w.isVisible()) w.show(); } catch (_) {}
+        try { if (w.isMinimized()) w.restore(); } catch (_) {}
+        try { w.focus(); } catch (_) {}
+      }
+      // Only when there's no renderer to talk to does the deep link go through
+      // the OS, which re-launches us and lands on the openswarm:// handler.
+      if (!route('open') && deepLink) {
         try { shell.openExternal(deepLink); } catch (_) {}
       }
-      route('open');
     });
     n.show();
     return n;
@@ -202,6 +226,7 @@ module.exports = {
   getActive,
   maybeVetoInstall,
   drainOnQuit,
+  setNotificationTarget,
   showNativeNotification,
   getLoginItem,
   setLoginItem,

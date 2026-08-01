@@ -30,7 +30,8 @@ import { hasModelConnected as selectHasModelConnected } from '@/app/components/O
 import { shallowEqual } from 'react-redux';
 import { fetchDashboards, createDashboard } from '@/shared/state/dashboardsSlice';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
-import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard } from '@/shared/state/dashboardLayoutSlice';
+import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard, openWorkflowMonitor, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
+import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { setInstalling } from '@/shared/state/updateSlice';
@@ -304,6 +305,21 @@ const AppShell: React.FC = () => {
       window.location.reload();
     });
   }, []);
+
+  // A click or an action button on the OS notification a finished workflow posted. Every outcome lands on something real; an unwired button on a notification is worse than no button.
+  useEffect(() => {
+    const bridge = window.openswarm;
+    if (!bridge?.onNotificationAction) return;
+    return bridge.onNotificationAction(({ outcome, runId, workflowId }) => {
+      if (!workflowId) return;
+      switch (outcome) {
+        case 'open': dispatch(openWorkflowMonitor({ workflowId, runId })); break;
+        case 'ack': if (runId) dispatch(ackRun(runId)); break;
+        case 'rerun': dispatch(runWorkflowNow(workflowId)); break;
+        case 'edit': dispatch(openWorkflowsApp({ workflowId })); break;
+      }
+    });
+  }, [dispatch]);
 
   // Zoom / find / tab-cycle from a focused browser GUEST (keydowns inside a webview can't reach this document, so main forwards them with the guest's id). Targets that exact browser; the host-focused counterparts live in the keydown below + useCanvasControls (zoom).
   useEffect(() => {

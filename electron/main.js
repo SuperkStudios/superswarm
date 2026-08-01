@@ -83,6 +83,17 @@ function _squirrelUpdate(args) {
   if (sq === '--squirrel-obsolete') { process.exit(0); }
 })();
 
+// Windows toast notifications are dropped on the floor unless our AppUserModelID
+// matches the one Squirrel stamped on the Start Menu shortcut, and Squirrel's rule
+// is com.squirrel.<nuspec id>.<exe name>. Derived, not hardcoded, so renaming the
+// app can't silently kill notifications. Must run before the first Notification.
+if (process.platform === 'win32' && app.isPackaged) {
+  try {
+    const nuspecId = require('./package.json').name;
+    app.setAppUserModelId(`com.squirrel.${nuspecId}.${path.basename(process.execPath, '.exe')}`);
+  } catch (_) {}
+}
+
 // NSIS->Squirrel migration cleanup. The first time this Squirrel build runs after
 // an existing NSIS OpenSwarm was updated into it, silently uninstall that legacy
 // NSIS copy so the user isn't left with two installs + two shortcuts. Found via
@@ -1121,6 +1132,8 @@ function markBackendReady() {
   _backendReadyResolve();
   try {
     workflowsLifecycle.setBackend({ port: backendPort, token: authToken });
+    // Read lazily: mainWindow is replaced by recreateMainWindow, so a captured value goes stale.
+    workflowsLifecycle.setNotificationTarget(() => mainWindow);
     workflowsLifecycle.startPolling();
   } catch (_) {}
   try { connectMainBridge(); } catch (_) {}
@@ -3229,6 +3242,39 @@ ipcMain.handle('open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) {
     shell.openExternal(url);
   }
+});
+
+// The renderer's own Notification API only reaches Notification Center while a
+// window exists and is not suspended, which is exactly the case a finished
+// workflow is trying to survive. This hands it to the main process instead.
+// Everything is clamped here: the payload crosses a trust boundary and the click
+// handler can hand `deepLink` to the OS.
+const NOTIFY_OUTCOMES = new Set(['open', 'ack', 'rerun', 'edit']);
+function cleanNotifyText(value, max) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+}
+ipcMain.handle('workflow:notify', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') return false;
+  const title = cleanNotifyText(payload.title, 120);
+  if (!title) return false;
+  // Only our own scheme: this string can reach shell.openExternal, and a file:// or
+  // an installed-app scheme there would be a renderer-triggered arbitrary launch.
+  const deepLink = typeof payload.deepLink === 'string' && payload.deepLink.startsWith('openswarm://')
+    ? payload.deepLink.slice(0, 500)
+    : undefined;
+  const actions = (Array.isArray(payload.actions) ? payload.actions : [])
+    .filter((a) => a && NOTIFY_OUTCOMES.has(a.outcome) && cleanNotifyText(a.text, 30))
+    .slice(0, 3)
+    .map((a) => ({ text: cleanNotifyText(a.text, 30), outcome: a.outcome }));
+  const shown = workflowsLifecycle.showNativeNotification({
+    title,
+    body: cleanNotifyText(payload.body, 300),
+    deepLink,
+    runId: cleanNotifyText(payload.runId, 200) || undefined,
+    workflowId: cleanNotifyText(payload.workflowId, 200) || undefined,
+    actions,
+  });
+  return Boolean(shown);
 });
 
 // Applications launcher support. Names are bare .app basenames from the local scan; both
