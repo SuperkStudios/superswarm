@@ -369,7 +369,7 @@ export function findOpenGridCell(
 // Tidy packs into the grid shape that fills the SCREEN best. The default column count is derived from
 // window.innerWidth, which is screen pixels pretending to be world units: it laid 8 cards out as a
 // 2-wide, 4-tall ribbon that the camera then had to pull back to 41% to show.
-export function tidyColumnCount(itemSizes: Array<{ w: number; h: number }>): number {
+function tidyColumnCount(itemSizes: Array<{ w: number; h: number }>): number {
   const cellW = DEFAULT_CARD_W + GRID_GAP;
   const cellH = DEFAULT_CARD_H + GRID_GAP;
   let cells = 0;
