@@ -727,10 +727,12 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         floor,
         ceiling,
       );
-      // Content wider/taller than the viewport only happens when the zoom floor bit; centering then hides both ends, so anchor the start of it instead.
-      const targetPanX = contentWidth * targetZoom > vRect.width
-        ? padX - minX * targetZoom
-        : (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom;
+      // Centering is right until the zoom floor bites and the content outgrows its margins: then the left
+      // edge slides under the dock (or off screen), so never let it start left of the inset.
+      const targetPanX = Math.max(
+        (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom,
+        padX - minX * targetZoom,
+      );
       // A single card normally top-biases (header up top, no dead space below). On creation we want the opposite: the new card dead-centered "in front of you", so `centered` forces true vertical centering.
       const topBiased = cardRects.length === 1 && !centered;
       const targetPanY = topBiased || contentHeight * targetZoom > vRect.height
