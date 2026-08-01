@@ -139,7 +139,12 @@ export interface BrowseResult {
 interface SettingsState {
   data: AppSettings;
   loading: boolean;
+  /** We have the user's real settings. Anything that judges the user (no model connected, onboarding
+   *  not done, free runs spent) must read THIS, never `settled`: a failed fetch is not an answer. */
   loaded: boolean;
+  /** The first fetch finished, either way. Only the paint gate wants this, so a dead backend shows a
+   *  window with an honest error instead of a blank one. */
+  settled: boolean;
   modalOpen: boolean;
   /** When non-null, Settings opens to this tab instead of 'general'. */
   initialTab: string | null;
@@ -182,6 +187,7 @@ const initialState: SettingsState = {
   data: DEFAULT_SETTINGS,
   loading: false,
   loaded: false,
+  settled: false,
   modalOpen: false,
   initialTab: null,
   draft: null,
@@ -334,6 +340,7 @@ const settingsSlice = createSlice({
       .addCase(fetchSettings.fulfilled, (state, action) => {
         state.loading = false;
         state.loaded = true;
+        state.settled = true;
         // Drop a stale response: on boot three fetches race (initial, sub-sync, free-trial mint); if the pre-mint one resolves last it would wipe the armed trial. Newest wins.
         if (state.latestWriteId && action.meta.requestId !== state.latestWriteId) return;
         // Fill any field an older backend shape omitted so no consumer reads undefined; the payload still wins for everything it does send.
@@ -347,7 +354,8 @@ const settingsSlice = createSlice({
       })
       .addCase(fetchSettings.rejected, (state) => {
         state.loading = false;
-        state.loaded = true;
+        state.settled = true;
+        // `loaded` deliberately stays put. A failed fetch is not an answer, and claiming one made every gate read DEFAULT_SETTINGS as fact: with the backend down the app greeted a configured user as a brand-new one and offered to sell them a subscription. A refresh that fails keeps the last good copy; a first fetch that fails stays unknown.
       })
       .addCase(updateSettingsPatch.fulfilled, (state, action) => {
         // A user save is authoritative; claim newest so an in-flight GET can't overwrite it, and consume the draft so reopening shows the saved state.

@@ -208,6 +208,7 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const accentColor = useAppSelector((s) => s.settings.data.accent_color);
   const accentGradient = useAppSelector((s) => s.settings.data.accent_gradient);
   const loaded = useAppSelector((s) => s.settings.loaded);
+  const settled = useAppSelector((s) => s.settings.settled);
   const allowExperimentalUpdates = useAppSelector((s) => s.settings.data.allow_experimental_updates);
   useEffect(() => {
     dispatch(fetchSettings());
@@ -275,8 +276,8 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
     if (!loaded) return;
     (window as any).openswarm?.setAllowPrerelease?.(allowExperimentalUpdates);
   }, [loaded, allowExperimentalUpdates]);
-  // Hold paint until settings land so the user's theme renders first; Electron's ready-to-show relies on this.
-  if (!loaded) return null;
+  // Hold paint until the settings fetch SETTLES so the user's theme renders first; Electron's ready-to-show relies on this. Settling, not succeeding: a backend that never answers used to leave a blank window forever.
+  if (!settled) return null;
   return <>{children}</>;
 };
 

@@ -66,6 +66,7 @@ const DashboardEmptyState: React.FC<{
   const model = useAppSelector((s) => s.settings.data.default_model);
   const mode = useAppSelector((s) => s.settings.data.default_mode);
   const canRun = useAppSelector((s) => hasFreeTrialActive(s) || hasModelConnected(s));
+  const settingsKnown = useAppSelector((s) => s.settings.loaded);
   const personalized = useAppSelector((s) => s.settings.data.personalized_starters ?? []);
   const personalizedMenu = useAppSelector((s) => s.settings.data.personalized_menu ?? null);
   const userName = useAppSelector((s) => s.settings.data.user_name ?? null);
@@ -248,7 +249,8 @@ const DashboardEmptyState: React.FC<{
           </>
         ) : (
           <Typography sx={{ color: c.text.ghost, fontSize: c.font.size.base, textAlign: 'center' }}>
-            Connect a model in Settings to get started.
+            {/* With the backend down we don't know what the user has connected, so don't tell them they have nothing. */}
+            {settingsKnown ? 'Connect a model in Settings to get started.' : 'Waiting for the OpenSwarm backend...'}
           </Typography>
         )}
       </Box>
