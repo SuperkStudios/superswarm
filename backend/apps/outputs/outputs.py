@@ -56,6 +56,12 @@ logger = logging.getLogger(__name__)
 async def outputs_lifespan():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    # One-time sweep: an app whose record vanished still has its work on disk, and no way for the user to know it is there.
+    try:
+        from backend.apps.outputs.recover_orphaned_apps import recover_orphaned_apps
+        recover_orphaned_apps()
+    except Exception:
+        logger.exception("orphaned-app recovery failed; apps stay hidden but nothing else breaks")
     try:
         yield
     finally:
