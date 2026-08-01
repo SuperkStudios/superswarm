@@ -1654,6 +1654,7 @@ async def run_browser_agent(
                 session_id, browser_id, task, "completed", metrics_started_at,
                 turns_spent, rlog, session.tokens,
                 path="replay", task_sig=browser_skills.compute_sig(skill_key_task),
+                tools_ms=browser_ms_used(),
             )
             logger.info(f"[browser-skills] REPLAY SUCCEEDED in {summary['total_ms']}ms ({turns_spent} LLM turn(s))")
             try:
@@ -3132,7 +3133,8 @@ async def run_browser_agent(
                                     metrics_started_at, turn + 1, action_log, session.tokens,
                                     path="llm_fallback" if replay_attempted else "llm",
                                     task_sig=browser_skills.compute_sig(skill_key_task),
-                                    playbook_seeded=pb_seeded)
+                                    playbook_seeded=pb_seeded,
+                                    llm_ms=llm_ms_total, tools_ms=p_tools_ms_total)
         # Learn this task ONLY from a genuinely successful run whose deliverable a deterministic replay can actually reproduce. We skip recording when the run was dishonest (ghost) OR when its answer was gathered/judged content (a list/report): replay can redo the clicks but not regenerate the judgment, so recording it would create a thin shortcut that later ghosts.
         informational = deliverable_is_informational(summary, skill_key_task)
         # A removal run is NOT a recordable skill: the actual delete is a one-shot destructive
