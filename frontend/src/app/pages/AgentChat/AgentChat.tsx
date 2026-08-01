@@ -78,6 +78,7 @@ import { setCardSidecar, commitDraft, updateWorkflowCard, controlWorkflowRun } f
 import { shallowEqual } from 'react-redux';
 import { useClaudeTokens, useThemeAccent, useThemeMode } from '@/shared/styles/ThemeContext';
 import { parseMcpToolName, getMcpInputSummary } from '@/shared/mcpToolMeta';
+import { isNarration } from './parsing/isNarration';
 
 const CONTEXT_WINDOWS: Record<string, number> = {
   'opus-4-8': 1_000_000,
@@ -1116,7 +1117,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             let j = i;
             while (j < activeBranchMessages.length && activeBranchMessages[j].role === 'assistant') j++;
             const next = activeBranchMessages[j];
-            if (next && (next.role === 'tool_call' || next.role === 'tool_result')) {
+            const absorbable = activeBranchMessages.slice(i, j).every((a) => isNarration(a.content));
+            // A long or structured message is the answer, not narration. Absorbing it hides the whole deliverable in a grey tool row and strips its markdown, which is worse than showing one redundant line.
+            if (next && absorbable && (next.role === 'tool_call' || next.role === 'tool_result')) {
               for (let k = i; k < j; k++) {
                 if (!activeBranchMessages[k].hidden) noteMarks.push({ afterCall: callsSoFar, msg: activeBranchMessages[k] });
               }
