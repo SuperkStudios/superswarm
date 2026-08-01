@@ -101,3 +101,11 @@ reach a per-run machine. Control-plane side that means:
 | `FLY_API_TOKEN` | app-scoped deploy token for `openswarm-runner`, nothing wider |
 | `RUN_CALLBACK_BASE_URL` | where the runner reports; **no default**, so a staging control plane can never point its machines at prod |
 | `RUNNER_APP` / `RUNNER_IMAGE` / `RUNNER_REGION` | optional overrides of `openswarm-runner` / the `:latest` tag / `iad` |
+| `CLOUD_RUNS_GLOBAL_CAP` | machines this whole service will run at once, all accounts together (default 50) |
+| `CLOUD_RUNS_TICK_BUDGET` | machines one 60s tick will start (default 20); the rest keep their slot for the next tick |
+
+A run gets three walls on its wall clock, and only the third survives a wedged VM:
+the runner stops its own poll loop at `max_run_seconds`, an independent thread inside
+it kills the process 90s later, and the control plane destroys the machine outright
+5 minutes past that. Verified live: a machine with a sleeping entrypoint that never
+reported was destroyed by the control plane and its run row closed as failed.
