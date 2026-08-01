@@ -896,10 +896,13 @@ async def restore_workflow(workflow_id: str):
 
 @workflows.router.delete("/{workflow_id}/purge")
 async def purge_workflow(workflow_id: str):
-    """Hard delete, only from Trash. Removes the record and its run history."""
+    """Hard delete, only from Trash. Removes the record, its run history and its own chats."""
     wf = storage.get_workflow(workflow_id)
     if not wf or wf.deleted_at is None:
         raise HTTPException(status_code=404, detail="Workflow not in trash")
+    # Before the record goes, or the ids that name the transcripts go with it and they leak forever.
+    from backend.apps.workflows.owned_sessions import purge_owned_sessions
+    await purge_owned_sessions(wf)
     storage.delete_workflow(workflow_id)
     try:
         from backend.apps.agents.core.ws_manager import ws_manager
