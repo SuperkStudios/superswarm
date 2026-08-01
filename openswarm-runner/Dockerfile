@@ -39,6 +39,21 @@ RUN printf '{"name":"router-stage","version":"0.0.0","private":true}\n' > packag
  && test -f node_modules/9router/app/server.js \
  && test -z "$(find node_modules/9router -name '*.node' -print -quit)"
 
+# The App Builder's template dependencies, installed once here and shipped ALREADY EXTRACTED at
+# the digest path backend/apps/outputs/view_builder_templates.py already probes. Without it the
+# first CreateApp in a run pays a cold npm install against the public registry, and a run with no
+# egress just fails. NOT $BUILDPLATFORM: vite pulls in a platform-specific esbuild, so this has to
+# resolve on the arch the container will actually run on.
+FROM node:${NODE_VERSION}-bookworm-slim AS webapp-template
+WORKDIR /stage
+COPY backend/apps/outputs/webapp_template/frontend/package.json ./package.json
+RUN set -eux; \
+    npm install --no-audit --no-fund --loglevel=error --ignore-scripts; \
+    test -x node_modules/.bin/vite; \
+    digest="$(sha256sum package.json | cut -c1-12)"; \
+    mkdir -p "/out/${digest}"; \
+    mv node_modules "/out/${digest}/node_modules"
+
 # Webpack output is architecture-independent, so this runs natively on the build host rather than under emulation.
 FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS frontend
 WORKDIR /src
@@ -104,6 +119,10 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
+# npm and npx too, not just node. They are shims into lib/node_modules, so copying the tree and
+# re-linking is the only way to get them; a `node` with no `npm` is what left the App Builder
+# scaffolding an app it could never install, build or serve.
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=pydeps /opt/pydeps /usr/local
 
 # Numeric owner on every /app copy, because a `chown -R /app` afterwards rewrites the whole tree into a second layer and the image pays for it twice (that cost 493MB before this line existed). Numeric, not `runner`, because the user is created further down.
@@ -119,8 +138,14 @@ COPY --from=frontend --chown=10001:10001 /src/dist /app/frontend
 COPY --from=uv --chown=10001:10001 /stage/uv /app/backend/uv-bin/uv
 COPY --from=uv --chown=10001:10001 /stage/uvx /app/backend/uv-bin/uvx
 
+# Also after backend/, and at the exact path bundled_extracted_modules() looks for.
+COPY --from=webapp-template --chown=10001:10001 /out /app/backend/apps/outputs/webapp_template_cache
+
 RUN set -eux; \
     if ls /app/backend/.env* >/dev/null 2>&1; then echo "a dotenv reached the image; fix Dockerfile.dockerignore" >&2; exit 1; fi; \
+    ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
+    ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
+    npm --version >/dev/null; \
     mkdir -p /app/python-env/bin; \
     ln -s /usr/local/bin/python3 /app/python-env/bin/python3; \
     find /app/backend -name '__pycache__' -type d -prune -exec rm -rf {} +; \
@@ -129,7 +154,8 @@ RUN set -eux; \
     ln -s /data/openswarm /app/backend/data; \
     mkdir -p /tmp/.X11-unix; \
     chmod 1777 /tmp/.X11-unix; \
-    chown runner:runner /data
+    chown runner:runner /data; \
+    printf '[user]\n\tname = OpenSwarm Cloud Run\n\temail = cloud-run@openswarm.local\n[init]\n\tdefaultBranch = main\n[safe]\n\tdirectory = *\n' > /etc/gitconfig
 
 USER runner
 WORKDIR /app
@@ -144,6 +170,8 @@ ENV HOME=/home/runner \
     OPENSWARM_PORT=8324 \
     DATA_DIR=/data/9router \
     NODE_ENV=production \
-    ELECTRON_BIN=/app/electron-runtime/electron
+    ELECTRON_BIN=/app/electron-runtime/electron \
+    OPENSWARM_RUN_WORKSPACE=/data/workspace \
+    OPENSWARM_NODE_PATH=/usr/local/bin/node
 
 ENTRYPOINT ["python3", "-m", "runner.main"]

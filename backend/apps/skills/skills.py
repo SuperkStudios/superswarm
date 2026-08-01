@@ -395,12 +395,12 @@ def clear_skill_dir(skill_id: str) -> None:
     """Empty a skill's folder before an in-place update so files removed upstream
     don't linger as orphans. write_folder_skill recreates the dir right after."""
     import shutil
-    d = os.path.join(SKILLS_DIR, p_safe_slug(skill_id))
+    d = os.path.join(SKILLS_DIR, safe_slug(skill_id))
     if os.path.isdir(d):
         shutil.rmtree(d, ignore_errors=True)
 
 
-def p_safe_slug(raw: str) -> str:
+def safe_slug(raw: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", (raw or "").strip().lower()).strip("-")
     return slug or "skill"
 
@@ -417,7 +417,7 @@ def unique_skill_slug(base: str) -> str:
     """A free slug for `base`, suffixing -2, -3, ... on collision. Lets a
     registry install land beside a same-named skill instead of silently
     overwriting the user's existing one."""
-    slug = p_safe_slug(base)
+    slug = safe_slug(base)
     if not p_skill_exists(slug):
         return slug
     i = 2
@@ -432,7 +432,7 @@ def write_folder_skill(skill_id: str, files: dict[str, str], meta: dict) -> Skil
     zip/.swarm import. Relpaths that try to escape the skill folder (../, abs
     paths) are dropped, an untrusted registry archive can't write outside its
     own dir."""
-    slug = p_safe_slug(skill_id)
+    slug = safe_slug(skill_id)
     base = os.path.join(SKILLS_DIR, slug)
     base_abs = os.path.abspath(base)
     # A folder write supersedes any legacy flat <slug>.md, so we never leave a phantom flat file shadowed by the folder (folder wins in skill_md_path).

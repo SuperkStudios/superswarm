@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from typeguard import typechecked
 
@@ -54,8 +54,13 @@ def cloud_definition(wf: Workflow) -> Dict[str, Any]:
 
 
 @typechecked
-def definition_signature(definition: Dict[str, Any], schedule: Dict[str, Any]) -> str:
-    """Fingerprint of exactly what we last handed the cloud, schedule included,
-    so "your edits are not up there yet" is a fact rather than a guess."""
-    payload = json.dumps({"definition": definition, "schedule": schedule}, sort_keys=True)
+def definition_signature(
+    definition: Dict[str, Any], schedule: Dict[str, Any], context: Optional[Dict[str, Any]] = None
+) -> str:
+    """Fingerprint of exactly what we last handed the cloud, schedule and skills included,
+    so "your edits are not up there yet" is a fact rather than a guess. Editing a skill a
+    workflow leans on is an edit to that workflow's behaviour, so it belongs in here."""
+    payload = json.dumps(
+        {"definition": definition, "schedule": schedule, "context": context or {}}, sort_keys=True
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()

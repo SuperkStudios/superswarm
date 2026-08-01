@@ -20,6 +20,8 @@ from backend.apps.workflows.cloud.schedule import CloudSchedule, wire
 # The cloud router is mounted at /api/workflows and a trailing slash 404s there, so the collection paths are the empty string, not "/".
 COLLECTION = ""
 TIMEOUT_SECONDS = 8.0
+# Files are up to 20MB each, so they get their own budget rather than the chatty-call one.
+DOWNLOAD_TIMEOUT_SECONDS = 120.0
 
 
 class CloudRefused(Exception):
@@ -88,6 +90,18 @@ class CloudPreflight(BaseModel):
     hosted: Optional[HostedWorkflow] = None
 
 
+class CloudRunFile(BaseModel):
+    """One file a cloud run produced. `refusal` set means it exists nowhere and says why."""
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    id: str
+    path: str
+    size_bytes: int = 0
+    sha256: Optional[str] = None
+    refusal: Optional[str] = None
+
+
 class CloudRun(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
@@ -99,6 +113,7 @@ class CloudRun(BaseModel):
     answer: Optional[str] = None
     notices: List[str] = Field(default_factory=list)
     cost_usd: Optional[float] = None
+    files: List[CloudRunFile] = Field(default_factory=list)
 
 
 @typechecked
@@ -232,12 +247,16 @@ async def p_preflight_from_list(hosted_id: Optional[str]) -> CloudPreflight:
 @typechecked
 async def put_workflow(
     *, hosted_id: Optional[str], name: str, definition: Dict[str, Any],
-    schedule: CloudSchedule, runs_before: int = 0,
+    schedule: CloudSchedule, runs_before: int = 0, context: Optional[Dict[str, Any]] = None,
 ) -> HostedWorkflow:
     """Create the hosted copy, or re-push onto the existing row so an edited workflow stops running
     last week's prose. runs_before rides only on the create: an edit that resent it would hand a
-    nearly-spent run cap its whole budget back."""
+    nearly-spent run cap its whole budget back. `context` carries the user's skills and the names of
+    the apps a cloud run cannot reach; an older control plane ignores the extra keys, which costs a
+    run its skills but never its run."""
     body: Dict[str, Any] = {"name": name, "definition": definition, "schedule": wire(schedule)}
+    if context:
+        body.update(context)
     if hosted_id:
         try:
             raw = await p_call("POST", f"/{hosted_id}/update", body)
@@ -275,6 +294,26 @@ async def delete_hosted(hosted_id: str) -> None:
 
 
 @typechecked
+def p_files(raw: Any) -> List[CloudRunFile]:
+    """A control plane with no file support answers without the key, which is an empty list, not an error."""
+    if not isinstance(raw, list):
+        return []
+    out: List[CloudRunFile] = []
+    for row in raw:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not isinstance(row.get("path"), str):
+            continue
+        size = row.get("size_bytes")
+        out.append(CloudRunFile(
+            id=row["id"],
+            path=row["path"],
+            size_bytes=size if isinstance(size, int) else 0,
+            sha256=row.get("sha256") if isinstance(row.get("sha256"), str) else None,
+            refusal=row.get("refusal") if isinstance(row.get("refusal"), str) else None,
+        ))
+    return out
+
+
+@typechecked
 async def list_runs(hosted_id: str) -> List[CloudRun]:
     raw = await p_call("GET", f"/{hosted_id}/runs")
     rows = raw.get("runs") if isinstance(raw, dict) else None
@@ -294,5 +333,29 @@ async def list_runs(hosted_id: str) -> List[CloudRun]:
             answer=row.get("answer") if isinstance(row.get("answer"), str) else None,
             notices=[n for n in notices if isinstance(n, str)] if isinstance(notices, list) else [],
             cost_usd=row.get("cost_usd") if isinstance(row.get("cost_usd"), (int, float)) else None,
+            files=p_files(row.get("files")),
         ))
     return out
+
+
+@typechecked
+async def download_run_file(hosted_id: str, run_id: str, file_id: str) -> bytes:
+    """The file's bytes. Its own call rather than p_call because this answer is not JSON."""
+    from backend.apps.settings.store import load_settings
+
+    token, base = account_auth(load_settings())
+    if not token:
+        raise SignedOut()
+    url = f"{base}/api/workflows/{hosted_id}/runs/{run_id}/files/{file_id}"
+    try:
+        async with httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_SECONDS) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+    except httpx.HTTPError as exc:
+        raise CloudUnreachable(f"{type(exc).__name__}") from exc
+    if resp.status_code == 401:
+        raise SignedOut()
+    if resp.status_code >= 500:
+        raise CloudUnreachable(f"the cloud returned {resp.status_code}")
+    if resp.status_code >= 400:
+        raise CloudRefused(p_message(resp, "That file could not be downloaded."), resp.status_code)
+    return resp.content

@@ -42,6 +42,50 @@ Exit codes: `0` ok, `1` runner crash, `2` bad spec, `3` credential expired on ar
 `4` backend never came up, `5` workflow failed, `6` wall-clock cap hit,
 `7` no Electron window ever registered.
 
+## Files the run makes
+
+`/data/workspace` is the agent's working directory and **the only path whose contents survive**.
+It is seeded as `default_folder` before the backend boots, and the agent is told in its system
+prompt that files saved there come back and everything else is destroyed.
+
+After the workflow reaches a terminal state (including a timeout, so partial work still lands) the
+runner walks that directory and POSTs each file to `callback.artifacts_url`, then sends the
+terminal report. That order is load-bearing: the per-run callback token is refused once the run is
+closed, so uploading afterwards would be rejected.
+
+Caps, applied in the runner AND again at the control plane, which is the one that counts:
+
+| Limit | Value |
+| --- | --- |
+| One file | 20 MB |
+| One run, all files | 50 MB |
+| Files per run | 40 |
+
+Nothing is ever truncated. A file past a cap is not sent and instead arrives as a row in the
+report's `files[]` carrying a written reason, so the user reads "your 512 MB render could not be
+sent" rather than finding a 20 MB fragment. `.git`, `node_modules`, `__pycache__`, `.venv`,
+`.claude` and the usual caches are skipped, and symlinks are never followed.
+
+## Skills and connected apps
+
+`skills[]` in the run spec is written to `~/.claude/skills/<id>/` before boot. This is not a
+nicety: the backend registers the Skill tool only when at least one non-built-in skill exists on
+disk, so a container without them has no Skill tool at all and answers from general knowledge in
+the same confident voice it would use with the real thing.
+
+`unavailable_mcp_servers[]` is **names only**. The user's MCP credentials (Slack session cookies,
+Notion and GitHub access tokens, Google refresh tokens) never leave their machine, so the names go
+up purely so the run's system prompt can tell the agent which apps exist and are out of reach.
+`McpServerNote` forbids extra fields, so there is no shape a secret could travel in.
+
+## What the image carries for the App Builder
+
+`node`, `npm` and `npx`, plus the App Builder template's `node_modules` pre-installed at the digest
+path `bundled_extracted_modules()` probes. Without npm, `CreateApp` scaffolded an app that could
+never install, build or serve; without the baked cache, the first `CreateApp` in a run would pay a
+cold registry install. `git` also carries a system identity (`/etc/gitconfig`), so a workflow that
+commits does not die on "Author identity unknown".
+
 ## The renderer
 
 OpenSwarm's browser tier is not an HTTP client. Element serialization and every click,

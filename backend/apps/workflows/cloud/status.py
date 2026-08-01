@@ -16,6 +16,7 @@ from typeguard import typechecked
 from backend.apps.workflows import storage
 from backend.apps.workflows.cloud import client as cloud
 from backend.apps.workflows.cloud.definition import cloud_definition, definition_signature
+from backend.apps.workflows.cloud.portable_context import portable_context
 from backend.apps.workflows.cloud.schedule import ScheduleSupported, to_cloud_schedule, wire
 from backend.apps.workflows.models import Workflow
 
@@ -74,7 +75,10 @@ def current_signature(wf: Workflow) -> Optional[str]:
     mapping = to_cloud_schedule(wf.schedule)
     if not isinstance(mapping, ScheduleSupported):
         return None
-    return definition_signature(cloud_definition(wf), wire(mapping.schedule))
+    # wire() is the richer serializer (weekly, zones, ends_at); portable_context is what the runner needs to reproduce the user's setup.
+    return definition_signature(
+        cloud_definition(wf), wire(mapping.schedule), portable_context().as_body()
+    )
 
 
 @typechecked

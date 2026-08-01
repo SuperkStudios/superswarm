@@ -18,10 +18,12 @@ from typeguard import typechecked
 
 from runner.boot.backend_process import BackendProcess, BackendUnavailable, start_backend, stop_backend
 from runner.boot.renderer_process import RendererProcess, RendererUnavailable, start_renderer, stop_renderer
-from runner.report import RunReport, send_report
+from runner.results.deliverables import collect
+from runner.results.report import RunReport, deliver_files, send_report
 from runner.run_spec import CLOUD_RUN_DASHBOARD_ID, CallbackTarget, InvalidRunSpec, RunSpec, load_run_spec
 from runner.seed.data_root import seed_data_root
 from runner.seed.router_credentials import write_router_db
+from runner.seed.skills import write_skills
 from runner.workflow_run import RunOutcome, RunProgress, WorkflowRunFailed, execute_workflow
 
 EXIT_OK = 0
@@ -37,9 +39,13 @@ DEFAULT_APP_ROOT = "/app"
 DEFAULT_FRONTEND_DIR = "/app/frontend"
 DEFAULT_DATA_ROOT = "/data/openswarm"
 DEFAULT_ROUTER_DATA_DIR = "/data/9router"
+# The agent's own folder, and the only place on this machine whose contents come home.
+DEFAULT_RUN_WORKSPACE = "/data/workspace"
 DEFAULT_PORT = 8324
 # Slack between the soft deadline (stop the run, report it) and the hard one (kill the process).
-REPORT_GRACE_SECONDS = 90.0
+# Has to cover the file upload as well as the report's retries, so it is minutes, not seconds; the
+# control plane's own kill sits further out again (dispatch.ts MACHINE_GRACE_MS).
+REPORT_GRACE_SECONDS = 240.0
 # Ceiling the control plane cannot raise. A cap a caller can override is not a cap.
 MAX_RUN_SECONDS_ENV = "RUNNER_MAX_RUN_SECONDS"
 DEFAULT_MAX_RUN_SECONDS = 1800
@@ -92,8 +98,25 @@ def arm_hard_stop(seconds: float) -> None:
 
 
 @typechecked
-def p_fail(spec: Optional[RunSpec], status: str, message: str, code: int) -> int:
+def p_fail(
+    spec: Optional[RunSpec],
+    status: str,
+    message: str,
+    code: int,
+    workspace: Optional[str] = None,
+) -> int:
+    """Report a failure, handing over anything the run managed to make first.
+
+    `workspace` is passed only where the agent actually ran: a workflow that died on step 3 may
+    have written a perfectly good report on step 1, and losing it because a later step threw is
+    exactly the "the file died with the machine" problem this whole path exists to fix.
+    """
     logger.error("%s: %s", status, message)
+    files = (
+        deliver_files(spec.callback, workspace, collect(workspace))
+        if spec is not None and workspace is not None
+        else []
+    )
     send_report(
         spec.callback if spec else None,
         RunReport(
@@ -102,6 +125,7 @@ def p_fail(spec: Optional[RunSpec], status: str, message: str, code: int) -> int
             status=status,
             exit_code=code,
             error=message,
+            files=files,
         ),
     )
     return code
@@ -133,10 +157,12 @@ def p_run(spec: RunSpec, deadline: float) -> int:
     app_root = os.environ.get("OPENSWARM_APP_ROOT", DEFAULT_APP_ROOT)
     data_root = os.environ.get("OPENSWARM_DATA_ROOT", DEFAULT_DATA_ROOT)
     router_data_dir = os.environ.get("DATA_DIR", DEFAULT_ROUTER_DATA_DIR)
+    workspace = os.environ.get("OPENSWARM_RUN_WORKSPACE", DEFAULT_RUN_WORKSPACE)
     port = int(os.environ.get("OPENSWARM_PORT", str(DEFAULT_PORT)))
 
     write_router_db(router_data_dir, spec.credentials, now)
-    seed_data_root(data_root, spec)
+    seed_data_root(data_root, workspace, spec)
+    write_skills(os.path.expanduser("~"), spec.skills)
     logger.info("seeded data root %s and router db in %s", data_root, router_data_dir)
 
     backend: Optional[BackendProcess] = None
@@ -173,10 +199,14 @@ def p_run(spec: RunSpec, deadline: float) -> int:
         # confident wrong answer, which is worse than no answer.
         return p_fail(spec, "failure", str(exc), EXIT_RENDERER_UNAVAILABLE)
     except WorkflowRunFailed as exc:
-        return p_fail(spec, "failure", str(exc), EXIT_WORKFLOW_FAILED)
+        return p_fail(spec, "failure", str(exc), EXIT_WORKFLOW_FAILED, workspace)
     finally:
         stop_renderer(renderer)
         stop_backend(process)
+
+    # Files before the terminal report, always: the callback token is refused the moment the run
+    # is closed, so this is the only order in which both the files and the receipt can land.
+    files = deliver_files(spec.callback, workspace, collect(workspace))
 
     code = p_exit_code_for(outcome)
     logger.info("run %s finished as %s (exit %d)", spec.run_id, outcome.status, code)
@@ -190,6 +220,7 @@ def p_run(spec: RunSpec, deadline: float) -> int:
         answer=outcome.answer,
         transcript=outcome.transcript,
         system_notices=outcome.system_notices,
+        files=files,
     ))
     return code
 
@@ -213,7 +244,16 @@ def main() -> int:
         return p_run(spec, deadline)
     except Exception as exc:
         logger.exception("runner crashed")
-        return p_fail(spec, "failure", f"runner crashed: {exc}", EXIT_INTERNAL)
+        # Re-uploading a file the successful path already sent is harmless: the control plane keys
+        # a run's files on their path, so a second delivery overwrites one row rather than billing
+        # the budget twice.
+        return p_fail(
+            spec,
+            "failure",
+            f"runner crashed: {exc}",
+            EXIT_INTERNAL,
+            os.environ.get("OPENSWARM_RUN_WORKSPACE", DEFAULT_RUN_WORKSPACE),
+        )
 
 
 if __name__ == "__main__":
