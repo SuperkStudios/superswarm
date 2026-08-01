@@ -643,7 +643,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     };
   }, []);
 
-  const fitToView = useCallback(() => {
+  // minZoom is for the AUTOMATIC boot fit only: restoring a dashboard that had grown tall used to land
+  // at 29% with nothing readable, the same illness revealZoom cured on spawn. The toolbar's own Fit
+  // button passes nothing and still fits everything, however far out that is.
+  const fitToView = useCallback((minZoom?: number) => {
     const viewport = viewportRef.current;
     const content = contentRef.current;
     if (!viewport || !content) return;
@@ -677,7 +680,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     const contentHeight = maxY - minY;
     const availW = vRect.width - FIT_PADDING * 2;
     const availH = vRect.height - FIT_PADDING * 2;
-    const newZoom = clamp(Math.min(availW / contentWidth, availH / contentHeight), MIN_ZOOM, MAX_ZOOM);
+    const newZoom = clamp(Math.min(availW / contentWidth, availH / contentHeight), Math.max(MIN_ZOOM, minZoom ?? MIN_ZOOM), MAX_ZOOM);
     const newPanX = (vRect.width - contentWidth * newZoom) / 2 - minX * newZoom;
     const newPanY = (vRect.height - contentHeight * newZoom) / 2 - minY * newZoom;
 
