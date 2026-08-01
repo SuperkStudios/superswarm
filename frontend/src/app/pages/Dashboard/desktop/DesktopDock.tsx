@@ -1,13 +1,7 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
-import Tooltip from '@mui/material/Tooltip';
-import LanguageIcon from '@mui/icons-material/Language';
-import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
-import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
-import SettingsIcon from '@mui/icons-material/Settings';
-import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
 import { useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { getWebview } from '@/shared/browserRegistry';
@@ -16,6 +10,7 @@ import { openCardContextMenu } from './openCardContextMenu';
 import { dockTileMenuRows } from './dockTileMenuRows';
 import { useDockLayout } from './useDockLayout';
 import { DockTileIcon } from './DockTileIcon';
+import DockActionTiles, { DOCK_ACTION_COUNT } from './DockActionTiles';
 import DockHoverPreview from './DockHoverPreview';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
@@ -39,7 +34,6 @@ interface DesktopDockProps {
   onAddBrowser: () => void;
 }
 
-const ACTION_COUNT = 4;
 const CARET_H = 13;
 
 /** Left-edge desktop dock: one tile per open card, hover previews, click focuses the window. */
@@ -69,7 +63,7 @@ function DesktopDock({
 
   const { dockRef, scrollRef, tile, gap, iconSize, scrolls, scrollHeight, bleed, applyMagnify } = useDockLayout({
     cardCount: entries.length,
-    actionCount: ACTION_COUNT,
+    actionCount: DOCK_ACTION_COUNT,
     dividerCount: entries.length > 0 ? 2 : 1,
   });
 
@@ -240,37 +234,7 @@ function DesktopDock({
       {entries.length > 0 && (
         <Box sx={{ width: tile - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />
       )}
-      {/* The og toolbar's actions, dock-resident: browser, workflow, then settings + apps below their own divider. New-chat lives in the spawn pill, history on the top island. */}
-      {([
-        { label: 'New browser', icon: <LanguageIcon sx={{ color: '#e8e8ee' }} />, act: onAddBrowser },
-        { label: 'Workflows', icon: <EventRepeatIcon sx={{ color: '#e8e8ee' }} />, act: () => dispatch(openWorkflowsApp()) },
-        { label: 'Settings', icon: <SettingsIcon sx={{ color: '#e8e8ee' }} />, act: () => dispatch(openSettingsCard()), divider: true },
-        { label: 'Applications', icon: <AppsRoundedIcon sx={{ color: '#e8e8ee' }} />, act: onApplications, bg: 'linear-gradient(135deg, #3d3d46, #232329)' },
-      ] as { label: string; icon: React.ReactNode; act: () => void; divider?: boolean; bg?: string }[]).map((a) => (
-        <React.Fragment key={a.label}>
-          {a.divider && <Box sx={{ width: tile - 8, height: '1px', background: 'rgba(255,255,255,0.14)' }} />}
-          <Tooltip title={a.label} placement="right">
-            <Box
-              className="osw-dock-tile"
-              onClick={a.act}
-              onMouseEnter={endHover}
-              sx={{
-                width: tile,
-                height: tile,
-                borderRadius: '12px',
-                background: a.bg ?? 'linear-gradient(135deg, #5a5a62, #34343c)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              {a.icon}
-            </Box>
-          </Tooltip>
-        </React.Fragment>
-      ))}
+      <DockActionTiles tile={tile} onAddBrowser={onAddBrowser} onApplications={onApplications} onHoverAway={endHover} />
 
       {/* Anchored to the root's padding box, whose top edge IS the scroll box's top edge. */}
       {carets.map((c) => (
