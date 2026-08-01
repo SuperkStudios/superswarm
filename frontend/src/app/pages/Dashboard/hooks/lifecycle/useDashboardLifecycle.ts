@@ -23,6 +23,8 @@ import {
 } from '@/shared/state/dashboardLayoutSlice';
 import { fetchOutputs, type Output } from '@/shared/state/outputsSlice';
 import { generateDashboardName } from '@/shared/state/dashboardsSlice';
+import { isUserLaunchedSession } from '@/shared/state/isUserLaunchedSession';
+import { REVEAL_MIN_ZOOM } from '../../canvas/revealZoom';
 import { fetchWorkflows, fetchAllRuns, fetchActiveRuns } from '@/shared/state/workflowsSlice';
 import { fetchMissedRuns } from '@/shared/state/missedRunsSlice';
 import { fetchProviderHealth } from '@/shared/state/subscriptionsSlice';
@@ -188,7 +190,7 @@ export function useDashboardLifecycle({
     if (!layoutInitialized || hasFittedRef.current) return;
     if (pendingFocusAgentId) return;
     hasFittedRef.current = true;
-    const timer = setTimeout(() => canvasActions.fitToView(), 150);
+    const timer = setTimeout(() => canvasActions.fitToView(REVEAL_MIN_ZOOM), 150);
     return () => clearTimeout(timer);
   }, [isActive, layoutInitialized, canvasActions, pendingFocusAgentId]);
 
@@ -303,7 +305,7 @@ export function useDashboardLifecycle({
   useEffect(() => {
     if (!layoutInitialized) return;
     const dashboardSessionIds = Object.values(sessions)
-      .filter((s) => s.dashboard_id === dashboardId && !s.workflow_run_id && !s.workflow_edit_id && s.mode !== 'browser-agent' && s.mode !== 'invoked-agent' && s.mode !== 'sub-agent')
+      .filter((s) => s.dashboard_id === dashboardId && isUserLaunchedSession(s))
       .map((s) => s.id);
     const liveIds = dashboardSessionIds.sort().join(',');
     if (liveIds === prevSessionIdsRef.current) return;
