@@ -30,6 +30,9 @@ function iconForStarter(text: string): LucideIcon {
 
 // The placeholder cycles agentic invitations with a typewriter feel (only while the field is empty),
 // so the hero reads like an agent offering to go DO things, not a search box waiting for keywords.
+// Seven lines of prompt, then it scrolls: enough to see a whole paragraph without the hero eating the starters below it.
+const COMPOSER_MAX_H = 176;
+
 const GHOST_DEFAULTS = [
   'Send an agent to find me something great...',
   'Build me a tool I can use right now...',
@@ -71,6 +74,7 @@ const DashboardEmptyState: React.FC<{
   const userName = useAppSelector((s) => s.settings.data.user_name ?? null);
   const [text, setText] = React.useState('');
   const [launching, setLaunching] = React.useState(false);
+  const fieldRef = React.useRef<HTMLTextAreaElement>(null);
   const [openCat, setOpenCat] = React.useState<HeroCategoryId | null>(null);
   const menu = React.useMemo(() => heroMenuFor(personalizedMenu, personalized), [personalizedMenu, personalized]);
   const firstName = (userName ?? '').trim().split(/\s+/)[0] || null;
@@ -80,6 +84,14 @@ const DashboardEmptyState: React.FC<{
     [personalized],
   );
   const ghost = useTypedGhost(ghostLines, text.length === 0 && canRun);
+  // Height follows the value, so a long prompt wraps into view instead of scrolling sideways, and
+  // clearing on send snaps it back to one line. Past the cap it scrolls, like every other composer.
+  React.useLayoutEffect(() => {
+    const el = fieldRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_H)}px`;
+  }, [text]);
 
   const launch = (prompt: string) => {
     const p = prompt.trim();
@@ -115,7 +127,7 @@ const DashboardEmptyState: React.FC<{
                 floating chrome (sidebar, pills, chat cards), not a stark white box that fights the canvas. */}
             <Box
               sx={{
-                display: 'flex', alignItems: 'center', gap: 1,
+                display: 'flex', alignItems: 'flex-end', gap: 1,
                 background: 'rgba(22,12,34,0.72)',
                 backdropFilter: 'blur(20px) saturate(160%)',
                 WebkitBackdropFilter: 'blur(20px) saturate(160%)',
@@ -126,18 +138,21 @@ const DashboardEmptyState: React.FC<{
               }}
             >
               <Box
-                component="input"
+                component="textarea"
+                ref={fieldRef}
+                rows={1}
                 value={text}
                 autoFocus
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
-                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
+                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); launch(text); setText(''); }
                 }}
                 placeholder={ghost || "Ask me anything..."}
                 disabled={launching}
                 sx={{
-                  flex: 1, border: 'none', outline: 'none', bgcolor: 'transparent',
+                  flex: 1, border: 'none', outline: 'none', bgcolor: 'transparent', resize: 'none',
                   color: 'rgba(255,255,255,0.92)', fontFamily: 'inherit', fontSize: c.font.size.md,
+                  lineHeight: '24px', py: '4px', maxHeight: `${COMPOSER_MAX_H}px`, overflowY: 'auto',
                   '&::placeholder': { color: 'rgba(255,255,255,0.45)' },
                 }}
               />

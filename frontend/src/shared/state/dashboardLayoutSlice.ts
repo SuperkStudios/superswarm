@@ -345,10 +345,11 @@ export function findOpenGridCell(
   occupiedRects: Rect[],
   newW: number,
   newH: number,
+  colLimit?: number,
 ): { x: number; y: number } {
   const cellW = DEFAULT_CARD_W + GRID_GAP;
   const cellH = DEFAULT_CARD_H + GRID_GAP;
-  const maxCols = Math.max(
+  const maxCols = colLimit ?? Math.max(
     1,
     Math.floor((window.innerWidth - GRID_ORIGIN.x) / cellW) || GRID_COLS_FALLBACK,
   );
@@ -363,6 +364,34 @@ export function findOpenGridCell(
       }
     }
   }
+}
+
+// Tidy packs into the grid shape that fills the SCREEN best. The default column count is derived from
+// window.innerWidth, which is screen pixels pretending to be world units: it laid 8 cards out as a
+// 2-wide, 4-tall ribbon that the camera then had to pull back to 41% to show.
+function tidyColumnCount(itemSizes: Array<{ w: number; h: number }>): number {
+  const cellW = DEFAULT_CARD_W + GRID_GAP;
+  const cellH = DEFAULT_CARD_H + GRID_GAP;
+  let cells = 0;
+  let widest = 1;
+  for (const s of itemSizes) {
+    const cols = Math.max(1, Math.ceil(s.w / cellW));
+    cells += cols * Math.max(1, Math.ceil(s.h / cellH));
+    widest = Math.max(widest, cols);
+  }
+  const vw = window.innerWidth || 1440;
+  const vh = window.innerHeight || 900;
+  let best = widest;
+  let bestZoom = 0;
+  for (let cols = widest; cols <= Math.max(widest, cells); cols++) {
+    const rows = Math.ceil(cells / cols);
+    const zoom = Math.min(vw / (cols * cellW), vh / (rows * cellH));
+    if (zoom > bestZoom) {
+      bestZoom = zoom;
+      best = cols;
+    }
+  }
+  return best;
 }
 
 // Like findOpenGridCell but biased to stay near a proposed (x,y) anchor. Used when the backend hands us a card with a position that's already occupied (sub-agent or sub-browser spawning on top of its parent or a sibling). Spirals outward from the anchor on a grid, snapping to cell-aligned positions so the result still looks intentional, not dropped from orbit. Caps the spiral search at ~1000 cells to avoid pathological work in adversarial layouts, falls back to findOpenGridCell after that. Cost: O(rects × cells_scanned). Spawn events are rare (not per-frame), so this only runs when a new card appears. Typical scan resolves in <10 cells, well below the cap. No perf impact on steady-state UI.
@@ -768,19 +797,19 @@ const dashboardLayoutSlice = createSlice({
       ];
       allItems.sort((a, b) => a.y - b.y || a.x - b.x);
 
+      const sizeOf = (item: typeof allItems[number]): { w: number; h: number } => ({
+        w: item.storedW,
+        h: item.kind === 'agent' && expanded.has(item.id)
+          ? Math.max(EXPANDED_CARD_MIN_H, item.storedH)
+          : item.storedH,
+      });
+      const cols = tidyColumnCount(allItems.map(sizeOf));
       const placedRects: Rect[] = [];
 
       for (const item of allItems) {
-        let w: number, h: number;
-        if (item.kind === 'agent') {
-          w = item.storedW;
-          h = expanded.has(item.id) ? Math.max(EXPANDED_CARD_MIN_H, item.storedH) : item.storedH;
-        } else {
-          w = item.storedW;
-          h = item.storedH;
-        }
+        const { w, h } = sizeOf(item);
 
-        const pos = findOpenGridCell(placedRects, w, h);
+        const pos = findOpenGridCell(placedRects, w, h, cols);
         placedRects.push({ x: pos.x, y: pos.y, w, h });
 
         if (item.kind === 'agent') {

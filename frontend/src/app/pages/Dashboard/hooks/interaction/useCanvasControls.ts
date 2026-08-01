@@ -7,7 +7,7 @@ import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import { syncTiledGeometry } from '../../canvas/tiledGeometry';
-import { revealZoom } from '../../canvas/revealZoom';
+import { revealZoom, REVEAL_MIN_ZOOM } from '../../canvas/revealZoom';
 
 const MIN_ZOOM = 0.15;
 // The floor for AUTOMATIC reveals only. revealCards takes min(current, fit), which can only ever go
@@ -19,6 +19,10 @@ const MAX_ZOOM = 3.0;
 const ZOOM_IN_FACTOR = 1.1;
 const ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR;
 const FIT_PADDING = 200;
+// Tidy frames everything at once, so it gets its own tighter margin than a single-card fit. The wider
+// x inset is the left dock, which floats over the canvas and would otherwise sit on the first column.
+const TIDY_PADDING = { x: 120, y: 56 };
+const TIDY_MIN_ZOOM = REVEAL_MIN_ZOOM;
 // Card-framing (spawn, click-to-focus, arrow-nav) snaps as fast as the zoom buttons so a new card lands under you now, not after a lazy glide.
 const FIT_DURATION = 150;
 // Must outlast FIT_DURATION so the drift re-snap lands after the glide, never mid-flight.
@@ -691,6 +695,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       maxZoom?: number,
       minZoom?: number,
       centered?: boolean,
+      padding?: { x: number; y: number },
     ): { panX: number; panY: number; zoom: number } | null => {
       const viewport = viewportRef.current;
       if (!viewport || cardRects.length === 0) return null;
@@ -711,8 +716,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
 
       const contentWidth = maxX - minX;
       const contentHeight = maxY - minY;
-      const availW = vRect.width - FIT_PADDING * 2;
-      const availH = vRect.height - FIT_PADDING * 2;
+      const padX = padding?.x ?? FIT_PADDING;
+      const padY = padding?.y ?? FIT_PADDING;
+      const availW = vRect.width - padX * 2;
+      const availH = vRect.height - padY * 2;
       const ceiling = maxZoom ?? MAX_ZOOM;
       const floor = minZoom ?? MIN_ZOOM;
       const targetZoom = clamp(
@@ -720,12 +727,16 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         floor,
         ceiling,
       );
-      const targetPanX =
-        (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom;
+      // Centering is right until the zoom floor bites and the content outgrows its margins: then the left
+      // edge slides under the dock (or off screen), so never let it start left of the inset.
+      const targetPanX = Math.max(
+        (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom,
+        padX - minX * targetZoom,
+      );
       // A single card normally top-biases (header up top, no dead space below). On creation we want the opposite: the new card dead-centered "in front of you", so `centered` forces true vertical centering.
       const topBiased = cardRects.length === 1 && !centered;
-      const targetPanY = topBiased
-        ? FIT_PADDING * 0.4 - minY * targetZoom
+      const targetPanY = topBiased || contentHeight * targetZoom > vRect.height
+        ? padY * 0.4 - minY * targetZoom
         : (vRect.height - contentHeight * targetZoom) / 2 -
           minY * targetZoom;
       return { panX: targetPanX, panY: targetPanY, zoom: targetZoom };
@@ -740,10 +751,11 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       animate?: boolean,
       minZoom?: number,
       centered?: boolean,
+      padding?: { x: number; y: number },
     ) => {
       cancelAnimation();
 
-      const target = computeFitTarget(cardRects, maxZoom, minZoom, centered);
+      const target = computeFitTarget(cardRects, maxZoom, minZoom, centered, padding);
       if (!target) {
         // Keep current camera; snapping to (0,0,1) used to desync the minimap.
         if (cardRects.length === 0 || !viewportRef.current) {
@@ -761,7 +773,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         // Settle pass: cancelAnimation() must be able to cancel it, else back-to-back fitToCards races and the first settle overwrites the second target.
         settleTimerRef.current = window.setTimeout(() => {
           settleTimerRef.current = null;
-          const fresh = computeFitTarget(cardRects, maxZoom, minZoom, centered);
+          const fresh = computeFitTarget(cardRects, maxZoom, minZoom, centered, padding);
           if (!fresh) return;
           const cur2 = stateRef.current;
           const drift =
@@ -775,6 +787,15 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       }
     },
     [cancelAnimation, animateTo, computeFitTarget, setCanvasState],
+  );
+
+  // The camera half of Tidy: frame the freshly gridded cards close in (the 200px fit padding was
+  // eating a third of the viewport), never below readable, and never magnified past life size.
+  const fitTidy = useCallback(
+    (cardRects: Array<{ x: number; y: number; width: number; height: number }>) => {
+      fitToCards(cardRects, 1, true, TIDY_MIN_ZOOM, false, TIDY_PADDING);
+    },
+    [fitToCards],
   );
 
   // Figma-style spawn camera: never zoom IN, never move if the cards are already on screen; otherwise the minimal pan that reveals them, zooming out only when they cannot fit at the current zoom.
@@ -833,9 +854,9 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
   const getLiveState = useCallback((): CanvasState => stateRef.current, []);
 
   const actions = useMemo(() => ({
-    zoomIn, zoomOut, resetZoom, fitToView, fitToCards, revealCards, animateTo, cancelAnimation,
+    zoomIn, zoomOut, resetZoom, fitToView, fitToCards, fitTidy, revealCards, animateTo, cancelAnimation,
     setState: setCanvasState, panBy, commit: commitLive, syncTransform: applyLiveToDom, getLiveState,
-  }), [zoomIn, zoomOut, resetZoom, fitToView, fitToCards, revealCards, animateTo, cancelAnimation, setCanvasState, panBy, commitLive, applyLiveToDom, getLiveState]);
+  }), [zoomIn, zoomOut, resetZoom, fitToView, fitToCards, fitTidy, revealCards, animateTo, cancelAnimation, setCanvasState, panBy, commitLive, applyLiveToDom, getLiveState]);
 
   return {
     ...state,

@@ -17,6 +17,9 @@ import type { CardType, useDashboardSelection } from '../state/useDashboardSelec
 import type { CanvasActions } from '../interaction/useCanvasControls';
 import { useSpawnPlacement } from './useSpawnPlacement';
 
+// Title bubble + cost line, the strip an expanded card floats above itself.
+const EXPANDED_HEADER_H = 64;
+
 type Selection = ReturnType<typeof useDashboardSelection>;
 
 interface UseDashboardCardActionsArgs {
@@ -111,18 +114,26 @@ export function useDashboardCardActions({
     const {
       cards: tidied, viewCards: tidiedViews, browserCards: tidiedBrowsers,
       workflowCards: tidiedWorkflows, workflowsHub: tidiedHub,
+      workflowsMonitorCard: tidiedMonitor, settingsCard: tidiedSettings,
     } = store.getState().dashboardLayout;
     const allRects = [
-      ...Object.values(tidied).map((c) => ({
-        x: c.x, y: c.y, width: c.width,
-        height: expandedSet.has(c.session_id) ? Math.max(EXPANDED_CARD_MIN_H, c.height) : c.height,
-      })),
+      ...Object.values(tidied).map((c) => {
+        // An expanded card wears its title bubble ABOVE its rect, so the camera has to be told about that strip or Tidy frames the card and beheads it.
+        const isExpanded = expandedSet.has(c.session_id);
+        const height = isExpanded ? Math.max(EXPANDED_CARD_MIN_H, c.height) : c.height;
+        return isExpanded
+          ? { x: c.x, y: c.y - EXPANDED_HEADER_H, width: c.width, height: height + EXPANDED_HEADER_H }
+          : { x: c.x, y: c.y, width: c.width, height };
+      }),
       ...Object.values(tidiedViews).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
       ...Object.values(tidiedBrowsers).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
       ...Object.values(tidiedWorkflows).map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
-      ...(tidiedHub ? [{ x: tidiedHub.x, y: tidiedHub.y, width: tidiedHub.width, height: tidiedHub.height }] : []),
+      // The hub, the monitor and Settings get tidied into the grid too, so the camera has to know about them or it frames a stale box.
+      ...[tidiedHub, tidiedMonitor, tidiedSettings]
+        .filter((c): c is NonNullable<typeof c> => !!c)
+        .map((c) => ({ x: c.x, y: c.y, width: c.width, height: c.height })),
     ];
-    canvasActions.fitToCards(allRects);
+    canvasActions.fitTidy(allRects);
   }, [dispatch, canvasActions]);
 
   return {

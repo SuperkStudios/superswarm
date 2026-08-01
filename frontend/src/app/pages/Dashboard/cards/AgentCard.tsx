@@ -1141,8 +1141,7 @@ const AgentCard: React.FC<Props> = ({
                 )}
               </Typewriter>
             </InlineEditableTitle>
-            {/* Status speaks only when it needs the user; finished work sits quiet. The welcome
-                chat hides its 'draft' label so the title reads clean. */}
+            {/* The welcome chat hides its 'draft' label so the title reads clean. */}
             {session.status !== 'completed' && session.status !== 'stopped' && !session.is_welcome_draft && (
               <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
@@ -1150,6 +1149,24 @@ const AgentCard: React.FC<Props> = ({
                 </Typography>
               </Box>
             )}
+            {/* Finishing used to be signalled by the word 'working' DISAPPEARING, which is not a signal. */}
+            <Fade in={session.status === 'completed' && !session.is_welcome_draft} timeout={{ enter: 260, exit: 160 }} unmountOnExit>
+              <Chip
+                icon={<CheckIcon sx={{ fontSize: 13, color: `${c.status.success} !important` }} />}
+                label="Done"
+                size="small"
+                sx={{
+                  bgcolor: c.status.successBg,
+                  color: c.status.success,
+                  border: `1px solid ${c.status.success}33`,
+                  fontWeight: 600,
+                  fontSize: '0.6875rem',
+                  height: 22,
+                  flexShrink: 0,
+                  '& .MuiChip-icon': { ml: '4px' },
+                }}
+              />
+            </Fade>
             {/* Calm, zero-click signal: the agent recalled or built up memory of
                 this site, so the user feels it getting smarter on its own. */}
             <Fade in={session.memory_recalled || session.memory_learned} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
@@ -1189,9 +1206,12 @@ const AgentCard: React.FC<Props> = ({
         >
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, overflow: 'hidden' }}>
             {session.cost_usd > 0 && hasApiKey && (
-              <Typography variant="caption" sx={{ color: c.accent.primary, whiteSpace: 'nowrap' }}>
-                ${session.cost_usd.toFixed(4)}
-              </Typography>
+              // Accent orange on a bare number read as a warning; it is just what the run cost.
+              <Tooltip title="What this run has cost so far" placement="bottom-start">
+                <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
+                  ${session.cost_usd.toFixed(4)}
+                </Typography>
+              </Tooltip>
             )}
           </Box>
         </Box>
