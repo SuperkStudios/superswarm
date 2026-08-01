@@ -31,8 +31,6 @@ const LeftRail: React.FC<{ nav: AppNav }> = ({ nav }) => {
     return workflows.filter((w) => w.title.toLowerCase().includes(q));
   }, [workflows, query]);
 
-  const activeCount = workflows.filter((w) => isScheduleActive(w.schedule)).length;
-
   const onDelete = (id: string) => {
     // Soft-delete: moves to Trash (recoverable), so no scary confirm.
     dispatch(deleteWorkflow(id));
@@ -84,7 +82,8 @@ const LeftRail: React.FC<{ nav: AppNav }> = ({ nav }) => {
 
       <div style={{ padding: '14px 16px 6px', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: WC.muted2 }}>Workflows</span>
-        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10.5, color: WC.muted2 }}>{activeCount}</span>
+        {/* Counts what the list below is actually showing. It used to count only the scheduled ones, so a real workflow sat under a header that said 0. */}
+        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10.5, color: WC.muted2 }}>{filtered.length}</span>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px', minHeight: 0 }}>
