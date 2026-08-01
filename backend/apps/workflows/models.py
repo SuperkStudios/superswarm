@@ -93,6 +93,10 @@ class Workflow(BaseModel):
     schedule: ScheduleConfig = Field(default_factory=ScheduleConfig)
     # Where a SCHEDULED fire runs. "cloud" hands the timer to our servers outright, so this machine must never fire it nor roll next_run_at, or the same slot runs twice. Manual Run-now always stays local.
     execution_target: Literal["device", "cloud"] = "device"
+    # The cloud's own id for our hosted copy. Only backend/apps/workflows/cloud writes these two, and only after the cloud has actually accepted the workflow.
+    cloud_workflow_id: Optional[str] = None
+    # Fingerprint of what we last pushed, so "the cloud is running an older version of this" is detectable instead of silent.
+    cloud_definition_signature: Optional[str] = None
     permissions: list[PermissionTier] = Field(
         default_factory=lambda: [PermissionTier(kind="notify")]
     )

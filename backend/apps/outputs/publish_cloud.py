@@ -3,18 +3,10 @@ it back down. Reads the bearer directly (publish works for any signed-in account
 not just pro/free-trial), matching the cloud's requireAuthedUser gate."""
 from __future__ import annotations
 
-from typing import Optional
-
 import httpx
 
 from backend.apps.outputs.publish_common import PublishError
-from backend.apps.settings.credentials import OPENSWARM_DEFAULT_PROXY_URL
-
-
-def p_cloud_auth(settings) -> tuple[Optional[str], str]:
-    base = (getattr(settings, "openswarm_proxy_url", None) or OPENSWARM_DEFAULT_PROXY_URL).rstrip("/")
-    token = getattr(settings, "openswarm_bearer_token", None)
-    return token, base
+from backend.apps.settings.credentials import account_auth
 
 
 def p_safe_detail(resp: httpx.Response, fallback: str) -> str:
@@ -31,7 +23,7 @@ def p_safe_detail(resp: httpx.Response, fallback: str) -> str:
 async def upload_to_cloud(
     settings, *, output_id: str, name: str, slug_hint: str, bundle: bytes, override: bool
 ) -> dict:
-    token, base = p_cloud_auth(settings)
+    token, base = account_auth(settings)
     if not token:
         raise PublishError("Sign in to your OpenSwarm account to publish apps.")
     try:
@@ -51,7 +43,7 @@ async def upload_to_cloud(
 
 
 async def unpublish_from_cloud(settings, slug: str) -> None:
-    token, base = p_cloud_auth(settings)
+    token, base = account_auth(settings)
     if not token:
         raise PublishError("Sign in to your OpenSwarm account to manage published apps.")
     try:
