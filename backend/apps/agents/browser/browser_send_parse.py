@@ -138,15 +138,25 @@ def looks_signed_out(state_text: str) -> bool:
 P_POST_INTENT_RE = re.compile(r"\b(post|tweet|publish|share)\b", re.I)
 P_COMMENT_INTENT_RE = re.compile(r"\b(comment|reply|respond)\b", re.I)
 P_COMMENT_SURFACE_RE = re.compile(r"\b(comment|reply)\b", re.I)
+# The private-message box is the worst wrong surface there is, because getting it wrong is not a
+# failed action, it is the user's words delivered privately to a named stranger. Live sweep, dry
+# run: 'write a comment on the first post' walked to instagram.com/<someone>/, took that profile's
+# 'Message' opener and filled 'Message...'. Armed, it would have DM'd them.
+P_DM_SURFACE_RE = re.compile(r"\b(message|messages|dm)\b", re.I)
+P_DM_INTENT_RE = re.compile(r"\b(dm|dms|message|messages|email|e-mail|mail|inbox|chat)\b", re.I)
 
 
 def surface_mismatch(task: str, composer_name: str) -> bool:
-    """True when the task asks to create a POST but the composer found is a comment/reply box.
+    """True when the composer we found contradicts what the task actually asked for.
 
-    Deliberately one-directional: a task that mentions commenting is left alone, so this can only
-    ever reject a comment box for a post task, never the reverse. A rejection is cheap (the
-    structural finder, which does find LinkedIn's real composer, gets its turn instead)."""
+    A public ask (post, comment) is contradicted by a DM box, and a post ask is contradicted by a
+    comment box. A task that asked for neither is left alone entirely, so 'text tyler hello' still
+    gets its message box. Rejecting only ever costs a turn: the structural finder, which does find
+    LinkedIn's real composer, gets its go instead."""
     t, name = task or "", composer_name or ""
+    p_public = bool(P_POST_INTENT_RE.search(t) or P_COMMENT_INTENT_RE.search(t))
+    if p_public and P_DM_SURFACE_RE.search(name) and not P_DM_INTENT_RE.search(t):
+        return True
     if not P_POST_INTENT_RE.search(t) or P_COMMENT_INTENT_RE.search(t):
         return False
     return bool(P_COMMENT_SURFACE_RE.search(name))

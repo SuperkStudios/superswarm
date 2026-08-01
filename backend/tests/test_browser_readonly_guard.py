@@ -117,7 +117,10 @@ def test_a_comment_task_keeps_its_comment_opener():
 
 
 def test_a_post_task_keeps_a_real_post_opener():
-    for opener in ("Post", "Compose", "New message", "Message"):
+    # "New message" and "Message" used to sit in this list as merely not-a-comment. They are DM
+    # openers on every site we drive, and taking one for a post task is how instagram came within
+    # a dry-run flag of DMing a stranger. See test_browser_wrong_surface.py.
+    for opener in ("Post", "Compose", "Create post", "Write"):
         assert not sp.surface_mismatch('post this, exactly: "hi"', opener), opener
 
 

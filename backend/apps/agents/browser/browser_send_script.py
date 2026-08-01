@@ -259,10 +259,10 @@ async def run_send_script(
 
     composer = browser_send_parse.composer_index_in_state(state_text)
     if composer and browser_send_parse.surface_mismatch(task_sans_brief, composer[1]):
-        # Asked to POST, found a COMMENT box: that is someone else's content, not a slower route to
-        # ours. Drop it and let the tiers below (opener, then the structural finder, which does find
-        # LinkedIn's real composer) look properly.
-        logger.info(f"[browser-sendscript] ignoring {composer[1]!r}: a comment box is not where a post goes")
+        # Asked to POST and found a COMMENT box, or found a DM box nobody asked for: either way it
+        # is someone else's surface, not a slower route to ours. Drop it and let the tiers below
+        # (opener, then the structural finder, which does find LinkedIn's real composer) look properly.
+        logger.info(f"[browser-sendscript] ignoring composer {composer[1]!r}: wrong surface for this task")
         composer = None
     if not composer:
         # The staged snapshot is prestage's, frozen the instant it clicked Message; the overlay composer lazy-renders a beat later (r263/r269 declined on exactly this, prestage's LAST step was the Message click). Poll a short window so the overlay has time to appear before we fall back to the opener.
@@ -278,13 +278,14 @@ async def run_send_script(
         # Reversible-opener hop: prestage often stops on the profile with the "Message" opener visible (its settle raced the overlay). Opening a composer is the allowed opener class; the irreversible bar is unchanged.
         opener = browser_send_parse.opener_index_in_state(state_text)
         if opener and browser_send_parse.surface_mismatch(task_sans_brief, opener[1]):
-            # The same post-is-not-a-comment rule the composer already enforces, applied one step
-            # earlier. Measured on linkedin.com with the task "start a post": the only opener listed
-            # was 'Comment', so the script opened a stranger's comment box, found no post composer
-            # inside it, and declined. Opening the wrong surface is not a slower route to the right
-            # one, and here it also burns the reversible-opener hop we only get once.
-            logger.info(f"[browser-sendscript] ignoring opener {opener[1]!r}: a comment box is not "
-                        f"where a post goes")
+            # The same wrong-surface rule the composer already enforces, applied one step earlier.
+            # Measured on linkedin.com with "start a post": the only opener listed was 'Comment', so
+            # the script opened a stranger's comment box, found no post composer inside it, and
+            # declined. Measured on instagram.com with "write a comment on the first post": the
+            # opener taken was the profile's 'Message', which is a DM to that person. Opening the
+            # wrong surface is not a slower route to the right one, and it burns the one reversible
+            # opener hop we get.
+            logger.info(f"[browser-sendscript] ignoring opener {opener[1]!r}: wrong surface for this task")
             opener = None
         if opener:
             logger.info(f"[browser-sendscript] firing via opener {opener[1]!r} [{opener[0]}]")
