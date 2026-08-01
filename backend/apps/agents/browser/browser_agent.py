@@ -319,8 +319,10 @@ async def execute_browser_tool(
 ) -> dict:
     """Execute a browser tool via ws_manager directly (no MCP/HTTP round-trip)."""
     p_t0 = time.time()
+    p_res: dict = {}
     try:
-        return await p_execute_browser_tool(tool_name, tool_input, browser_id, tab_id)
+        p_res = await p_execute_browser_tool(tool_name, tool_input, browser_id, tab_id)
+        return p_res
     finally:
         p_ms = (time.time() - p_t0) * 1000
         try:
@@ -331,7 +333,16 @@ async def execute_browser_tool(
         # was slow. One line per genuinely slow command costs nothing on a healthy run and turns
         # "15s of tools" into a name and a duration.
         if p_ms >= P_SLOW_BROWSER_MS:
-            logger.info(f"[browser-slow] {tool_name} took {int(p_ms)}ms -> {browser_id}")
+            # The frontend reports how much of that went BEFORE its handler even started (waiting on
+            # a webview that says it is still loading). From here the two are indistinguishable, and
+            # they have completely different fixes, so make the split explicit.
+            p_split = ""
+            if isinstance(p_res, dict):
+                if p_res.get("gate_ms") is not None:
+                    p_split += f" gate={int(p_res['gate_ms'])}ms"
+                if p_res.get("stages"):
+                    p_split += f" stages=[{p_res['stages']}]"
+            logger.info(f"[browser-slow] {tool_name} took {int(p_ms)}ms{p_split} -> {browser_id}")
 
 
 async def p_execute_browser_tool(

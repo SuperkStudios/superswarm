@@ -141,21 +141,29 @@ async function removeAnnotations(wv: BrowserWebview): Promise<void> {
 }
 
 async function handleScreenshot(wv: BrowserWebview, params?: Record<string, any>): Promise<Record<string, any>> {
+  const p_t0 = Date.now();
+  const p_mark = (stage: string): void => { p_stages.push(`${stage}:${Date.now() - p_t0}`); };
+  const p_stages: string[] = [];
   if (params?.annotate !== false) {
     let drawn = 0;
     try {
       drawn = await annotateElements(wv);
+      p_mark('annotated');
       if (drawn > 0) {
         const shot = await captureRetry(wv);
+        p_mark('captured');
         if (shot.image) shot.text = `Screenshot with ${drawn} numbered boxes matching your element list (pass annotate:false for a clean shot).`;
-        return shot;
+        return { ...shot, stages: p_stages.join(' ') };
       }
     } catch { /* annotation is decoration; a plain shot always beats an error */
     } finally {
       if (drawn > 0) await removeAnnotations(wv);
+      p_mark('annotations removed');
     }
   }
-  return captureRetry(wv);
+  const p_plain = await captureRetry(wv);
+  p_mark('captured');
+  return { ...p_plain, stages: p_stages.join(' ') };
 }
 
 async function captureRetry(wv: BrowserWebview): Promise<Record<string, any>> {
@@ -2113,7 +2121,12 @@ async function runBrowserCommand(
     dashboardWs.send('browser:result', { request_id, ...result });
     return;
   }
+  const p_gateT0 = Date.now();
   const wv = await awaitWebview(browser_id, tab_id || undefined, action);
+  // A command that spends seconds before its handler even starts looks identical, from the backend,
+  // to a slow handler. Splitting the two is the whole diagnosis for the 15s screenshot wedge, so
+  // say which half ate the time. Only fires when it is genuinely slow, so a healthy run stays quiet.
+  const p_gateMs = Date.now() - p_gateT0;
   if (!wv) {
     dashboardWs.send('browser:result', {
       request_id,
@@ -2224,7 +2237,9 @@ async function runBrowserCommand(
   if (completedCommands.size > _COMPLETED_CACHE_MAX) {
     completedCommands.delete(completedCommands.keys().next().value as string);
   }
-  dashboardWs.send('browser:result', { request_id, ...result });
+  // Ride the pre-handler wait back with the result: a renderer console.log never reaches the main
+  // process, and from the backend a slow GATE and a slow HANDLER look identical.
+  dashboardWs.send('browser:result', { request_id, ...result, gate_ms: p_gateMs, total_ms: Date.now() - p_gateT0 });
 }
 
 export function initBrowserCommandHandler(): () => void {
