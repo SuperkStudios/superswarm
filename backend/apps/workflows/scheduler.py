@@ -491,6 +491,9 @@ async def start() -> None:
     if _loop_task is not None:
         return
     _mark_stuck_runs_failed()
+    # A pointer at a session that is gone renders as a blank panel; nulling it renders the empty state.
+    from backend.apps.workflows.reconcile_references import reconcile_workflow_sessions
+    reconcile_workflow_sessions()
     reconcile_on_startup()
     _loop_task = asyncio.create_task(_loop())
 
