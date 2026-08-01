@@ -184,8 +184,10 @@ def latency_report(tasks):
             if t.get("completed") and t.get("llm_ms") and t.get("path") in ("llm", "llm_fallback")]
     print("\n=== WHERE THE TIME GOES (completed model-path runs) ===")
     if len(runs) < 2:
-        print(f"  {len(runs)} run(s) carry a latency split; need at least 2. "
-              "Runs recorded before this was persisted have no split and are skipped.")
+        old = sum(1 for t in tasks if "other_ms" not in t)
+        noloop = sum(1 for t in tasks if t.get("other_ms") is not None and not t.get("llm_ms"))
+        print(f"  {len(runs)} qualifying run(s); need at least 2. Skipped: {old} recorded before the "
+              f"split existed, {noloop} that never called the model (a script or replay answered).")
         return
     cols = [("wall", "total_ms"), ("llm", "llm_ms"), ("browser", "tools_ms"), ("OURS", "other_ms")]
     print(f"  {'part':<9}{'median':>9}{'min':>9}{'max':>9}{'spread':>9}   share")
