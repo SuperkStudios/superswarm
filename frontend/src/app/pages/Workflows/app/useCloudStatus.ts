@@ -12,6 +12,7 @@ export interface CloudStatusHandle {
   pending: boolean;
   /** Set only by a refused flip, and cleared by the next attempt. */
   refusal: string | null;
+  retry: () => void;
   choose: (target: CloudTarget, enabled: boolean) => void;
   refresh: () => void;
 }
@@ -59,5 +60,10 @@ export function useCloudStatus(workflow: Workflow): CloudStatusHandle {
     });
   }, [dispatch, pending, refresh, workflowId, dashboardId]);
 
-  return { probe, pending, refusal, choose, refresh };
+  // refresh() deliberately leaves `refusal` alone: choose() calls it right after setting one, and
+  // clearing there would wipe the message before it rendered. A user-driven retry is a different
+  // intent, so it gets its own door; without it a refusal outlived the thing that caused it.
+  const retry = useCallback(() => { setRefusal(null); refresh(); }, [refresh]);
+
+  return { probe, pending, refusal, choose, refresh, retry };
 }

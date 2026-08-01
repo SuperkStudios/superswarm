@@ -97,7 +97,21 @@ const CloudRunSection: React.FC<{ workflow: Workflow; cloud: CloudStatusHandle }
 
       {cloud.pending && <Note wc={WC} tone="quiet">Talking to the cloud…</Note>}
 
-      {!cloud.pending && cloud.refusal && <Note wc={WC} tone="warn">{cloud.refusal}</Note>}
+      {/* A refusal used to swallow every other branch, including the one holding the upgrade link, so being told you need Pro removed the way to get Pro. Carry the action through. */}
+      {!cloud.pending && cloud.refusal && (
+        <Note wc={WC} tone="warn">
+          <span>
+            {cloud.refusal}
+            {availability.kind === 'blocked' && availability.action === 'sign_in' && (
+              <button onClick={() => dispatch(openSettingsCard())} style={link}>Sign in</button>
+            )}
+            {availability.kind === 'blocked' && availability.action === 'plans' && (
+              <button onClick={() => dispatch(openSettingsCard())} style={link}>See plans</button>
+            )}
+            <button onClick={cloud.retry} style={link}>Try again</button>
+          </span>
+        </Note>
+      )}
 
       {!cloud.pending && !cloud.refusal && availability.kind === 'checking' && (
         <Note wc={WC} tone="quiet">Checking what your account allows…</Note>
