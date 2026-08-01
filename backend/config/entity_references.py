@@ -29,6 +29,7 @@ class EntityKind(str, Enum):
     WORKFLOW_RUN = "workflow_run"
     OUTPUT = "output"
     WORKSPACE = "workspace"
+    CLOUD_WORKFLOW = "cloud_workflow"
 
 
 class EntityStore(BaseModel):
@@ -61,6 +62,8 @@ ENTITY_STORES: List[EntityStore] = [
     EntityStore(kind=EntityKind.OUTPUT, module="backend.apps.outputs.workspace_io", lookup="load_output"),
     # A workspace is a folder on disk, not a record, so its only by-id lookup is the read route.
     EntityStore(kind=EntityKind.WORKSPACE, module="backend.apps.outputs.outputs", lookup="read_workspace"),
+    # The one referent that does not live on this machine. preflight asks the cloud whether it still has the row; a miss renders as "nothing is running this", never as a silent blank.
+    EntityStore(kind=EntityKind.CLOUD_WORKFLOW, module="backend.apps.workflows.cloud.client", lookup="preflight"),
 ]
 
 CROSS_ENTITY_REFERENCES: List[EntityReference] = [
@@ -96,6 +99,7 @@ CROSS_ENTITY_REFERENCES: List[EntityReference] = [
     EntityReference(module="backend.apps.skills.models", model="SkillWorkspaceSeedRequest", field="workspace_id", target=EntityKind.WORKSPACE),
     EntityReference(module="backend.apps.workflows.models", model="AskRunBody", field="run_id", target=EntityKind.WORKFLOW_RUN),
     EntityReference(module="backend.apps.workflows.models", model="MissedRun", field="workflow_id", target=EntityKind.WORKFLOW),
+    EntityReference(module="backend.apps.workflows.models", model="Workflow", field="cloud_workflow_id", target=EntityKind.CLOUD_WORKFLOW),
     EntityReference(module="backend.apps.workflows.models", model="Workflow", field="dashboard_id", target=EntityKind.DASHBOARD),
     EntityReference(module="backend.apps.workflows.models", model="Workflow", field="edit_agent_session_id", target=EntityKind.SESSION),
     EntityReference(module="backend.apps.workflows.models", model="Workflow", field="last_run_id", target=EntityKind.WORKFLOW_RUN),

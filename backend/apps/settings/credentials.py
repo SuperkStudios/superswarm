@@ -28,6 +28,15 @@ def proxy_auth(settings: AppSettings) -> tuple[str | None, str | None]:
     return (None, None)
 
 
+def account_auth(settings: AppSettings) -> tuple[str | None, str]:
+    """(bearer, base_url) for cloud routes that identify the ACCOUNT rather than
+    route LLM traffic: publishing, hosted workflows, anything behind the cloud's
+    requireAuthedUser. Deliberately ignores connection_mode, because a signed-in
+    own-key user still has a real account. Bearer is None when signed out."""
+    base = (getattr(settings, "openswarm_proxy_url", None) or OPENSWARM_DEFAULT_PROXY_URL).rstrip("/")
+    return (getattr(settings, "openswarm_bearer_token", None) or None, base)
+
+
 def p_check_9router() -> bool:
     """Check if 9Router is running locally."""
     try:
