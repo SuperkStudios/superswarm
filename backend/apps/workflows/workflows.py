@@ -20,6 +20,7 @@ from backend.apps.workflows.models import (
     GenerateMetadataResponse,
 )
 from backend.apps.workflows import storage, scheduler, executor, audit, escalation
+from backend.apps.workflows.cloud.handover import release_before_removing
 from backend.apps.settings.models import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -854,6 +855,10 @@ async def delete_workflow(workflow_id: str):
     wf = storage.get_workflow(workflow_id)
     if not wf or wf.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    # Trashing a cloud-hosted workflow has to stop the cloud copy first, or it keeps running (and billing) with nobody able to see it.
+    released = await release_before_removing(wf)
+    if not released.ok:
+        raise HTTPException(status_code=409, detail=released.message)
     wf.deleted_at = datetime.now()
     wf.schedule.enabled = False
     wf.next_run_at = None
@@ -900,6 +905,9 @@ async def purge_workflow(workflow_id: str):
     wf = storage.get_workflow(workflow_id)
     if not wf or wf.deleted_at is None:
         raise HTTPException(status_code=404, detail="Workflow not in trash")
+    released = await release_before_removing(wf)
+    if not released.ok:
+        raise HTTPException(status_code=409, detail=released.message)
     # Before the record goes, or the ids that name the transcripts go with it and they leak forever.
     from backend.apps.workflows.owned_sessions import purge_owned_sessions
     await purge_owned_sessions(wf)
