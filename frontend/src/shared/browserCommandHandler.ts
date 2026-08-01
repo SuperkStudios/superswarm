@@ -2,7 +2,7 @@ import { getWebview, findWebviewByDomain, hasDomReady, markDomReady, isPendingLo
 import { shouldSelfHealClick } from './selfHealClick';
 import { FP_EXPR, clickEffect } from './clickEffect';
 import { store } from './state/store';
-import { resumeBrowserCard } from './state/dashboardLayoutSlice';
+import { resumeBrowserCard, focusBrowserCard } from './state/dashboardLayoutSlice';
 import { dashboardWs } from './ws/WebSocketManager';
 import { resolveInput } from './resolveUrl';
 import { rankAndCapInteractives, type RankItem } from './interactiveRanking';
@@ -140,10 +140,51 @@ async function removeAnnotations(wv: BrowserWebview): Promise<void> {
   } catch { /* page navigated mid-capture; the overlay died with it */ }
 }
 
-async function handleScreenshot(wv: BrowserWebview, params?: Record<string, any>): Promise<Record<string, any>> {
+// Chromium only produces compositor frames for a guest that is actually on screen, so a browser
+// card parked outside the canvas viewport has no frame for anyone to copy and EVERY capture path
+// hangs instead of failing. Measured in one window, one instant: a card at x=657 captured in 58ms
+// while a card at x=-15185 timed out on guest capturePage, on host capturePage, AND on CDP
+// Page.captureScreenshot in both fromSurface modes. Panning the card into view is not a nicety,
+// it is the only thing that makes the pixels exist.
+const ONSCREEN_POLL_MS = 60;
+const ONSCREEN_WAIT_MS = 1500;
+// A sliver poking over the edge composites the sliver, not the page, so ask for a real chunk of card.
+const ONSCREEN_MIN_PX = 80;
+
+function p_overlap(lo: number, hi: number, limit: number): number {
+  return Math.min(hi, limit) - Math.max(lo, 0);
+}
+
+function p_cardIsOnScreen(wv: BrowserWebview): boolean {
+  const r = wv.getBoundingClientRect();
+  return p_overlap(r.left, r.right, window.innerWidth) >= ONSCREEN_MIN_PX
+    && p_overlap(r.top, r.bottom, window.innerHeight) >= ONSCREEN_MIN_PX;
+}
+
+/** Pan the canvas to the card if it is out of view. '' once it is in view, else why it never will be. */
+async function ensureCardOnScreen(wv: BrowserWebview, browserId: string): Promise<string> {
+  if (p_cardIsOnScreen(wv)) return '';
+  store.dispatch(focusBrowserCard(browserId));
+  const deadline = Date.now() + ONSCREEN_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, ONSCREEN_POLL_MS));
+    if (p_cardIsOnScreen(wv)) return '';
+  }
+  return 'the browser card is off screen and the canvas could not pan to it (it may live on another dashboard)';
+}
+
+async function handleScreenshot(wv: BrowserWebview, browserId: string, params?: Record<string, any>): Promise<Record<string, any>> {
   const p_t0 = Date.now();
-  const p_mark = (stage: string): void => { p_stages.push(`${stage}:${Date.now() - p_t0}`); };
   const p_stages: string[] = [];
+  const p_mark = (stage: string): void => { p_stages.push(`${stage}:${Date.now() - p_t0}`); };
+  const p_hidden = await ensureCardOnScreen(wv, browserId);
+  p_mark('onscreen');
+  if (p_hidden) {
+    return {
+      error: `Screenshot unavailable: ${p_hidden}. Reading tools (get_text, list_interactives, get_elements) do not need the card on screen and work right now.`,
+      stages: p_stages.join(' '),
+    };
+  }
   if (params?.annotate !== false) {
     let drawn = 0;
     try {
@@ -166,12 +207,12 @@ async function handleScreenshot(wv: BrowserWebview, params?: Record<string, any>
   return { ...p_plain, stages: p_stages.join(' ') };
 }
 
-// Longest one capturePage attempt may take. Four attempts plus backoff must finish inside the
+// Longest one capturePage attempt may take. Every attempt plus backoff must finish inside the
 // backend's 15s command budget, or the honest error never gets a chance to be sent.
 const CAPTURE_ATTEMPT_MS = 2200;
-// Two, not four: on a wedged page every attempt burns the full leash and none of them ever
-// succeed, so the extra pair only delayed the CDP fallback that does work. Still covers the
-// transient this retry loop exists for, a cold turn-0 capture racing the first paint.
+// Two is enough now that the card is guaranteed on screen: the only thing left to wait out is a
+// cold turn-0 capture racing the first paint. When there is genuinely no frame, extra attempts
+// only burn the budget, because none of them can succeed.
 const CAPTURE_ATTEMPTS = 2;
 
 async function captureRetry(wv: BrowserWebview): Promise<Record<string, any>> {
@@ -179,13 +220,12 @@ async function captureRetry(wv: BrowserWebview): Promise<Record<string, any>> {
   let lastErr: any;
   for (let attempt = 0; attempt < CAPTURE_ATTEMPTS; attempt++) {
     try {
-      // capturePage was the ONE unbounded await left on this path, and on a heavy page it does not
-      // throw, it HANGS: the main process logs "GUEST_VIEW_MANAGER_CALL: UnknownVizError" while the
-      // renderer promise never settles, so handleScreenshot never returns, no result is ever sent,
-      // and the backend kills the command at 15s having learned nothing. Measured on reddit: every
-      // screenshot ERR (one at 244s) while the identical code on a trivial local page is ~170ms.
-      // A per-attempt leash turns a silent wedge into a retry and then an honest error, and costs a
-      // healthy capture nothing.
+      // capturePage was the ONE unbounded await left on this path, and with no frame to copy it
+      // does not throw, it HANGS: the main process logs "GUEST_VIEW_MANAGER_CALL: UnknownVizError"
+      // while the renderer promise never settles, so handleScreenshot never returns, no result is
+      // ever sent, and the backend kills the command at 15s having learned nothing (one hang ran
+      // 244s). The leash keeps that from ever being silent again, and costs a healthy capture
+      // nothing.
       const nativeImage = await _cdpTimeout(wv.capturePage(), CAPTURE_ATTEMPT_MS);
       if (!nativeImage.isEmpty()) {
         // Stable PNG capture. The resize()+toJPEG() variant was reverted: it's the prime suspect for the renderer "V8 Empty MaybeLocal" crash, NativeImage's JPEG codec returns an empty image on some retina captures, which is the shape of that native fault. A stable app beats a faster screenshot.
@@ -199,7 +239,12 @@ async function captureRetry(wv: BrowserWebview): Promise<Record<string, any>> {
     }
     await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
   }
-  return { error: `Screenshot failed after retries: ${lastErr?.message || String(lastErr)}` };
+  // Never refuse up front on this: a covered window often still composites, and predicting the
+  // failure would blind the agent every time the user tabs to something else. Attempt, then explain.
+  const p_why = document.visibilityState === 'hidden'
+    ? ' The OpenSwarm window is minimized or fully covered, so nothing is being drawn; the reading tools (get_text, list_interactives) still work.'
+    : '';
+  return { error: `Screenshot failed after retries: ${lastErr?.message || String(lastErr)}.${p_why}` };
 }
 
 // Count the safe (GET) API endpoints captured for this site so the backend can nudge the agent toward the fast network path. Best-effort, never throws.
@@ -2157,7 +2202,7 @@ async function runBrowserCommand(
   try {
     switch (action) {
       case 'screenshot':
-        result = await handleScreenshot(wv, params);
+        result = await handleScreenshot(wv, browser_id, params);
         break;
       case 'get_text':
         result = await handleGetText(wv, params);

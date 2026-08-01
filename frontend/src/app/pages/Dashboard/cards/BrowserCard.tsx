@@ -61,6 +61,7 @@ import {
   type BrowserWebview,
   getWebview,
 } from '@/shared/browserRegistry';
+import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
@@ -606,22 +607,12 @@ const BrowserCard: React.FC<Props> = ({
   // Yellow light: snapshot the live page first so the right-edge stack shows a real thumbnail,
   // then park the card (webContents stays mounted, same as the keep-alive off-screen park).
   const handleMinimize = useCallback(() => {
-    const wv = webviewMap.current.get(activeTabId);
-    const capture = wv?.capturePage?.();
-    let parked = false;
-    const park = (): void => { if (parked) return; parked = true; dispatch(toggleMinimizeCard({ cardId: browserId })); };
-    if (capture && typeof (capture as Promise<unknown>).then === 'function') {
-      // capturePage can hang forever on off-screen guests (Electron 42); the timer guarantees the park.
-      // 250ms: captures land in ~100-200ms when visible, and a snappy minimize beats a perfect thumbnail.
-      window.setTimeout(park, 250);
-      (capture as Promise<{ toDataURL(): string }>)
-        .then((img) => { saveMinimizedShot(browserId, img.toDataURL()); })
-        .catch(() => undefined)
-        .finally(park);
-    } else {
-      park();
-    }
-  }, [dispatch, browserId, activeTabId]);
+    // 250ms: captures land in ~100-200ms while the card is still visible, and a snappy minimize
+    // beats a perfect thumbnail.
+    void captureBrowserShot(browserId, 250)
+      .then((shot) => { if (shot) saveMinimizedShot(browserId, shot); })
+      .finally(() => dispatch(toggleMinimizeCard({ cardId: browserId })));
+  }, [dispatch, browserId]);
 
   const handleCloseTab = useCallback((tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1009,9 +1000,15 @@ const BrowserCard: React.FC<Props> = ({
             : c.shadow.md;
 
   const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+  // An agent can only SEE a page the compositor is drawing, and Chromium draws nothing at all for a
+  // guest parked at left:-100000. Measured in one window: a card on screen captured in 58ms while
+  // the same card parked timed out on guest capturePage, on host capturePage AND on CDP
+  // captureScreenshot. So a browser its agent is still working stays on the canvas, collapsed
+  // parent or not, and re-parks when the run ends. Watching it work is the point of the canvas.
+  const agentDriving = browserAgentSession?.status === 'running' || browserAgentSession?.status === 'waiting_approval';
   // Chat collapsed: its docked browser parks off-screen and lives on as the pill's live shot,
   // instead of teleporting back to wherever it sat before docking.
-  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !agentDriving && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
 
   return (
     <Box
