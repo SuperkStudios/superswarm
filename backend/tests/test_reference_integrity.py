@@ -32,7 +32,13 @@ from backend.apps.workflows.reconcile_references import reconcile_workflow_sessi
 
 
 @pytest.fixture(autouse=True)
-def p_wf_env(isolated_workflows_data, reset_scheduler_state):
+def p_wf_env(isolated_workflows_data, reset_scheduler_state, tmp_path, monkeypatch):
+    # isolated_workflows_data isolates workflows but NOT sessions, so without this the fixture
+    # transcripts below land in the developer's real backend/data/sessions and stay there.
+    import backend.apps.agents.manager.session.session_store as store
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    monkeypatch.setattr(store, "sessions_dir", lambda: str(sessions))
     yield
 
 
