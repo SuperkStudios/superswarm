@@ -570,12 +570,14 @@ const CompactPill: React.FC<{
         userSelect: 'none',
       }}
     >
-      <ActivityIndicator c={c} />
+      {activeCount > 0
+        ? <ActivityIndicator c={c} />
+        : <CheckIcon sx={{ fontSize: 13, color: c.status.success, flexShrink: 0 }} />}
       <Typography
         sx={{
           fontSize: '0.6875rem',
           fontWeight: 500,
-          color: c.text.tertiary,
+          color: activeCount > 0 ? c.text.tertiary : c.status.success,
           flex: 1,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
