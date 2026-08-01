@@ -13,7 +13,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 from typeguard import typechecked
 
-from runner.backend_process import BackendProcess
+from runner.boot.backend_process import BackendProcess
 
 TERMINAL_STATUSES = ("success", "failure", "ran_late", "skipped")
 POLL_INTERVAL_SECONDS = 1.0

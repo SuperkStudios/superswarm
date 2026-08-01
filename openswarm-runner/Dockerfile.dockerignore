@@ -1,6 +1,8 @@
 *
 !backend
 !openswarm-runner/runner
+!electron
+!frontend
 
 # A developer's real OAuth client secrets live here; baking them into an image that
 # gets pushed to a registry is how a laptop leaks credentials. The Dockerfile asserts
@@ -13,6 +15,19 @@ backend/.venv
 backend/uv-bin
 backend/tests
 backend/.pytest_cache
+
+# The bundle is built in a stage inside the image. A developer's stale local dist must
+# never be what a cloud run renders.
+frontend/dist
+frontend/node_modules
+electron/node_modules
+electron/dist
+electron/build-staging
+electron/python-env
+# Prebuilt Mach-O addons for the mac trackpad; main.js already skips a missing one.
+electron/native
+**/*.test.js
+
 **/__pycache__
 **/*.pyc
 **/.DS_Store

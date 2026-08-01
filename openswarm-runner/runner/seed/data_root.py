@@ -13,8 +13,9 @@ from typing import Any, Dict
 
 from typeguard import typechecked
 
+from backend.apps.dashboards.models import Dashboard
 from backend.apps.settings.models import AppSettings
-from runner.run_spec import RunSpec
+from runner.run_spec import CLOUD_RUN_DASHBOARD_ID, RunSpec
 
 # 9Router provider id -> the AppSettings field the backend reads a raw key from.
 API_KEY_SETTINGS_FIELD: Dict[str, str] = {
@@ -69,7 +70,12 @@ def settings_for_run(spec: RunSpec) -> AppSettings:
 
 @typechecked
 def seed_data_root(data_root: str, spec: RunSpec) -> None:
-    """Write the workflow record and the settings file the backend will read at boot."""
+    """Write the workflow, settings and dashboard records the backend will read at boot.
+
+    The dashboard exists so the Electron window has somewhere to land and browser cards have
+    somewhere to render. Writing it here rather than letting the backend's first-boot migration
+    invent one keeps its id knowable before anything has started.
+    """
     workflow = spec.workflow_for_disk()
     p_write_json(
         os.path.join(data_root, "workflows", f"{workflow.id}.json"),
@@ -78,4 +84,9 @@ def seed_data_root(data_root: str, spec: RunSpec) -> None:
     p_write_json(
         os.path.join(data_root, "settings", "settings.json"),
         settings_for_run(spec).model_dump(mode="json"),
+    )
+    dashboard = Dashboard(id=CLOUD_RUN_DASHBOARD_ID, name=spec.workflow.title or "Cloud run")
+    p_write_json(
+        os.path.join(data_root, "dashboards", f"{dashboard.id}.json"),
+        dashboard.model_dump(mode="json"),
     )
