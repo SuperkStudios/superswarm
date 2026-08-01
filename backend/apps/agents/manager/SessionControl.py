@@ -41,15 +41,18 @@ class SessionControl(AgentManagerProtocol):
                 ws_manager.resolve_approval(req.id, {"behavior": "deny", "message": "Agent stopped"})
             session.pending_approvals = []
 
-            session.status = "stopped"
-            session.needs_fresh_session = True
-            if not session.closed_at:
-                session.closed_at = datetime.now()
-            # Persist the partial reply NOW, before tearing down the SDK. The cancel handler also does this, but it sits behind the generator's teardown, which can take several seconds; doing it here means the streamed text stays put the instant Stop is pressed instead of blinking out and reappearing once teardown finishes.
-            await self.commit_partial_now(session)
+            # Only a LIVE turn can be stopped. A finished session's task lingers in the registry, and shutdown stops every task it finds, so an unconditional flip relabelled every completed chat "stopped" on restart and hung a Resume button off a conversation that was already answered.
+            p_was_live = session.status in ("running", "waiting_approval")
+            if p_was_live:
+                session.status = "stopped"
+                session.needs_fresh_session = True
+                if not session.closed_at:
+                    session.closed_at = datetime.now()
+                # Persist the partial reply NOW, before tearing down the SDK. The cancel handler also does this, but it sits behind the generator's teardown, which can take several seconds; doing it here means the streamed text stays put the instant Stop is pressed instead of blinking out and reappearing once teardown finishes.
+                await self.commit_partial_now(session)
             await ws_manager.send_to_session(session_id, "agent:status", {
                 "session_id": session_id,
-                "status": "stopped",
+                "status": session.status,
                 "session": session.model_dump(mode="json"),
             })
             # Snapshot now: the cancelled task's finally skips the save (it's no longer the live task once we pop it below), so persist the partial here or it'd live only in memory until the next turn / shutdown.
