@@ -227,7 +227,8 @@ def run_dangling_refs_check(
     for pyfile in sorted(backend.rglob("*.py")):
         if is_excluded(pyfile, root, excludes):
             continue
-        rel = str(pyfile.relative_to(root))
+        # Forward slashes even on Windows, so the config's exception globs match there too.
+        rel = pyfile.relative_to(root).as_posix()
         try:
             tree = ast.parse(pyfile.read_text(), filename=rel)
         except (OSError, SyntaxError):
