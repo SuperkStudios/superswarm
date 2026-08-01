@@ -4,8 +4,16 @@ Both are pure functions, and both decide something a user reads: a schedule the 
 express has to be refused in words rather than rounded off, and the copy we push must not carry
 anything local (session ids, a phone number) off this machine.
 """
+from datetime import datetime, timezone
+
+from backend.apps.workflows.cloud import schedule as cloud_schedule
 from backend.apps.workflows.cloud.definition import cloud_definition, definition_signature
-from backend.apps.workflows.cloud.schedule import ScheduleSupported, ScheduleUnsupported, to_cloud_schedule
+from backend.apps.workflows.cloud.schedule import (
+    ScheduleSupported,
+    ScheduleUnsupported,
+    to_cloud_schedule,
+    wire,
+)
 from backend.apps.workflows.models import PermissionTier, ScheduleConfig, Workflow, WorkflowStep
 
 
@@ -21,15 +29,25 @@ def p_wf(**overrides) -> Workflow:
     return Workflow(**base)
 
 
-def test_only_daily_and_interval_schedules_map_to_the_cloud():
-    assert isinstance(to_cloud_schedule(p_sched()), ScheduleSupported)
-    assert isinstance(to_cloud_schedule(p_sched(repeat_unit="minute", repeat_every=30)), ScheduleSupported)
-    assert isinstance(to_cloud_schedule(p_sched(repeat_unit="hour", repeat_every=6)), ScheduleSupported)
+def test_interval_daily_and_weekday_schedules_map_to_the_cloud():
+    for supported in (
+        p_sched(),
+        p_sched(repeat_unit="minute", repeat_every=30),
+        p_sched(repeat_unit="hour", repeat_every=6),
+        p_sched(repeat_unit="week", on_days=[1, 2, 3, 4, 5]),
+        p_sched(max_runs=5),
+        p_sched(ends_at=datetime(2027, 1, 1, tzinfo=timezone.utc)),
+    ):
+        assert isinstance(to_cloud_schedule(supported), ScheduleSupported)
+
+
+def test_a_cadence_with_a_phase_the_wire_cannot_carry_is_refused_in_words():
     for unsupported in (
-        p_sched(repeat_unit="week", on_days=[1]),
         p_sched(repeat_unit="month", day_of_month=1),
         p_sched(repeat_unit="day", repeat_every=3),
-        p_sched(max_runs=5),
+        p_sched(repeat_unit="week", repeat_every=2, on_days=[1]),
+        # A weekly schedule with no days chosen is not a cadence yet, and saying "monthly" here would be a lie.
+        p_sched(repeat_unit="week", on_days=[]),
     ):
         mapping = to_cloud_schedule(unsupported)
         assert isinstance(mapping, ScheduleUnsupported)
@@ -37,10 +55,47 @@ def test_only_daily_and_interval_schedules_map_to_the_cloud():
         assert mapping.reason.endswith(".") and " " in mapping.reason
 
 
-def test_a_9am_wall_clock_becomes_the_right_utc_time():
+def test_a_wall_clock_time_travels_with_its_zone_and_not_as_a_utc_hour():
+    """Storing 9am Tokyo as its UTC hour is how a schedule silently moves an hour twice a year."""
     mapping = to_cloud_schedule(p_sched(hour=9, minute=30, timezone="Asia/Tokyo"))
     assert isinstance(mapping, ScheduleSupported)
-    assert mapping.schedule.model_dump() == {"kind": "daily", "hour_utc": 0, "minute_utc": 30}
+    assert wire(mapping.schedule) == {
+        "kind": "daily", "hour": 9, "minute": 30, "timezone": "Asia/Tokyo",
+    }
+
+
+def test_weekdays_travel_sorted_and_end_conditions_ride_along():
+    mapping = to_cloud_schedule(
+        p_sched(
+            repeat_unit="week",
+            on_days=[5, 1, 3],
+            max_runs=4,
+            ends_at=datetime(2027, 3, 1, 12, 0, tzinfo=timezone.utc),
+        )
+    )
+    assert isinstance(mapping, ScheduleSupported)
+    assert wire(mapping.schedule) == {
+        "kind": "weekly", "days": [1, 3, 5], "hour": 9, "minute": 0, "timezone": "UTC",
+        "max_runs": 4, "ends_at": 1803902400000,  # 2027-03-01T12:00Z
+    }
+
+
+def test_a_legacy_local_zone_becomes_this_machines_real_zone(monkeypatch):
+    """Records written before schedules carried a zone say "local". Sending that word, or flattening
+    it to UTC, moves every one of their fires by this machine's whole offset."""
+    monkeypatch.setattr(cloud_schedule, "host_timezone_name", lambda: "America/New_York")
+    for stored in ("local", "", "Mars/Olympus_Mons"):
+        mapping = to_cloud_schedule(p_sched(timezone=stored))
+        assert isinstance(mapping, ScheduleSupported)
+        assert wire(mapping.schedule)["timezone"] == "America/New_York", stored
+
+
+def test_unset_end_conditions_are_absent_rather_than_null():
+    """The cloud's schema takes an absent field, not a null one, so a null would 400 every push."""
+    mapping = to_cloud_schedule(p_sched())
+    assert isinstance(mapping, ScheduleSupported)
+    assert "ends_at" not in wire(mapping.schedule)
+    assert "max_runs" not in wire(mapping.schedule)
 
 
 def test_the_cloud_copy_carries_no_local_secrets_and_no_live_timer():
@@ -59,7 +114,7 @@ def test_the_cloud_copy_carries_no_local_secrets_and_no_live_timer():
 
 def test_a_signature_tracks_edits_and_ignores_the_clock():
     wf = p_wf()
-    schedule = {"kind": "daily", "hour_utc": 9, "minute_utc": 0}
+    schedule = {"kind": "daily", "hour": 9, "minute": 0, "timezone": "UTC"}
     first = definition_signature(cloud_definition(wf), schedule)
 
     wf.title = wf.title

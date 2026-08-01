@@ -119,12 +119,46 @@ async def test_a_refused_flip_leaves_the_workflow_on_this_device(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_an_unsupported_schedule_never_reaches_the_network(monkeypatch):
-    wf = p_wf(schedule=p_sched(repeat_unit="week", on_days=[1]))
+    wf = p_wf(schedule=p_sched(repeat_unit="month", day_of_month=1))
     seen = p_answer(monkeypatch, lambda method, path, body: p_preflight_body())
     outcome = await set_workflow_target(wf.id, TargetRequest(target="cloud", enabled=True))
     assert outcome.ok is False
     assert seen == []
     assert storage.get_workflow(wf.id).execution_target == "device"
+
+
+@pytest.mark.asyncio
+async def test_weekdays_go_up_with_the_days_the_user_picked(monkeypatch):
+    """"Every weekday at 9am" is the schedule people actually write, and it used to be refused."""
+    wf = p_wf(schedule=p_sched(repeat_unit="week", on_days=[5, 1, 2, 3, 4], timezone="America/Los_Angeles"))
+    seen = p_answer(monkeypatch, lambda method, path, body: p_hosted())
+    outcome = await set_workflow_target(wf.id, TargetRequest(target="cloud", enabled=True))
+    assert outcome.ok is True
+    sent = seen[-1][2]["schedule"]
+    assert sent == {"kind": "weekly", "days": [1, 2, 3, 4, 5], "hour": 9, "minute": 0,
+                    "timezone": "America/Los_Angeles"}
+    assert storage.get_workflow(wf.id).execution_target == "cloud"
+
+
+@pytest.mark.asyncio
+async def test_a_capped_schedule_hands_over_its_cap_and_what_it_has_already_spent(monkeypatch):
+    wf = p_wf(schedule=p_sched(max_runs=5, runs_count=2))
+    seen = p_answer(monkeypatch, lambda method, path, body: p_hosted())
+    assert (await set_workflow_target(wf.id, TargetRequest(target="cloud", enabled=True))).ok is True
+    body = seen[-1][2]
+    assert body["schedule"]["max_runs"] == 5
+    # Without this the cloud would give a schedule with 3 runs left a fresh 5.
+    assert body["runs_before"] == 2
+
+
+@pytest.mark.asyncio
+async def test_runs_the_cloud_performed_come_back_onto_our_own_counter(monkeypatch):
+    wf = p_wf(schedule=p_sched(max_runs=5, runs_count=2), execution_target="cloud",
+              cloud_workflow_id="cloud-1")
+    storage.save_workflow(wf)
+    p_answer(monkeypatch, lambda method, path, body: p_preflight_body(hosted=p_hosted(runs_done=4)))
+    await compute_status(wf)
+    assert storage.get_workflow(wf.id).schedule.runs_count == 4
 
 
 @pytest.mark.asyncio
