@@ -6,6 +6,7 @@ behave exactly as they do on a laptop.
 """
 
 import json
+import logging
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -15,9 +16,17 @@ from typeguard import typechecked
 
 from runner.boot.backend_process import BackendProcess
 
+logger = logging.getLogger(__name__)
+
 TERMINAL_STATUSES = ("success", "failure", "ran_late", "skipped")
 POLL_INTERVAL_SECONDS = 1.0
 TRANSCRIPT_MAX_CHARS = 14000
+# The backend is one process on one event loop, and a heavy tool call can hold it: MCP registry
+# work has been measured keeping it from answering for well over a minute. A reply that is late
+# therefore means busy, not dead, so the budget is generous and lateness is never fatal. The only
+# thing that ends a run early is the process actually exiting.
+REQUEST_TIMEOUT_SECONDS = 60.0
+TRIGGER_RETRY_SECONDS = 5.0
 
 
 class WorkflowRunFailed(RuntimeError):
@@ -127,14 +136,49 @@ def p_get_json(client: httpx.Client, backend: BackendProcess, path: str) -> Dict
 
 
 @typechecked
-def trigger_run(client: httpx.Client, backend: BackendProcess, workflow_id: str) -> str:
-    response = client.post(
-        f"{backend.base_url}/api/workflows/{workflow_id}/run",
-        headers=backend.headers(),
-        json={},
-    )
-    response.raise_for_status()
-    body = response.json()
+def p_started_run_id(client: httpx.Client, backend: BackendProcess, workflow_id: str) -> Optional[str]:
+    """The newest run on record, or None. Safe to adopt: the runs file ships empty in every
+    container, so anything in this list was started by the POST we just made."""
+    try:
+        body = p_get_json(client, backend, f"/api/workflows/{workflow_id}/runs?limit=1")
+    except httpx.HTTPError:
+        return None
+    for record in body.get("runs") or []:
+        if isinstance(record, dict) and record.get("id"):
+            return str(record["id"])
+    return None
+
+
+@typechecked
+def trigger_run(client: httpx.Client, backend: BackendProcess, workflow_id: str, deadline: float) -> str:
+    """Start the run, waiting out a backend too busy to answer instead of failing the job.
+
+    A POST whose reply never arrived may still have started the run, so a retry looks for that
+    run before firing again. Posting blind would either execute the workflow twice or come back
+    "Previous run still active", and both are worse than waiting.
+    """
+    while True:
+        try:
+            response = client.post(
+                f"{backend.base_url}/api/workflows/{workflow_id}/run",
+                headers=backend.headers(),
+                json={},
+            )
+            response.raise_for_status()
+            body = response.json()
+            break
+        except httpx.HTTPError as exc:
+            if not backend.is_alive():
+                raise WorkflowRunFailed(f"backend died before the run could start: {exc}") from exc
+            adopted = p_started_run_id(client, backend, workflow_id)
+            if adopted:
+                logger.warning("trigger reply never arrived (%s); adopting the run it started", exc)
+                return adopted
+            if time.monotonic() >= deadline:
+                raise WorkflowRunFailed(f"backend never accepted the run trigger: {exc}") from exc
+            logger.warning("trigger did not answer (%s); backend is busy, retrying", exc)
+            time.sleep(TRIGGER_RETRY_SECONDS)
+
     run_id = str(body.get("run_id") or "")
     if not run_id:
         raise WorkflowRunFailed(
@@ -184,13 +228,18 @@ def execute_workflow(
     Blowing the deadline stops the run and reports `timed_out`; the caller still gets
     whatever the agent produced before the wall came down.
     """
-    with httpx.Client(timeout=30.0) as client:
-        run_id = trigger_run(client, backend, workflow_id)
+    with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+        run_id = trigger_run(client, backend, workflow_id, deadline)
         record: Dict[str, Any] = {}
         timed_out = False
 
         while True:
-            record = p_find_run(client, backend, workflow_id, run_id) or record
+            try:
+                record = p_find_run(client, backend, workflow_id, run_id) or record
+            except httpx.HTTPError as exc:
+                # A poll that goes unanswered says the backend is busy, and the run it is busy
+                # with is this one. Crashing here used to throw away a run that then finished fine.
+                logger.warning("poll for run %s went unanswered (%s); still waiting", run_id, exc)
             status = str(record.get("status") or "running")
             if on_progress is not None:
                 on_progress(RunProgress(
