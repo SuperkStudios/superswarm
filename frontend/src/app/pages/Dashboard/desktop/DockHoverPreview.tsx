@@ -27,20 +27,18 @@ function DockHoverPreview({ entry, top, image }: DockHoverPreviewProps): React.R
         pointerEvents: 'none',
       }}
     >
-      {image ? (
-        <Box component="img" src={image} alt="" sx={{ width: '100%', display: 'block' }} />
-      ) : (
-        <Box sx={{ p: 1.25 }}>
-          <Typography sx={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {entry.label}
+      {image && <Box component="img" src={image} alt="" sx={{ width: '100%', display: 'block' }} />}
+      {/* The name rides along even under a live shot: a thumbnail of a page is not its title, and three identical glyphs need one. */}
+      <Box sx={{ p: 1.25, ...(image && { background: 'rgba(22,12,34,0.9)' }) }}>
+        <Typography sx={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {entry.label}
+        </Typography>
+        {!image && entry.snippet && (
+          <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.6875rem', mt: 0.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {entry.snippet}
           </Typography>
-          {entry.snippet && (
-            <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.6875rem', mt: 0.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-              {entry.snippet}
-            </Typography>
-          )}
-        </Box>
-      )}
+        )}
+      </Box>
     </Box>
   );
 }

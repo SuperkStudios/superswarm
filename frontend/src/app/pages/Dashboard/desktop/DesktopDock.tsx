@@ -196,6 +196,9 @@ function DesktopDock({
               <Box
                 key={entry.id}
                 className="osw-dock-tile"
+                role="button"
+                // The hover card carries the name for the eye; this carries it for everything else (screen readers, tests).
+                aria-label={entry.label}
                 onMouseEnter={(e) => beginHover(entry, e.currentTarget as HTMLElement)}
                 onClick={() => {
                   endHover();
