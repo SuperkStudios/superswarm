@@ -18,6 +18,7 @@ from typeguard import typechecked
 from backend.apps.workflows import scheduler, storage
 from backend.apps.workflows.cloud import client as cloud
 from backend.apps.workflows.cloud.definition import cloud_definition, definition_signature
+from backend.apps.workflows.cloud.portable_context import portable_context
 from backend.apps.workflows.cloud.schedule import ScheduleSupported, to_cloud_schedule
 from backend.apps.workflows.cloud.status import epoch_to_datetime
 from backend.apps.workflows.models import Workflow
@@ -51,12 +52,14 @@ async def hand_to_cloud(wf: Workflow, enabled: bool) -> TargetOutcome:
     if enabled and not scheduler.is_schedule_configured(wf.schedule):
         return TargetOutcome(ok=False, message="Finish setting up the schedule before choosing where it runs.")
     definition = cloud_definition(wf)
+    context = portable_context().as_body()
     try:
         hosted = await cloud.put_workflow(
             hosted_id=wf.cloud_workflow_id,
             name=wf.title or "Workflow",
             definition=definition,
             schedule=mapping.schedule,
+            context=context,
         )
         if hosted.enabled != enabled:
             hosted = await cloud.set_enabled(hosted.id, enabled)
@@ -70,7 +73,7 @@ async def hand_to_cloud(wf: Workflow, enabled: bool) -> TargetOutcome:
 
     wf.execution_target = "cloud"
     wf.cloud_workflow_id = hosted.id
-    wf.cloud_definition_signature = definition_signature(definition, mapping.schedule.model_dump())
+    wf.cloud_definition_signature = definition_signature(definition, mapping.schedule.model_dump(), context)
     wf.schedule.enabled = enabled
     wf.next_run_at = epoch_to_datetime(hosted.next_run_at) if enabled else None
     wf.updated_at = datetime.now()
