@@ -8,7 +8,7 @@ import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayo
 import SettingsIcon from '@mui/icons-material/Settings';
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded';
 import { useAppDispatch } from '@/shared/hooks';
-import { getWebview } from '@/shared/browserRegistry';
+import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
@@ -111,13 +111,10 @@ function DesktopDock({
       hoverTimer.current = window.setTimeout(() => {
         setHovered({ id: entry.id, top });
         if (entry.browserId) {
-          const wv = getWebview(entry.browserId);
-          const capture = wv?.capturePage?.();
-          if (capture && typeof (capture as Promise<unknown>).then === 'function') {
-            (capture as Promise<{ toDataURL(): string }>)
-              .then((img) => setLiveShot({ id: entry.id, dataUrl: img.toDataURL() }))
-              .catch(() => undefined);
-          }
+          const entryId = entry.id;
+          void captureBrowserShot(entry.browserId).then((shot) => {
+            if (shot) setLiveShot({ id: entryId, dataUrl: shot });
+          });
         }
       }, 220);
     },

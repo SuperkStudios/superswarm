@@ -7,7 +7,7 @@ import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import OpenInFullRoundedIcon from '@mui/icons-material/OpenInFullRounded';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { clearTiledCard, focusBrowserCard, focusViewCard } from '@/shared/state/dashboardLayoutSlice';
-import { getWebview } from '@/shared/browserRegistry';
+import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 
 // The desktop-redesign frame: the surfaces an agent is driving live INSIDE its chat. Each linked
@@ -23,17 +23,8 @@ function useBrowserSnapshot(browserId: string, live: boolean): string | null {
     let dead = false;
     let timer = 0;
     const grab = async (): Promise<void> => {
-      try {
-        const wv = getWebview(browserId) as unknown as { capturePage?: () => Promise<{ toDataURL(): string }> } | undefined;
-        if (wv?.capturePage) {
-          // capturePage can hang on off-screen guests (Electron 42); race a timeout so the poll never wedges.
-          const img = await Promise.race([
-            wv.capturePage(),
-            new Promise<null>((res) => window.setTimeout(() => res(null), 1200)),
-          ]);
-          if (!dead && img) setShot(img.toDataURL());
-        }
-      } catch { /* snapshot is best-effort */ }
+      const img = await captureBrowserShot(browserId);
+      if (!dead && img) setShot(img);
       // Live sessions repaint forever; idle ones retry a few times so a webview that mounts late
       // (fullscreen hiding the canvas, load races) still yields one real frame instead of a blank.
       tries += 1;
