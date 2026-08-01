@@ -12,7 +12,7 @@ from typeguard import typechecked
 
 from backend.apps.agents.core.models import AgentSession
 from backend.auth import get_auth_token
-from backend.config.headless import apply_headless_denies
+from backend.config.headless import apply_unreachable_denies
 
 
 @typechecked
@@ -25,8 +25,8 @@ def register_builtin_mcp_servers(
 ) -> Tuple[List[str], List[str]]:
     import backend.apps.agents as p_agents_pkg
     agents_dir = os.path.dirname(p_agents_pkg.__file__)
-    # Headless has no renderer for a webview or a UI component, so we shadow the map once here and let the existing deny short-circuits skip those servers; nothing below may read the un-shadowed one.
-    builtin_perms = apply_headless_denies(builtin_perms)
+    # With no renderer for a webview and no human for a prompt, we shadow the map once here and let the existing deny short-circuits skip those servers; nothing below may read the un-shadowed one.
+    builtin_perms = apply_unreachable_denies(builtin_perms)
     browser_delegation_tools = ["CreateBrowserAgent", "BrowserAgent", "BrowserAgents", "AppAgent"]
     browser_all_denied = all(
         builtin_perms.get(t, "always_allow") == "deny"
