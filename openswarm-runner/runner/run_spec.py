@@ -27,6 +27,11 @@ CLOUD_RUN_DASHBOARD_ID = "cloud-run"
 # Headroom the access token must still have on arrival. The control plane refreshes right before dispatch; anything thinner than this means its clock or its queue is broken, and we must not paper over that by refreshing ourselves.
 MIN_TOKEN_LIFETIME = timedelta(minutes=2)
 
+# A skill is prose plus the odd small script. These bounds keep a run spec from becoming a file
+# transfer, and are enforced here so an oversized one dies before a machine is billed for it.
+MAX_SKILLS = 60
+MAX_SKILL_FILE_CHARS = 200_000
+
 
 class InvalidRunSpec(ValueError):
     """The control plane handed us something we refuse to run."""
@@ -82,6 +87,59 @@ class CallbackTarget(BaseModel):
     url: str = Field(min_length=1)
     token: str = Field(min_length=1)
     heartbeat_seconds: int = Field(default=30, ge=5, le=300)
+    # Where the run's files go. Named outright rather than derived from `url`, so a control plane
+    # that cannot accept files says so by leaving it out instead of being guessed at.
+    artifacts_url: Optional[str] = None
+
+
+class SkillFile(BaseModel):
+    """One file inside a skill folder. Text only: a skill is prose plus small scripts."""
+
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
+
+    path: str = Field(min_length=1, max_length=180)
+    text: str = Field(max_length=MAX_SKILL_FILE_CHARS)
+
+    @model_validator(mode="after")
+    def p_reject_escaping_path(self) -> "SkillFile":
+        parts = self.path.split("/")
+        if self.path.startswith("/") or "\\" in self.path or any(p in ("", ".", "..") for p in parts):
+            raise ValueError(f"skill file path {self.path!r} is not a plain relative path")
+        return self
+
+
+class SkillPayload(BaseModel):
+    """One of the user's skills, carried up so the agent has the same know-how it has at home.
+
+    Skills are the user's own writing, not credentials. Nothing in here is a token, and the
+    control plane never learns anything from it that it could spend.
+    """
+
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
+
+    # Also the folder name under ~/.claude/skills, so it has to survive being a directory.
+    id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+    files: List[SkillFile] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def p_require_skill_md(self) -> "SkillPayload":
+        if not any(file.path == "SKILL.md" for file in self.files):
+            raise ValueError(f"skill {self.id!r} has no SKILL.md, so nothing would ever load it")
+        return self
+
+
+class McpServerNote(BaseModel):
+    """A server the user has connected at home, named so the agent can say it cannot reach it.
+
+    Deliberately carries NO transport and NO secret. The user's MCP credentials (Slack session
+    cookies, Notion and GitHub access tokens, Google refresh tokens) stay on their laptop, so this
+    is a list of names and nothing else. Its whole job is to stop the agent quietly answering
+    "update my Notion" from general knowledge because it never knew Notion existed.
+    """
+
+    model_config = ConfigDict(validate_assignment=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
 
 
 class RunSpec(BaseModel):
@@ -91,6 +149,10 @@ class RunSpec(BaseModel):
     workflow: Workflow
     credentials: List[ProviderCredential] = Field(min_length=1)
     callback: Optional[CallbackTarget] = None
+    # The user's skills, shipped so a cloud run is as capable as the same workflow at home.
+    skills: List[SkillPayload] = Field(default_factory=list, max_length=MAX_SKILLS)
+    # Names only. See McpServerNote for why there is no config here.
+    unavailable_mcp_servers: List[McpServerNote] = Field(default_factory=list, max_length=100)
     # Hard wall-clock ceiling. Fly bills by machine-second, so an agent that wedges must cost a bounded amount.
     max_run_seconds: int = Field(default=1800, ge=60, le=7200)
     # Boot Electron under a virtual display so browser steps work. On by default: parity is the

@@ -63,10 +63,11 @@ def test_the_container_never_inherits_the_schedule() -> None:
 
 def test_seeding_writes_the_workflow_and_owner_only_settings(tmp_path) -> None:
     spec = RunSpec.model_validate(spec_body())
-    seed_data_root(str(tmp_path), spec)
+    workspace = str(tmp_path / "workspace")
+    seed_data_root(str(tmp_path / "data"), workspace, spec)
 
-    workflow_path = tmp_path / "workflows" / "wf-1.json"
-    settings_path = tmp_path / "settings" / "settings.json"
+    workflow_path = tmp_path / "data" / "workflows" / "wf-1.json"
+    settings_path = tmp_path / "data" / "settings" / "settings.json"
     assert json.loads(workflow_path.read_text())["schedule"]["enabled"] is False
     assert stat.S_IMODE(os.stat(settings_path).st_mode) == 0o600
 
@@ -74,11 +75,20 @@ def test_seeding_writes_the_workflow_and_owner_only_settings(tmp_path) -> None:
     assert settings["anthropic_api_key"] == "sk-test-not-real"
     assert settings["default_model"] == "opus-5"
     assert settings["analytics_opt_in"] is False
+    # The agent's folder is the deliverable folder, and it exists before the backend boots.
+    assert settings["default_folder"] == workspace
+    assert os.path.isdir(workspace)
 
 
-def test_an_unmappable_api_key_provider_fails_loudly() -> None:
+def test_the_agent_is_told_its_files_only_survive_from_the_workspace(tmp_path) -> None:
+    spec = RunSpec.model_validate(spec_body())
+    prompt = settings_for_run(spec, str(tmp_path)).default_system_prompt or ""
+    assert "delivered back to the user" in prompt
+
+
+def test_an_unmappable_api_key_provider_fails_loudly(tmp_path) -> None:
     spec = RunSpec.model_validate(spec_body(
         credentials=[{"provider": "wat", "auth_type": "api_key", "api_key": "x"}]
     ))
     with pytest.raises(ValueError, match="no settings field"):
-        settings_for_run(spec)
+        settings_for_run(spec, str(tmp_path))
