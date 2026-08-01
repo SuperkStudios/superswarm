@@ -10,6 +10,7 @@ last_run_* / next_run_at summary fields; full history lives in the runs file.
 """
 
 import json
+import logging
 import os
 import tempfile
 from threading import Lock
@@ -17,6 +18,8 @@ from typing import Optional
 
 from backend.config.paths import DATA_ROOT
 from backend.apps.workflows.models import Workflow, WorkflowRun, MissedRun
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(DATA_ROOT, "workflows")
 RUNS_DIR = os.path.join(DATA_DIR, "runs")
@@ -99,7 +102,9 @@ def _load_all_from_disk() -> None:
             if wf.schedule.timezone == "local":
                 wf.schedule.timezone = host_tz
             _workflow_cache[wf.id] = wf
-        except Exception:
+        except Exception as e:
+            # A dropped file is a workflow that vanished from the UI while sitting right there on disk; say so or nobody can ever explain it.
+            logger.warning("Skipping unreadable workflow file %s: %s", fname, e)
             continue
     if os.path.exists(RUNS_DIR):
         for fname in os.listdir(RUNS_DIR):
