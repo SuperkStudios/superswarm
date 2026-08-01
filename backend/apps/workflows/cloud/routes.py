@@ -7,6 +7,7 @@ cloud re-decides that at create and again at dispatch.
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Literal, Optional, Union
@@ -18,6 +19,7 @@ from typeguard import typechecked
 from backend.apps.workflows import storage
 from backend.apps.workflows.cloud import client as cloud
 from backend.apps.workflows.cloud.handover import TargetOutcome, hand_to_cloud, take_back
+from backend.apps.workflows.cloud.run_files import LocalRunFile, described, downloads_root, fetch_missing
 from backend.apps.workflows.cloud.status import CloudStatus, compute_status, epoch_to_datetime
 from backend.apps.workflows.models import Workflow
 from backend.config.Apps import SubApp
@@ -50,6 +52,7 @@ class CloudRunRow(BaseModel):
     answer: Optional[str] = None
     notices: List[str] = []
     cost_usd: Optional[float] = None
+    files: List[LocalRunFile] = []
 
 
 class CloudRunsReady(BaseModel):
@@ -57,6 +60,9 @@ class CloudRunsReady(BaseModel):
 
     state: Literal["ready"] = "ready"
     runs: List[CloudRunRow] = []
+    # Where this machine puts a cloud run's files, so the UI can say it out loud even when a run
+    # has none yet. A folder the user is told about is a folder they can find later.
+    files_folder: str = ""
 
 
 class CloudRunsUnavailable(BaseModel):
@@ -95,7 +101,7 @@ async def set_workflow_target(workflow_id: str, body: TargetRequest) -> TargetOu
 async def workflow_cloud_runs(workflow_id: str) -> CloudRunsResponse:
     wf = p_workflow(workflow_id)
     if not wf.cloud_workflow_id:
-        return CloudRunsReady(runs=[])
+        return CloudRunsReady(runs=[], files_folder=downloads_root())
     try:
         runs = await cloud.list_runs(wf.cloud_workflow_id)
     except cloud.SignedOut:
@@ -103,11 +109,17 @@ async def workflow_cloud_runs(workflow_id: str) -> CloudRunsResponse:
     except cloud.CloudRefused as exc:
         # A 404 here is the hosted copy being gone, which is an empty history, not a broken one.
         if exc.status == 404:
-            return CloudRunsReady(runs=[])
+            return CloudRunsReady(runs=[], files_folder=downloads_root())
         return CloudRunsUnavailable(state="unknown", detail=exc.message)
     except cloud.CloudUnreachable as exc:
         return CloudRunsUnavailable(state="unknown", detail=exc.detail)
+
+    # Answered now, files fetched behind it. A 20MB attachment must not hold up the history the
+    # user asked for, and a run's files appear a moment later without them doing anything.
+    asyncio.create_task(fetch_missing(wf.cloud_workflow_id, wf, runs))
+
     return CloudRunsReady(
+        files_folder=downloads_root(),
         runs=[
             CloudRunRow(
                 id=r.id,
@@ -118,7 +130,8 @@ async def workflow_cloud_runs(workflow_id: str) -> CloudRunsResponse:
                 answer=r.answer,
                 notices=r.notices,
                 cost_usd=r.cost_usd,
+                files=described(wf, r),
             )
             for r in runs
-        ]
+        ],
     )
