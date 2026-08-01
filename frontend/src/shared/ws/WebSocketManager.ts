@@ -35,7 +35,7 @@ import { displaySessionName } from '../state/sessionDisplay';
 import { upsertRun, ackRun, runWorkflowNow, openWorkflowCard, upsertWorkflow, removeWorkflow } from '../state/workflowsSlice';
 import { stepsSignature } from '@/app/pages/Workflows/scheduleUtils';
 import { getAuthToken } from '../config';
-import { notifyAgentCompletion } from '../notifications';
+import { notifyAgentCompletion, notifyWorkflowRun } from '../notifications';
 
 // Phase 0 boot instrumentation: one-shot flag so we report the first streamed agent token to Electron main exactly once per app launch. Module scope (not instance) because multiple WebSocketManagers exist (one per session WS).
 let firstAgentResponseMarked = false;
@@ -763,55 +763,17 @@ class WebSocketManager {
         break;
 
       case 'workflow:notify':
-        try {
-          notifyAgentCompletion({
-            sessionId: data.session_id || data.workflow_id,
-            sessionName: data.workflow_title || 'Workflow',
-            status: data.status === 'success' ? 'completed' : 'error',
+        if (data.workflow_id) {
+          notifyWorkflowRun({
+            workflowId: data.workflow_id,
+            workflowTitle: data.workflow_title || 'Workflow',
+            runId: data.run_id,
+            sessionId: data.session_id,
+            status: data.status,
+            tierKind: data.tier_kind,
+            fallback: data.fallback,
           });
-        } catch { /* notifications are best-effort */ }
-        try {
-          const w: any = (window as any).openswarm;
-          if (w?.notify) {
-            // Seed by workflow id + current minute so multiple workflows pick different copy while a single workflow stays stable within a few minutes.
-            const seed = ((data.workflow_id || '').length + Math.floor(Date.now() / 60000)) | 0;
-            const SUCCESS_TITLES = [
-              `${data.workflow_title || 'Workflow'} — done`,
-              `${data.workflow_title || 'Workflow'} just wrapped up`,
-              `Heads up: ${data.workflow_title || 'Workflow'} finished`,
-              `${data.workflow_title || 'Workflow'} is ready`,
-            ];
-            const FAILURE_TITLES = [
-              `${data.workflow_title || 'Workflow'} hit a snag`,
-              `${data.workflow_title || 'Workflow'} couldn't finish`,
-              `Something went sideways on ${data.workflow_title || 'Workflow'}`,
-            ];
-            const LATE_TITLES = [
-              `${data.workflow_title || 'Workflow'} caught up late`,
-              `${data.workflow_title || 'Workflow'} ran late but made it`,
-            ];
-            const pool = data.status === 'success' ? SUCCESS_TITLES
-              : data.status === 'failure' ? FAILURE_TITLES
-              : data.status === 'ran_late' ? LATE_TITLES
-              : [`${data.workflow_title || 'Workflow'} • ${data.status}`];
-            const title = pool[Math.abs(seed) % pool.length];
-            const isMac = (typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform));
-            const body = data.tier_kind && data.fallback
-              ? `Would have ${data.tier_kind === 'call' ? 'called' : 'texted'} you. (Cloud SMS not wired yet.)`
-              : data.status === 'success'
-                ? (isMac ? 'Tap to see what it did.' : 'Click to see what it did.')
-                : data.status === 'failure'
-                  ? (isMac ? 'Tap to see what went wrong.' : 'Click to see what went wrong.')
-                  : (isMac ? 'Tap to open the run.' : 'Click to open the run.');
-            const deepLink = data.workflow_id ? `openswarm://workflow/${data.workflow_id}/run/${data.run_id || ''}` : undefined;
-            const actions = [
-              { text: 'Looks good', outcome: 'ack' },
-              { text: 'Re-run', outcome: 'rerun' },
-              { text: 'Adjust', outcome: 'edit' },
-            ];
-            w.notify({ title, body, deepLink, runId: data.run_id, workflowId: data.workflow_id, actions });
-          }
-        } catch { /* native notif optional */ }
+        }
         break;
 
       case 'dashboard:browser_card_keep':
