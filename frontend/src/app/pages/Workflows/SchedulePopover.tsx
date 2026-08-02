@@ -31,6 +31,7 @@ interface Props {
   historyQuery: string;
   onHistoryQueryChange: (q: string) => void;
   onHistorySelect: (id: string) => void;
+  onHistoryContextMenu?: (e: React.MouseEvent, entry: { id: string; name: string }) => void;
   onNewChat: () => void;
   onWorkflowSelect: (id: string) => void;
   onExpand: () => void;
@@ -50,7 +51,7 @@ interface Props {
 
 export default function SchedulePopover({
   mode, onModeChange, historyResults, historyLoading, historyQuery, onHistoryQueryChange,
-  onHistorySelect, onNewChat, onWorkflowSelect, onExpand,
+  onHistorySelect, onHistoryContextMenu, onNewChat, onWorkflowSelect, onExpand,
   allRuns, allRunsLoading, onRunOpen, workflowTitleFor,
   historyScrollRef, onHistoryScroll,
   hideTopChrome = false,
@@ -98,12 +99,9 @@ export default function SchedulePopover({
   // Both Search and Schedule modes render at the same fixed dimensions so toggling chips doesn't resize the popover. Schedule sets the floor: its 7-day calendar needs ~620w x ~420h, search inherits the same.
   const POPOVER_W = 620;
   const CONTENT_H = 420;
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', width: POPOVER_W, maxWidth: POPOVER_W, gap: 0.75, flexShrink: 0 }}>
-      {/* Floating mode chips. Hidden when the parent toolbar supplies its
-          own pill row (Image #32 / #54); kept around so the legacy callers
-          that surface Schedule mode still have a way in. */}
+      {/* Floating mode chips. Hidden when the parent toolbar supplies its own pill row; kept for legacy callers that surface Schedule mode. */}
       {!hideTopChrome && (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, px: 0.5 }}>
           <ModeChip label="Search" icon={<SearchIcon sx={{ fontSize: 14 }} />} active={mode === 'search'} onClick={() => onModeChange('search')} />
@@ -175,7 +173,7 @@ export default function SchedulePopover({
                     {bucket !== prevBucket && (
                       <Typography sx={{ px: 1, pt: idx === 0 ? 0.75 : 1.5, pb: 0.5, fontSize: '0.6563rem', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: c.text.ghost }}>{bucket}</Typography>
                     )}
-                    <Box onClick={() => onHistorySelect(entry.id)} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.8, cursor: 'pointer', borderRadius: `${c.radius.md}px`, '&:hover': { bgcolor: c.bg.elevated } }}>
+                    <Box onClick={() => onHistorySelect(entry.id)} onContextMenu={(e: React.MouseEvent) => onHistoryContextMenu?.(e, entry)} sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.8, cursor: 'pointer', borderRadius: `${c.radius.md}px`, '&:hover': { bgcolor: c.bg.elevated } }}>
                       <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '7px', bgcolor: c.bg.elevated, color: c.text.muted, flexShrink: 0 }}>
                         <ChatBubbleOutlineIcon sx={{ fontSize: 13 }} />
                       </Box>

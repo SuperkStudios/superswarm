@@ -1,37 +1,70 @@
 import React from 'react';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import LanguageIcon from '@mui/icons-material/Language';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { toggleMinimizeCard, setTiledCard, recordClosedCard } from '@/shared/state/dashboardLayoutSlice';
+import {
+  toggleMinimizeCard, setTiledCard, recordClosedCard, closeSettingsCard, closeWorkflowsApp,
+} from '@/shared/state/dashboardLayoutSlice';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
-import WindowControls, { ARC_CHIP_SX } from '../cards/WindowControls';
-import { getMinimizedShot, dropMinimizedShot } from './minimizedShots';
-import type { BrowserCardPosition } from '@/shared/state/dashboardLayoutSlice';
-
-interface CardRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
+import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { GLASS_SURFACE, GLASS_SURFACE_BLUR } from '@/shared/styles/glassSurface';
+import { dropMinimizedShot } from './minimizedShots';
+import { buildMinimizedEntries, MinimizedEntry, MinimizedRect } from './minimizedEntries';
+import MinimizedTile, { MINIMIZED_TILE_W } from './MinimizedTile';
+import { openCardContextMenu } from './openCardContextMenu';
+import { tileMenuRows } from '../cards/tileMenuRows';
+import type { BrowserCardPosition, ViewCardPosition } from '@/shared/state/dashboardLayoutSlice';
+import type { Output } from '@/shared/state/outputsSlice';
 
 interface MinimizedStackProps {
   browserCards: Record<string, BrowserCardPosition>;
-  onRestore: (id: string, rect: CardRect) => void;
+  viewCards: Record<string, ViewCardPosition>;
+  outputs: Record<string, Output>;
+  selectedIds: string[];
+  onRestore: (id: string, rect: MinimizedRect) => void;
 }
 
-const THUMB_W = 96;
-
-/** Right-edge stack of minimized browser windows; click restores the card where it was. */
-function MinimizedStack({ browserCards, onRestore }: MinimizedStackProps): React.ReactElement | null {
+/** Right-edge rail of parked windows, browsers and apps alike; click a tile to put it back. */
+function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onRestore }: MinimizedStackProps): React.ReactElement | null {
   const dispatch = useAppDispatch();
-  const minimized = useAppSelector((s) => s.dashboardLayout.minimizedCards);
-  const entries = Object.values(browserCards).filter((bc) => minimized[bc.browser_id]);
+  const c = useClaudeTokens();
+  const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
+  const tiledCards = useAppSelector((s) => s.dashboardLayout.tiledCards);
+  const workflowsHub = useAppSelector((s) => s.dashboardLayout.workflowsHub);
+  const settingsCard = useAppSelector((s) => s.dashboardLayout.settingsCard);
+  const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, workflowsHub, settingsCard, minimizedCards });
   if (entries.length === 0) return null;
+
+  const restore = (entry: MinimizedEntry): void => {
+    dropMinimizedShot(entry.id);
+    dispatch(toggleMinimizeCard({ cardId: entry.id }));
+    // A card that kept its tile comes back pinned to the viewport, so flying the camera to its stored
+    // free-floating rect would just wander off to empty canvas.
+    if (!tiledCards[entry.id]) onRestore(entry.id, entry.rect);
+  };
+  const close = (entry: MinimizedEntry): void => {
+    dropMinimizedShot(entry.id);
+    if (entry.kind === 'browser') {
+      dispatch(recordClosedCard({ kind: 'browser', id: entry.id }));
+      void removeBrowserCardCleanly(entry.id, dispatch);
+    } else if (entry.kind === 'view') {
+      dispatch(recordClosedCard({ kind: 'view', id: entry.id }));
+      void removeViewCardCleanly(entry.id, dispatch);
+    } else if (entry.kind === 'workflows') {
+      dispatch(closeWorkflowsApp());
+    } else {
+      dispatch(closeSettingsCard());
+    }
+  };
+  const tile = (entry: MinimizedEntry, zone: string): void => {
+    restore(entry);
+    if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone }));
+  };
 
   return (
     <Box
+      data-minimized-rail
+      // Must stay OUTSIDE the canvas transform: a transformed ancestor becomes the containing block, so a rail nested in there would ride the camera.
       sx={{
         position: 'absolute',
         right: 14,
@@ -39,70 +72,52 @@ function MinimizedStack({ browserCards, onRestore }: MinimizedStackProps): React
         zIndex: 11,
         display: 'flex',
         flexDirection: 'column',
-        gap: 1.5,
-        alignItems: 'flex-end',
+        gap: '6px',
+        p: '6px',
+        borderRadius: '16px',
+        width: MINIMIZED_TILE_W + 12,
+        maxHeight: 'calc(100% - 220px)',
+        overflowY: 'auto',
+        scrollbarWidth: 'none',
+        '&::-webkit-scrollbar': { display: 'none' },
+        background: GLASS_SURFACE,
+        backdropFilter: GLASS_SURFACE_BLUR,
+        WebkitBackdropFilter: GLASS_SURFACE_BLUR,
+        border: '1px solid rgba(255,255,255,0.10)',
+        boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
+        '@keyframes osw-min-tile-in': {
+          from: { opacity: 0, transform: 'scale(0.96)' },
+          to: { opacity: 1, transform: 'scale(1)' },
+        },
+        // A minimize is a physical snap, so the aggressive out-ease; nothing here loops.
+        '& .osw-min-tile': { animation: 'osw-min-tile-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both' },
+        '@media (prefers-reduced-motion: reduce)': {
+          '& .osw-min-tile': { animation: 'none' },
+        },
       }}
     >
-      {entries.map((bc) => {
-        const activeTab = bc.tabs.find((t) => t.id === bc.activeTabId) || bc.tabs[0];
-        const shot = getMinimizedShot(bc.browser_id);
-        const restore = (): void => {
-          dropMinimizedShot(bc.browser_id);
-          dispatch(toggleMinimizeCard({ cardId: bc.browser_id }));
-          onRestore(bc.browser_id, bc);
-        };
-        return (
-          <Box
-            key={bc.browser_id}
-            onClick={restore}
-            title={activeTab?.title || 'Browser'}
-            className="osw-card osw-pill-host"
-            sx={{
-              position: 'relative',
-              width: THUMB_W,
-              borderRadius: '8px',
-              cursor: 'pointer',
-              boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
-              background: '#fff',
-              transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-              '&:hover': { transform: 'scale(1.06)', boxShadow: '0 10px 28px rgba(0,0,0,0.4)' },
-              '&:hover .osw-pill-lights': { opacity: 1, pointerEvents: 'auto' },
-            }}
-          >
-            <Box
-              className="osw-pill-lights"
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              sx={{
-                ...ARC_CHIP_SX,
-                position: 'absolute', top: 2, left: 2, zIndex: 2, background: 'rgba(24,14,32,0.85)',
-                backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-                opacity: 0, pointerEvents: 'none', transition: 'opacity 140ms ease',
-              }}
-            >
-              <WindowControls
-                onClose={() => { dispatch(recordClosedCard({ kind: 'browser', id: bc.browser_id })); removeBrowserCardCleanly(bc.browser_id, dispatch); }}
-                onMinimize={restore}
-                onTile={(zone: string) => { restore(); if (zone !== 'restore') dispatch(setTiledCard({ cardId: bc.browser_id, zone })); }}
-                tiled={false}
-              />
-            </Box>
-            {shot ? (
-              <Box component="img" src={shot} alt="" sx={{ width: '100%', display: 'block', borderRadius: '8px' }} />
-            ) : (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, py: 1.5, px: 1 }}>
-                {activeTab?.favicon ? (
-                  <Box component="img" src={activeTab.favicon} alt="" sx={{ width: 20, height: 20, borderRadius: '4px' }} />
-                ) : (
-                  <LanguageIcon sx={{ fontSize: 20, color: '#8a8494' }} />
-                )}
-                <Typography sx={{ fontSize: '0.625rem', color: '#3c3744', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>
-                  {activeTab?.title || 'Browser'}
-                </Typography>
-              </Box>
-            )}
-          </Box>
-        );
-      })}
+      {entries.map((entry) => (
+        <MinimizedTile
+          key={entry.id}
+          entry={entry}
+          accent={c.accent.primary}
+          selected={selectedIds.includes(entry.id)}
+          onRestore={() => restore(entry)}
+          onClose={() => close(entry)}
+          onTile={(zone: string) => tile(entry, zone)}
+          onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+            items: [
+              { label: 'Restore', onClick: () => restore(entry) },
+              { label: 'Restore full screen', onClick: () => tile(entry, 'fullscreen') },
+              ...(entry.kind === 'browser' || entry.kind === 'view'
+                ? [{ label: 'Tile to zone', submenu: tileMenuRows((zone) => tile(entry, zone)) }]
+                : []),
+              { kind: 'separator' },
+              { label: 'Close', danger: true, onClick: () => close(entry) },
+            ],
+          })}
+        />
+      ))}
     </Box>
   );
 }

@@ -98,3 +98,56 @@ def test_kill_switch_disables(monkeypatch) -> None:
     out = asyncio.run(dh.distilled_history_summary(s, load_settings()))
     assert out == ""
     assert calls == []
+
+
+def p_edit_session(paths: list) -> AgentSession:
+    s = AgentSession(name="t", model="sonnet")
+    s.messages = [Message(role="user", content="refactor them")]
+    for p in paths:
+        s.messages.append(Message(role="tool_call", content={"tool": "Edit", "input": {"file_path": p}}))
+        s.messages.append(Message(role="tool_result", content={"text": f"edited {p}", "tool_name": "Edit"}))
+    s.messages.append(Message(role="assistant", content="done"))
+    return s
+
+
+def test_touched_paths_come_from_tool_inputs_not_prose() -> None:
+    s = p_edit_session(["/a/one.py", "/b/two.py", "/a/one.py"])
+    s.messages.append(Message(role="tool_call", content={"tool": "NotebookEdit", "input": {"notebook_path": "/c/n.ipynb"}}))
+    assert dh.touched_file_paths(s.messages) == ["/a/one.py", "/b/two.py", "/c/n.ipynb"]
+
+
+def test_paths_the_summary_paraphrased_away_are_pinned_back(monkeypatch) -> None:
+    """Live-measured: the aux model collapsed 12 literal paths into '/repo/src/module_N/handler_N.py'
+    and 0 survived verbatim. Prose may paraphrase; the paths get re-attached deterministically."""
+    paths = [f"/repo/src/module_{i}/handler_{i}.py" for i in range(12)]
+
+    async def paraphrase(session, settings, body):
+        return "The agent edited the twelve handler files under /repo/src."
+    monkeypatch.setattr(dh, "p_call_distiller", paraphrase)
+    s = p_edit_session(paths)
+    s.compacted_through_msg_id = s.messages[-1].id
+    out = asyncio.run(dh.distilled_history_summary(s, load_settings()))
+    for p in paths:
+        assert p in out
+
+
+def test_paths_already_in_the_summary_are_not_repeated(monkeypatch) -> None:
+    async def verbatim(session, settings, body):
+        return "Edited /a/one.py and /b/two.py."
+    monkeypatch.setattr(dh, "p_call_distiller", verbatim)
+    s = p_edit_session(["/a/one.py", "/b/two.py"])
+    s.compacted_through_msg_id = s.messages[-1].id
+    out = asyncio.run(dh.distilled_history_summary(s, load_settings()))
+    assert out == "Edited /a/one.py and /b/two.py."
+
+
+def test_pinned_path_list_is_capped(monkeypatch) -> None:
+    paths = [f"/repo/f{i}.py" for i in range(dh.MAX_PINNED_PATHS + 25)]
+
+    async def paraphrase(session, settings, body):
+        return "Edited a lot of files."
+    monkeypatch.setattr(dh, "p_call_distiller", paraphrase)
+    s = p_edit_session(paths)
+    s.compacted_through_msg_id = s.messages[-1].id
+    out = asyncio.run(dh.distilled_history_summary(s, load_settings()))
+    assert sum(1 for p in paths if p in out) == dh.MAX_PINNED_PATHS

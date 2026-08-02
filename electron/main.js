@@ -1,5 +1,6 @@
 const { app, components, BrowserWindow, ipcMain, shell, session, dialog, crashReporter, powerMonitor, Menu, clipboard, globalShortcut } = require('electron');
 const whisperService = require('./voice/whisperService');
+const whisperModels = require('./voice/whisperModels');
 const { injectText } = require('./voice/textInjector');
 
 // Browser cards live in their own persistent partition so cookies/localStorage/IndexedDB survive reload + quit (Discord etc. stay logged in) and site data stays isolated from the app's defaultSession. The "clear browsing data" wipe nukes only this partition. MUST match BROWSER_PARTITION in frontend BrowserCard.tsx.
@@ -140,6 +141,17 @@ function _squirrelUpdate(args) {
   if (sq === '--squirrel-uninstall') { _squirrelUpdate(['--removeShortcut']); process.exit(0); }
   if (sq === '--squirrel-obsolete') { process.exit(0); }
 })();
+
+// Windows toast notifications are dropped on the floor unless our AppUserModelID
+// matches the one Squirrel stamped on the Start Menu shortcut, and Squirrel's rule
+// is com.squirrel.<nuspec id>.<exe name>. Derived, not hardcoded, so renaming the
+// app can't silently kill notifications. Must run before the first Notification.
+if (process.platform === 'win32' && app.isPackaged) {
+  try {
+    const nuspecId = require('./package.json').name;
+    app.setAppUserModelId(`com.squirrel.${nuspecId}.${path.basename(process.execPath, '.exe')}`);
+  } catch (_) {}
+}
 
 // NSIS->Squirrel migration cleanup. The first time this Squirrel build runs after
 // an existing NSIS OpenSwarm was updated into it, silently uninstall that legacy
@@ -1184,6 +1196,8 @@ function markBackendReady() {
   _backendReadyResolve();
   try {
     workflowsLifecycle.setBackend({ port: backendPort, token: authToken });
+    // Read lazily: mainWindow is replaced by recreateMainWindow, so a captured value goes stale.
+    workflowsLifecycle.setNotificationTarget(() => mainWindow);
     workflowsLifecycle.startPolling();
   } catch (_) {}
   try { connectMainBridge(); } catch (_) {}
@@ -1586,19 +1600,8 @@ function sendToRenderer(channel, ...args) {
 // Maps a raw electron-updater error to a short, human message. The raw error
 // is always logged separately for debugging; users only ever see this. No
 // em/en dashes per repo style.
-function friendlyUpdateError(err) {
-  const raw = ((err && err.message) || String(err) || '').toLowerCase();
-  // Experimental on, but there is no pre-release to fetch: the provider 404s
-  // looking for the pre-release channel feed. This is the screenshot case.
-  if (autoUpdater && autoUpdater.allowPrerelease &&
-      /404|not found|cannot find|no published|latest.*\.yml/.test(raw)) {
-    return 'No experimental builds available right now. You are on the latest version.';
-  }
-  if (/net::|enotfound|etimedout|econnrefused|getaddrinfo|network/.test(raw)) {
-    return 'Could not reach the update server. Check your connection and try again.';
-  }
-  return 'Update check failed. Please try again later.';
-}
+// Extracted to electron/updateErrorMessage.js so the mapping is unit-testable; see node --test there.
+const { friendlyUpdateError } = require('./updateErrorMessage');
 
 // Phase 2 provenance: which exact commit produced this build. The build
 // scripts write electron/build-info.json (gitignored, regenerated each build)
@@ -1708,7 +1711,7 @@ function setupAutoUpdater() {
     // but no pre-release exists": the GitHub provider 404s hunting a pre-release
     // feed, which is not a real failure, just "nothing newer to install".
     console.error('Auto-update error:', err);
-    const friendly = friendlyUpdateError(err);
+    const friendly = friendlyUpdateError(err, !!(autoUpdater && autoUpdater.allowPrerelease));
     cachedUpdateStatus = { status: 'error', info: null, error: friendly };
     sendToRenderer('update-error', friendly);
   });
@@ -2153,6 +2156,15 @@ app.whenReady().then(async () => {
 
     // Don't block on Widevine; it'll resolve in the background. Logged above.
     widevinePromise.catch(() => {});
+
+    // Warm the dictation model well after the window is up, so the first phrase transcribes at the
+    // steady-state speed instead of waiting out a cold model load under the user's keypress.
+    const warmDelay = setTimeout(() => {
+      const started = whisperService.warmInBackground(voiceResourceDir(), voiceUserDataDir());
+      console.log(started ? '[voice] warming whisper in background' : '[voice] no model yet, skipping boot warm');
+    }, 8000);
+    if (warmDelay.unref) warmDelay.unref();
+    powerMonitor.on('resume', () => { whisperService.reprimeAfterWake().catch(() => {}); });
 
     // Affiliate / referral handshake. On the very first launch, opens the
     // landing page's /welcome handler in the user's default browser so the
@@ -3019,6 +3031,17 @@ ipcMain.handle('voice:warmup', async () => {
 });
 // First-run model download progress so the pill can show "Preparing voice N%".
 ipcMain.handle('voice:status', () => whisperService.modelStatus());
+// Settings' model picker: the catalog with per-model install state, and the user's pick.
+ipcMain.handle('voice:models', () => ({
+  models: whisperModels.catalog(voiceUserDataDir()),
+  selected: whisperService.selectedModel(),
+}));
+ipcMain.handle('voice:set-model', (_e, id) => {
+  const ready = whisperService.setModel(voiceUserDataDir(), String(id || ''));
+  // Already on disk: warm the new one now so the next phrase is instant, same as at boot.
+  if (ready) whisperService.warmInBackground(voiceResourceDir(), voiceUserDataDir());
+  return { ok: true, ready };
+});
 // Paste the text into the frontmost app (dictate-anywhere). Returns whether the OS paste actually fired.
 ipcMain.handle('voice:inject', async (_e, text) => {
   try { const pasted = await injectText(String(text || '')); return { ok: true, pasted }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
@@ -3373,6 +3396,39 @@ ipcMain.handle('open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) {
     shell.openExternal(url);
   }
+});
+
+// The renderer's own Notification API only reaches Notification Center while a
+// window exists and is not suspended, which is exactly the case a finished
+// workflow is trying to survive. This hands it to the main process instead.
+// Everything is clamped here: the payload crosses a trust boundary and the click
+// handler can hand `deepLink` to the OS.
+const NOTIFY_OUTCOMES = new Set(['open', 'ack', 'rerun', 'edit']);
+function cleanNotifyText(value, max) {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+}
+ipcMain.handle('workflow:notify', (_event, payload) => {
+  if (!payload || typeof payload !== 'object') return false;
+  const title = cleanNotifyText(payload.title, 120);
+  if (!title) return false;
+  // Only our own scheme: this string can reach shell.openExternal, and a file:// or
+  // an installed-app scheme there would be a renderer-triggered arbitrary launch.
+  const deepLink = typeof payload.deepLink === 'string' && payload.deepLink.startsWith('openswarm://')
+    ? payload.deepLink.slice(0, 500)
+    : undefined;
+  const actions = (Array.isArray(payload.actions) ? payload.actions : [])
+    .filter((a) => a && NOTIFY_OUTCOMES.has(a.outcome) && cleanNotifyText(a.text, 30))
+    .slice(0, 3)
+    .map((a) => ({ text: cleanNotifyText(a.text, 30), outcome: a.outcome }));
+  const shown = workflowsLifecycle.showNativeNotification({
+    title,
+    body: cleanNotifyText(payload.body, 300),
+    deepLink,
+    runId: cleanNotifyText(payload.runId, 200) || undefined,
+    workflowId: cleanNotifyText(payload.workflowId, 200) || undefined,
+    actions,
+  });
+  return Boolean(shown);
 });
 
 // Applications launcher support. Names are bare .app basenames from the local scan; both

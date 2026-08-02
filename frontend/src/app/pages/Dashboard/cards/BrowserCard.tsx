@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { store } from '@/shared/state/store';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -39,14 +38,13 @@ import {
   moveBrowserTab,
   recordClosedCard,
   toggleMinimizeCard,
-  setTiledCard,
-  clearTiledCard,
   setBrowserDocked,
   type BrowserTab,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from './WindowControls';
-import { useTiledStyle, computeTiledStyle } from './tileZones';
-import { saveMinimizedShot } from '../desktop/minimizedShots';
+import { useTiledCard } from './useTiledCard';
+import { useCardTiling } from './useCardTiling';
+import { getMinimizedShot, saveMinimizedShot } from '../desktop/minimizedShots';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { createSelector } from '@reduxjs/toolkit';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -58,16 +56,19 @@ import {
   setActiveTab as setRegistryActiveTab,
   registerPendingLoad,
   wakePendingLoad,
+  hasDomReady,
   type BrowserWebview,
-  getWebview,
 } from '@/shared/browserRegistry';
 import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { browserCardMenuRows, browserTabMenuRows } from './browserCardMenuRows';
 import { useBrowserActivity } from '@/shared/useBrowserActivity';
-import { getActionLabel, readDataDocument, recoverCardOffDataWall } from '@/shared/browserCommandHandler';
+import {
+  getActionLabel, readDataDocument, recoverCardOffDataWall, isAnyBrowserBusy,
+} from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
 import BrowserAgentOverlay from './BrowserAgentOverlay';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
@@ -84,6 +85,10 @@ import { useElementSelection } from '@/app/components/editor/ElementSelectionCon
 
 type ResizeDir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
 
+// Pill-preview capture cadence: fast until the card has handed the pill a frame, slow upkeep after.
+const PILL_SHOT_WARMUP_MS = 800;
+const PILL_SHOT_REFRESH_MS = 5000;
+const PILL_SHOT_WARMUP_MAX_MS = 8000;
 const EDGE_THICKNESS = 6;
 const CORNER_SIZE = 14;
 const MIN_W = 400;
@@ -227,22 +232,13 @@ const BrowserCard: React.FC<Props> = ({
   );
   const browserAgentSession = useAppSelector(selectBrowserAgentSession);
   const isMinimized = useAppSelector((s) => Boolean(s.dashboardLayout.minimizedCards[browserId]));
-  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[browserId]);
-  // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, browserId);
-  const onTile = useCallback((zone: string): void => {
-    if (zone === 'restore') dispatch(clearTiledCard(browserId));
-    else dispatch(setTiledCard({ cardId: browserId, zone }));
+  const commitCardPosition = useCallback((x: number, y: number) => {
+    dispatch(setBrowserCardPosition({ browserId, x, y }));
   }, [dispatch, browserId]);
+  const tiling = useCardTiling({ cardId: browserId, getCanvasState, commitPosition: commitCardPosition });
+  const tileZone = tiling.zone;
+  const isTiled = !!tileZone;
+  const onTile = tiling.applyZone;
 
   // ---- In-chat dock: while docked to an expanded chat, the card overlays the chat's slot rect.
   // Pure geometry in the shared canvas layer (same DOM node), so the webview never remounts.
@@ -288,6 +284,13 @@ const BrowserCard: React.FC<Props> = ({
 
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
   const endingState = useAppSelector((state) => state.dashboardLayout.endingBrowserCards[browserId]);
+
+  // An agent's browser is what its collapsed chat shows as a pill preview, so this card owes the pill a frozen frame.
+  const pillShotOwner = useAppSelector((state) => {
+    const card = state.dashboardLayout.browserCards[browserId];
+    return card?.docked_to ?? card?.spawned_by ?? null;
+  });
+  const [pillShotSettled, setPillShotSettled] = useState(() => !!getMinimizedShot(browserId));
 
   // Arm the Windows webview crash-safety marker synchronously, before React commits the <webview> below. Cleared on dom-ready; a leftover marker next launch tells windowsWebviewEnabled() the mount crashed, so it falls back to the iframe. MUST skip parked cards: they render no webview, so dom-ready never fires and a stale marker reads as a phantom crash that locks Windows out of webviews.
   if (isElectron && isWindows && !suspendedSnap) armWindowsWebviewPending();
@@ -425,7 +428,14 @@ const BrowserCard: React.FC<Props> = ({
         cleanups.push(() => wv.removeEventListener('dom-ready', onReady));
       }
 
-      const mirrorUrl = () => dispatch(updateBrowserTabUrl({ browserId, tabId, url: wv.getURL() }));
+      // Every guest sits at about:blank before its real load (lazy tabs never leave it); mirroring
+      // that would overwrite the tab's actual url, and a tab dragged into a fresh card then loads
+      // blank and stops looking like the page it is.
+      const mirrorUrl = () => {
+        const live = wv.getURL();
+        if (!live || live === 'about:blank') return;
+        dispatch(updateBrowserTabUrl({ browserId, tabId, url: live }));
+      };
       const onNavigate = () => {
         updateTabLocal(tabId, {
           canGoBack: wv.canGoBack(),
@@ -642,6 +652,8 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleTabPointerDown = useCallback((e: React.PointerEvent) => {
     e.stopPropagation();
+    // A right-click still fires pointerdown; arming the drag here would capture the pointer under the menu.
+    if (e.button !== 0) return;
     const tabId = (e.currentTarget as HTMLElement).getAttribute('data-tab-id');
     if (!tabId) return;
     tabDragRef.current = { tabId, startX: e.clientX, startY: e.clientY, isDragging: false, detached: false };
@@ -757,17 +769,22 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? dockRect?.x ?? cardX, origY: popped?.y ?? dockRect?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(browserId, 'browser');
-  }, [cardX, cardY, onDragStart, browserId, getCanvasState, tileZone, dockRect]);
+  }, [cardX, cardY, cardWidth, onDragStart, browserId, getCanvasState, tiling, dockRect]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -889,27 +906,16 @@ const BrowserCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      // Grabbing an edge of a TILED card exits the tile and resizes from exactly where it sat,
-      // macOS-style; without this the handles resized the stale free-position geometry.
-      let origX = cardX, origY = cardY, origW = cardWidth, origH = cardHeight;
-      const zone = store.getState().dashboardLayout.tiledCards[browserId];
-      if (zone) {
-        const cam = getCanvasState();
-        const ts = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
-        if (ts) {
-          origX = ts.left; origY = ts.top; origW = ts.width / cam.zoom; origH = ts.height / cam.zoom;
-          setLocalResize({ x: origX, y: origY, w: origW, h: origH });
-          dispatch(clearTiledCard(browserId));
-        }
-      }
+      const popped = tiling.untileForResize();
+      if (popped) setLocalResize(popped);
       resizeRef.current = {
         dir, startX: e.clientX, startY: e.clientY,
-        origX, origY, origW, origH,
+        origX: popped?.x ?? cardX, origY: popped?.y ?? cardY, origW: popped?.w ?? cardWidth, origH: popped?.h ?? cardHeight,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, getCanvasState, dispatch],
+    [cardX, cardY, cardWidth, cardHeight, tiling],
   );
 
   const computeResize = useCallback(
@@ -999,16 +1005,47 @@ const BrowserCard: React.FC<Props> = ({
             ? `0 0 0 1px #3b82f6, ${c.shadow.md}`
             : c.shadow.md;
 
-  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !keepAliveHidden && !isMinimized;
+  const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
   // An agent can only SEE a page the compositor is drawing, and Chromium draws nothing at all for a
   // guest parked at left:-100000. Measured in one window: a card on screen captured in 58ms while
   // the same card parked timed out on guest capturePage, on host capturePage AND on CDP
   // captureScreenshot. So a browser its agent is still working stays on the canvas, collapsed
   // parent or not, and re-parks when the run ends. Watching it work is the point of the canvas.
   const agentDriving = browserAgentSession?.status === 'running' || browserAgentSession?.status === 'waiting_approval';
-  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's live shot,
-  // instead of teleporting back to wherever it sat before docking.
-  const dockParked = !!dockedTo && !!dockParentCard && !dockParentExpanded && !agentDriving && !dragging && !tiledStyle && !isMinimized && !keepAliveHidden;
+  // Chat collapsed: its docked browser parks off-screen and lives on as the pill's frozen shot,
+  // instead of teleporting back to wherever it sat before docking. The park waits for that shot:
+  // an off-screen guest never paints again, and capturePage on one never settles (Electron 42).
+  const wantsDockPark = !!dockedTo && !!dockParentCard && !dockParentExpanded && !agentDriving && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
+  const dockParked = wantsDockPark && pillShotSettled;
+  const tiledSize = useTiledCard({ cardId: browserId, zone: tileZone, active: !keepAliveHidden && !isMinimized && !dockParked, originX: displayX, originY: displayY, getCamera: getCanvasState });
+  const pillShotPaintable = !!pillShotOwner && !dockParked && !isMinimized && !keepAliveHidden && !suspendedSnap;
+  useEffect(() => {
+    if (!pillShotPaintable) return undefined;
+    let cancelled = false;
+    let inFlight = false;
+    const freeze = (): void => {
+      // Capturing a webview an agent is mid-command on is the SharedImage-mailbox renderer crash.
+      if (inFlight || isAnyBrowserBusy()) return;
+      const wv = webviewMap.current.get(activeTabId);
+      // capturePage THROWS on a guest that hasn't reached dom-ready yet, and an uncaught one here kills the whole card tree.
+      if (!wv || !hasDomReady(wv)) return;
+      let shot: Promise<{ isEmpty: () => boolean; toDataURL: () => string }> | undefined;
+      try { shot = wv.capturePage(); } catch { return; }
+      if (!shot) return;
+      inFlight = true;
+      shot.then((img) => {
+        inFlight = false;
+        if (cancelled || img.isEmpty()) return;
+        saveMinimizedShot(browserId, img.toDataURL());
+        setPillShotSettled(true);
+      }, () => { inFlight = false; });
+    };
+    freeze();
+    const timer = window.setInterval(freeze, pillShotSettled ? PILL_SHOT_REFRESH_MS : PILL_SHOT_WARMUP_MS);
+    // A page that can never paint (dead guest, about:blank) must not camp on the canvas forever.
+    const giveUp = window.setTimeout(() => setPillShotSettled(true), PILL_SHOT_WARMUP_MAX_MS);
+    return () => { cancelled = true; window.clearInterval(timer); window.clearTimeout(giveUp); };
+  }, [pillShotPaintable, pillShotSettled, browserId, activeTabId]);
 
   return (
     <Box
@@ -1019,16 +1056,22 @@ const BrowserCard: React.FC<Props> = ({
       data-select-meta={JSON.stringify({ name: activeTitle || 'Browser', url: activeUrl })}
       // Marks a kept-alive card parked off-screen (it belongs to another dashboard); fit-to-view must skip it or it pans the canvas to chase it and the card bleeds onto the dashboard you're viewing.
       data-keepalive-hidden={keepAliveHidden || isMinimized || dockParked ? '1' : undefined}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
-        items: [
-          { label: 'New Tab', onClick: () => dispatch(addBrowserTab({ browserId, url: browserHomepage })) },
-          { label: 'Reload', onClick: () => { try { (getWebview(browserId) as { reload?: () => void } | undefined)?.reload?.(); } catch { /* webview gone */ } } },
-          { label: 'Copy URL', onClick: () => { void navigator.clipboard.writeText(activeUrl); } },
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Minimize', onClick: handleMinimize },
-          { label: 'Close', danger: true, onClick: () => { dispatch(recordClosedCard({ kind: 'browser', id: browserId })); removeBrowserCardCleanly(browserId, dispatch); } },
-        ],
-      })}
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
+        items: browserCardMenuRows({
+          browserId, dispatch, tabs, activeUrl, activeTitle, homepage: browserHomepage, tileZone, isMinimized,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          nav: {
+            reload: () => { try { webviewMap.current.get(activeTabId)?.reload(); } catch { /* webview gone */ } },
+            back: () => { try { webviewMap.current.get(activeTabId)?.goBack(); } catch { /* webview gone */ } },
+            forward: () => { try { webviewMap.current.get(activeTabId)?.goForward(); } catch { /* webview gone */ } },
+            canGoBack: activeLocal.canGoBack,
+            canGoForward: activeLocal.canGoForward,
+          },
+          onTile,
+          onMinimize: () => (isMinimized ? dispatch(toggleMinimizeCard({ cardId: browserId })) : handleMinimize()),
+          onFind: () => { setFindOpen(true); setFindFocusSignal((n) => n + 1); },
+        }),
+      }); }}
       onPointerDownCapture={(e: React.PointerEvent) => {
         onBringToFront?.(browserId, 'browser');
         // Capture-phase so chrome clicks (tab strip, URL bar) the children swallow still select the card; clicks inside the guest page never reach the host at all. Shift keeps the bubbled toggle path. Pass the target so URL-bar/tab presses select without yanking the camera.
@@ -1052,12 +1095,12 @@ const BrowserCard: React.FC<Props> = ({
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
-        top: tiledStyle && !(keepAliveHidden || isMinimized || dockParked) ? tiledStyle.top : dockActive ? dockRect!.y : (dragging ? cardY : displayY),
-        transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
-        width: tiledStyle ? tiledStyle.width : dockActive ? dockRect!.w : displayW,
-        height: tiledStyle ? tiledStyle.height : dockActive ? dockRect!.h : displayH,
+        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: dockActive ? dockRect!.y : (dragging ? cardY : displayY),
+        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
+        transformOrigin: tiledSize ? '0 0' : undefined,
+        width: tiledSize ? tiledSize.width : dockActive ? dockRect!.w : displayW,
+        height: tiledSize ? tiledSize.height : dockActive ? dockRect!.h : displayH,
         borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
         border: agentBorder,
         bgcolor: c.bg.surface,
@@ -1065,7 +1108,7 @@ const BrowserCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {
@@ -1124,7 +1167,7 @@ const BrowserCard: React.FC<Props> = ({
             onMinimize={handleMinimize}
             onTile={onTile}
             tiled={!!tileZone}
-            noTileMenu={tileZone === 'fullscreen'}
+           
           />
         </Box>
         <Box
@@ -1148,6 +1191,9 @@ const BrowserCard: React.FC<Props> = ({
               <Box
                 key={tab.id}
                 data-tab-id={tab.id}
+                onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+                  items: browserTabMenuRows({ browserId, dispatch, tab, tabCount: tabs.length, homepage: browserHomepage }),
+                })}
                 onPointerDown={handleTabPointerDown}
                 onPointerMove={handleTabPointerMove}
                 onPointerUp={handleTabPointerUp}

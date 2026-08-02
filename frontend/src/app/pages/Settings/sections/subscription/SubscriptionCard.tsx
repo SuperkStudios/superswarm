@@ -6,25 +6,42 @@ import CircularProgress from '@mui/material/CircularProgress';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import type { SubscriptionProvider } from './subscriptionProviders';
 
-const SubscriptionCard: React.FC<{ provider: SubscriptionProvider; connected: boolean; onConnect: () => void; onDisconnect: () => void; connecting: boolean; userCode?: string; disconnecting?: boolean }> = ({ provider, connected, onConnect, onDisconnect, connecting, userCode, disconnecting }) => {
+interface Props {
+  provider: SubscriptionProvider;
+  connected: boolean;
+  connecting: boolean;
+  confirmingDisconnect: boolean;
+  disconnecting: boolean;
+  error?: string;
+  userCode?: string;
+  onConnect: () => void;
+  onRequestDisconnect: () => void;
+  onCancelDisconnect: () => void;
+  onDisconnect: () => void;
+}
+
+const SubscriptionCard: React.FC<Props> = ({
+  provider, connected, connecting, confirmingDisconnect, disconnecting, error, userCode,
+  onConnect, onRequestDisconnect, onCancelDisconnect, onDisconnect,
+}) => {
   const c = useClaudeTokens();
-  const isPreview = (provider as any).preview;
   const dotColor = connected ? c.status.success : connecting ? c.accent.primary : c.border.medium;
+  const linkButton = {
+    border: 'none', background: 'transparent', p: 0, cursor: 'pointer',
+    fontFamily: 'inherit', fontSize: '0.6875rem', transition: 'color 0.15s ease',
+  } as const;
 
   return (
     <Box sx={{
       p: 1.5, borderRadius: `${c.radius.md}px`,
       border: `1px solid ${connected ? c.status.success + '30' : connecting ? c.accent.primary + '30' : c.border.subtle}`,
       bgcolor: connected ? `${c.status.success}06` : connecting ? `${c.accent.primary}06` : 'transparent',
-      opacity: isPreview ? 0.5 : 1,
+      opacity: provider.preview ? 0.5 : 1,
       transition: c.transition,
-      '&:hover': isPreview ? {} : {
+      '&:hover': provider.preview ? {} : {
         borderColor: connected ? c.status.success + '4d' : c.border.medium,
         boxShadow: c.shadow.sm,
       },
-      // affirm "Connected" at rest, reveal "Disconnect" on hover so the undo never shouts
-      '&:hover .sub-rest': { opacity: 0 },
-      '&:hover .sub-undo': { opacity: 1, pointerEvents: 'auto' },
     }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
@@ -44,21 +61,32 @@ const SubscriptionCard: React.FC<{ provider: SubscriptionProvider; connected: bo
           </Box>
         </Box>
 
-        {isPreview ? (
+        {provider.preview ? (
           <Typography sx={{ fontSize: '0.625rem', color: c.text.ghost, fontStyle: 'italic', flexShrink: 0 }}>
             Coming soon
           </Typography>
         ) : connected ? (
           disconnecting ? (
-            <CircularProgress size={14} sx={{ color: c.text.ghost }} />
-          ) : (
-            <Box sx={{ position: 'relative', flexShrink: 0, minWidth: 72, height: 16 }}>
-              <Typography className="sub-rest" sx={{ position: 'absolute', right: 0, top: 0, fontSize: '0.6875rem', fontWeight: 500, color: c.status.success, transition: 'opacity 0.18s ease' }}>
-                Connected
-              </Typography>
-              <Typography className="sub-undo" onClick={onDisconnect} sx={{ position: 'absolute', right: 0, top: 0, fontSize: '0.6875rem', color: c.text.tertiary, cursor: 'pointer', opacity: 0, pointerEvents: 'none', transition: 'opacity 0.18s ease', '&:hover': { color: c.status.error } }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, flexShrink: 0 }}>
+              <CircularProgress size={14} sx={{ color: c.text.ghost }} />
+              <Typography sx={{ fontSize: '0.6875rem', color: c.text.muted }}>Disconnecting...</Typography>
+            </Box>
+          ) : confirmingDisconnect ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexShrink: 0 }}>
+              <Typography sx={{ fontSize: '0.6875rem', color: c.text.secondary }}>Disconnect?</Typography>
+              <Box component="button" type="button" onClick={onCancelDisconnect} sx={{ ...linkButton, color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
+                Cancel
+              </Box>
+              <Box component="button" type="button" onClick={onDisconnect} sx={{ ...linkButton, color: c.status.error, fontWeight: 600, '&:hover': { opacity: 0.75 } }}>
                 Disconnect
-              </Typography>
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexShrink: 0 }}>
+              <Typography sx={{ fontSize: '0.6875rem', fontWeight: 500, color: c.status.success }}>Connected</Typography>
+              <Box component="button" type="button" onClick={onRequestDisconnect} sx={{ ...linkButton, color: c.text.tertiary, '&:hover': { color: c.status.error } }}>
+                Disconnect
+              </Box>
             </Box>
           )
         ) : connecting && userCode ? (
@@ -77,6 +105,12 @@ const SubscriptionCard: React.FC<{ provider: SubscriptionProvider; connected: bo
           </Button>
         )}
       </Box>
+
+      {error && (
+        <Typography sx={{ mt: 0.75, fontSize: '0.625rem', color: c.status.error, lineHeight: 1.4 }}>
+          {error}
+        </Typography>
+      )}
     </Box>
   );
 };

@@ -18,6 +18,7 @@ from backend.apps.tools_lib.tools_lib import (
     load_all_tools as load_all_tools,
     sanitize_server_name as sanitize_server_name,
 )
+from backend.config.headless import apply_unreachable_denies
 
 # Mutation/exec tools a read-only session must never reach: Edit (rewrites files), Bash (rm/mv/overwrite),
 # NotebookEdit (rewrites notebooks). Write is intentionally NOT here, the audit needs its one report.
@@ -33,6 +34,8 @@ def build_effective_tool_lists(
     browser_delegation_tools: List[str],
     invoke_agent_tools: List[str],
 ) -> Tuple[List[str], List[str]]:
+    # Same shadow the server registration takes: anything that would dead-end goes straight onto disallowed instead of being offered and failing when called.
+    builtin_perms = apply_unreachable_denies(builtin_perms)
     effective_allowed = [
         t for t in session.allowed_tools
         if t in FULL_TOOLS and builtin_perms.get(t, "always_allow") == "always_allow"
@@ -132,6 +135,10 @@ def build_effective_tool_lists(
             effective_disallowed.append("AskUserQuestion")
     # Claude's internal Cron* scheduler is denied in favour of the visible native one; withhold it from the SDK so the model doesn't even reach for it.
     for bt in path_gate.CLAUDE_INTERNAL_SCHEDULER_TOOLS:
+        if bt not in effective_disallowed:
+            effective_disallowed.append(bt)
+    # Nothing consumes a between-turn event here, so arming one of these strands the user waiting on a report that can never arrive.
+    for bt in path_gate.UNDELIVERABLE_BACKGROUND_TOOLS:
         if bt not in effective_disallowed:
             effective_disallowed.append(bt)
     # The claude_code preset ships its own bare `Skill` tool that reads ~/.claude/skills directly; always withhold it so skills only ever load through our provider-agnostic mcp__openswarm-skill__Skill (or not at all).

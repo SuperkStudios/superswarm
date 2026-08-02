@@ -11,9 +11,13 @@ Run:
 
 from __future__ import annotations
 
+import io
 import json
+import logging
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Iterator
 
 import pytest
 
@@ -21,6 +25,21 @@ import pytest
 @pytest.fixture(autouse=True)
 def _wf_env(isolated_workflows_data):
     yield
+
+
+@contextmanager
+def p_storage_warnings() -> Iterator[io.StringIO]:
+    """Not caplog: backend/main.py pins propagate=False on the 'backend' logger, and
+    caplog listens at the root, so these records only exist if you sit on the logger itself."""
+    from backend.apps.workflows import storage
+    buf = io.StringIO()
+    handler = logging.StreamHandler(buf)
+    handler.setLevel(logging.WARNING)
+    storage.logger.addHandler(handler)
+    try:
+        yield buf
+    finally:
+        storage.logger.removeHandler(handler)
 
 
 # --- atomic write ------------------------------------------------------------
@@ -60,7 +79,7 @@ def test_atomic_write_leaves_no_temp_and_preserves_old_on_failure(monkeypatch):
 
 def test_corrupt_workflow_record_is_skipped_not_fatal(make_wf):
     """A truncated <id>.json must not take down the whole load; the bad record
-    silently drops out and the good ones still come back."""
+    drops out and the good ones still come back."""
     from backend.apps.workflows import storage
     good = make_wf(title="good")
     storage.save_workflow(good)
@@ -72,6 +91,37 @@ def test_corrupt_workflow_record_is_skipped_not_fatal(make_wf):
     ids = {w.id for w in storage.list_workflows()}
     assert good.id in ids
     assert "broken" not in ids
+
+
+def test_dropped_workflow_record_names_the_file_it_dropped(make_wf):
+    """The drop is what makes a workflow vanish from the UI with its file still
+    on disk. If it happens without naming the file, nobody can ever diagnose it."""
+    from backend.apps.workflows import storage
+    storage.save_workflow(make_wf(title="good"))
+    storage._ensure_dirs()
+    with open(os.path.join(storage.DATA_DIR, "broken.json"), "w") as f:
+        f.write('{"id": "broken", "title": "trunc')
+
+    storage._cache_loaded = False
+    with p_storage_warnings() as logged:
+        storage.list_workflows()
+    assert "broken.json" in logged.getvalue()
+
+
+def test_record_a_newer_build_wrote_is_reported_when_it_fails_to_load():
+    """Every Workflow field has a default, so unknown keys survive a downgrade
+    fine. A field whose VALUE the running build's schema rejects does not: the
+    record takes the same exit as a truncated file, and must say so."""
+    from backend.apps.workflows import storage
+    storage._ensure_dirs()
+    with open(os.path.join(storage.DATA_DIR, "fromfuture.json"), "w") as f:
+        json.dump({"id": "fromfuture", "execution_target": "orbital-relay"}, f)
+
+    storage._cache_loaded = False
+    with p_storage_warnings() as logged:
+        ids = {w.id for w in storage.list_workflows()}
+    assert "fromfuture" not in ids
+    assert "fromfuture.json" in logged.getvalue()
 
 
 def test_corrupt_runs_file_yields_empty_history(make_wf):

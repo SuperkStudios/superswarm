@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import { EmptyState } from '@/app/components/feedback/Loading';
+import { DarkTokensScope } from '@/shared/styles/ThemeContext';
 import type { Output } from '@/shared/state/outputsSlice';
 
 interface ApplicationsWindowProps {
@@ -100,11 +102,18 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
 
         <Box sx={{ overflowY: 'auto', flex: 1, minHeight: 120 }}>
           {apps.length === 0 && (
-            <Typography sx={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.875rem', textAlign: 'center', py: 5 }}>
-              {Object.keys(outputs).length === 0
-                ? 'No apps yet. Ask an agent to build one and it lands here.'
-                : 'No apps match that search.'}
-            </Typography>
+            // The window is glass over the canvas, so the shared empty state needs dark-surface tokens to be readable.
+            <DarkTokensScope>
+              {Object.keys(outputs).length === 0 ? (
+                <EmptyState
+                  icon={<GridViewRoundedIcon sx={{ fontSize: 32 }} />}
+                  title="No apps yet"
+                  hint="Ask an agent to build one and it lands here."
+                />
+              ) : (
+                <EmptyState title="No apps match that search." />
+              )}
+            </DarkTokensScope>
           )}
           {apps.length > 0 && (
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(78px, 1fr))', gap: 1.5 }}>

@@ -83,8 +83,45 @@ function stageRouterNodeModules(context) {
   console.log(`[afterPack] staged 9Router node_modules into ${routerDir}`);
 }
 
+// prebuildify packages (uiohook-napi and friends) ship a .node for EVERY platform+arch they support.
+// Six of the seven are dead weight in any one build, and on macOS an x86_64 Mach-O sitting inside an
+// arm64 bundle is what makes the OS put up its Intel-deprecation dialog. node-gyp-build only ever
+// looks in prebuilds/<platform>-<arch>, so deleting the rest is invisible to the app. Runs here in
+// afterPack because code-signing comes next and seals the bundle; a later delete breaks the seal.
+function pruneForeignPrebuilds(context) {
+  const { appOutDir, electronPlatformName, arch } = context;
+  // Read the arch name off electron-builder's own enum rather than hardcoding its numbering.
+  const archName = require('builder-util').Arch[arch];
+  const root = electronPlatformName === 'darwin'
+    ? path.join(appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+    : path.join(appOutDir, 'resources');
+  let removed = 0;
+
+  (function walk(dir, depth) {
+    if (depth > 12) return;
+    let ents = [];
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (!e.isDirectory()) continue;
+      const full = path.join(dir, e.name);
+      if (e.name !== 'prebuilds') { walk(full, depth + 1); continue; }
+      for (const tuple of fs.readdirSync(full, { withFileTypes: true })) {
+        // prebuildify names dirs "<platform>-<arch>", sometimes fat: "darwin-x64+arm64".
+        const [tuplePlatform, archPart] = tuple.name.split('-');
+        const covers = tuplePlatform === electronPlatformName && String(archPart || '').split('+').includes(archName);
+        if (covers) continue;
+        fs.rmSync(path.join(full, tuple.name), { recursive: true, force: true });
+        removed += 1;
+      }
+    }
+  })(root, 0);
+
+  console.log(`[afterPack] pruned ${removed} foreign prebuild dir(s), kept ${electronPlatformName}-${archName}`);
+}
+
 exports.default = async function afterPack(context) {
   stageRouterNodeModules(context);
+  pruneForeignPrebuilds(context);
   // VMP signing runs last and unconditionally, after every file is staged, so the
   // OS code-sign that electron-builder runs next seals the VMP signature too.
   signVmp(context);

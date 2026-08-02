@@ -22,7 +22,7 @@ from backend.apps.agents.manager.streaming.PartialReply import PartialReply
 from backend.apps.agents.manager.session.SessionLifecycle import SessionLifecycle
 from backend.apps.agents.manager.SpawnAgentRun import SpawnAgentRun
 from backend.apps.agents.manager.session.SessionPersistence import SessionPersistence
-from backend.apps.agents.manager.Messaging import Messaging
+from backend.apps.agents.manager.Messaging import Messaging, QueuedMessage
 from backend.apps.agents.manager.SessionControl import SessionControl
 from backend.apps.agents.manager.AgentLaunch import AgentLaunch
 from backend.apps.agents.manager.MockAgent import MockAgent
@@ -55,6 +55,8 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
         # Per-SESSION hook context + stderr buffer, updated in place each turn: a persistent client's hooks/stderr callback were bound at connect, so they must read stable objects, not per-turn rebuilds.
         self.hook_ctxs: Dict[str, HookContext] = {}
         self.stderr_buffers: Dict[str, List[str]] = {}
+        # Messages typed while a turn was live, replayed in order when it ends (see Messaging).
+        self.pending_messages: Dict[str, List[QueuedMessage]] = {}
         # Admission gate: one shared semaphore caps concurrent ROOT turns (children bypass). (Re)created per running loop by get_turn_admission so it never binds to a dead loop across a uvicorn reload or a test's asyncio.run.
         self.p_turn_admission_sema: Optional[asyncio.Semaphore] = None
         self.p_turn_admission_loop: Optional[asyncio.AbstractEventLoop] = None

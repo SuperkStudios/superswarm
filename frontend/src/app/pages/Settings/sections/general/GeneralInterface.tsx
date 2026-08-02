@@ -15,6 +15,7 @@ import AccentColorPad from '@/app/components/theme/AccentColorPad';
 import type { SettingsStyles } from '../settingsStyles';
 import { settingSelectAttrs } from '../settingSelect';
 import ShortcutRecorderChip, { dictationDefaultCombo, comboDisplay } from './ShortcutRecorderChip';
+import DictationModelPicker from './DictationModelPicker';
 
 const GeneralInterface: React.FC<{
   form: AppSettings;
@@ -101,6 +102,17 @@ const GeneralInterface: React.FC<{
         <ShortcutRecorderChip
           value={form.dictation_shortcut || dictationDefaultCombo()}
           onChange={(combo) => setForm({ ...form, dictation_shortcut: combo })}
+        />
+      </Box>
+
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_model', 'Dictation model', 'Interface', 'Speech model used for dictation; bigger is more accurate but slower.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Dictation model</Typography>
+          <Typography sx={descSx}>Runs on this machine, nothing is uploaded. Bigger is more accurate but slower to transcribe.</Typography>
+        </Box>
+        <DictationModelPicker
+          value={form.dictation_model ?? null}
+          onChange={(id) => setForm({ ...form, dictation_model: id })}
         />
       </Box>
 

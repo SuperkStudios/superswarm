@@ -30,7 +30,8 @@ import { hasModelConnected as selectHasModelConnected } from '@/app/components/O
 import { shallowEqual } from 'react-redux';
 import { fetchDashboards, createDashboard } from '@/shared/state/dashboardsSlice';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
-import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard } from '@/shared/state/dashboardLayoutSlice';
+import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addViewCard, selectFullscreenCardId, setTiledCard, clearTiledCard, openWorkflowMonitor, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
+import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { setInstalling } from '@/shared/state/updateSlice';
@@ -88,6 +89,8 @@ const AppShell: React.FC = () => {
   }, []);
 
   const modelsLoaded = useAppSelector((s) => s.models.loaded);
+  // The models list is marked loaded even when its fetch fails, so it alone can't tell "no model" from "couldn't ask". Settings is where the user's own key/sub lives, so the banner waits for it.
+  const settingsKnown = useAppSelector((s) => s.settings.loaded);
   // "Connected" = the user's OWN model (key/sub/pro/custom), NOT a non-empty /models list: the free-trial Haiku is always in that list now, so a byProvider-length check would falsely read as connected and hide the out-of-runs banner.
   const hasModelConnected = useAppSelector(selectHasModelConnected);
   // While onboarding owns the window, the floating sidebar (and its hover-peek strip) must not exist; both out-z the overlay.
@@ -147,12 +150,14 @@ const AppShell: React.FC = () => {
   // Hold the banner until the boot free-trial mint settles, else a brand-new user sees it flash red for the ~1-3s the trial takes to arm. (Offline shows immediately, it's its own signal.)
   const freeTrialArmSettled = useAppSelector((s) => s.settings.freeTrialArmSettled);
   // The red wall is for genuine "no way to run" only; the free-trial states get the quiet nudge below.
-  const showWarningBanner = !isOnline || (modelsLoaded && freeTrialArmSettled && !hasModelConnected && !freeTrialActive && !freeTrialSpent);
+  const settingsSettled = useAppSelector((s) => s.settings.settled);
+  const backendUnreachable = settingsSettled && !settingsKnown;
+  const showWarningBanner = !isOnline || backendUnreachable || (settingsKnown && modelsLoaded && freeTrialArmSettled && !hasModelConnected && !freeTrialActive && !freeTrialSpent);
   const [ftNudgeDismissed, setFtNudgeDismissed] = useState<boolean>(() => {
     try { return localStorage.getItem('os_ft_nudge_dismissed') === '1'; } catch { return false; }
   });
   // Spent nudge hides the moment they connect a real model; the post-wow nudge only shows on the trial lane (so it already implies no own model) and is dismissible.
-  const showFreeTrialNudge = isOnline && ((freeTrialSpent && !hasModelConnected) || (freeTrialUsed && !ftNudgeDismissed));
+  const showFreeTrialNudge = isOnline && settingsKnown && ((freeTrialSpent && !hasModelConnected) || (freeTrialUsed && !ftNudgeDismissed));
 
   const bannerDismissedForVersion = availableVersion != null && dismissedVersion === availableVersion;
   const isUpdateActionable = updateStatus === 'available' || updateStatus === 'downloaded' || updateStatus === 'downloading';
@@ -300,6 +305,21 @@ const AppShell: React.FC = () => {
       window.location.reload();
     });
   }, []);
+
+  // A click or an action button on the OS notification a finished workflow posted. Every outcome lands on something real; an unwired button on a notification is worse than no button.
+  useEffect(() => {
+    const bridge = window.openswarm;
+    if (!bridge?.onNotificationAction) return;
+    return bridge.onNotificationAction(({ outcome, runId, workflowId }) => {
+      if (!workflowId) return;
+      switch (outcome) {
+        case 'open': dispatch(openWorkflowMonitor({ workflowId, runId })); break;
+        case 'ack': if (runId) dispatch(ackRun(runId)); break;
+        case 'rerun': dispatch(runWorkflowNow(workflowId)); break;
+        case 'edit': dispatch(openWorkflowsApp({ workflowId })); break;
+      }
+    });
+  }, [dispatch]);
 
   // Zoom / find / tab-cycle from a focused browser GUEST (keydowns inside a webview can't reach this document, so main forwards them with the guest's id). Targets that exact browser; the host-focused counterparts live in the keydown below + useCanvasControls (zoom).
   useEffect(() => {
@@ -478,6 +498,8 @@ const AppShell: React.FC = () => {
           <Typography sx={{ fontSize: '0.875rem', color: '#ef4444', flex: 1, fontWeight: 500, letterSpacing: '0.01em' }}>
             {!isOnline
               ? 'No internet connection; agents cannot reach AI models or external services'
+              : backendUnreachable
+              ? 'Cannot reach the OpenSwarm backend; your settings and agents are unavailable until it comes back'
               : (
                 <>
                   No AI model connected.{' '}

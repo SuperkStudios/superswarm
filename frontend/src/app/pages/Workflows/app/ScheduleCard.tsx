@@ -7,6 +7,8 @@ import {
   freqOf, patchForFreq, intervalMinutes, timeInputValue, parseTimeInput, ordinal, nextRunText, type Freq,
 } from './model';
 import { useWorkflowPatch } from './useWorkflowPatch';
+import { useCloudStatus } from './useCloudStatus';
+import CloudRunSection from './CloudRunSection';
 import RepeatField from './RepeatField';
 
 const FREQS: Array<[Freq, string]> = [['daily', 'Daily'], ['weekly', 'Weekly'], ['monthly', 'Monthly'], ['interval', 'Interval']];
@@ -15,9 +17,11 @@ const DAY_LABELS: Array<[string, number]> = [['S', 0], ['M', 1], ['T', 2], ['W',
 const ScheduleCard: React.FC<{ workflow: Workflow }> = ({ workflow }) => {
   const WC = useWC();
   const patch = useWorkflowPatch();
+  const cloud = useCloudStatus(workflow);
   const sched = workflow.schedule;
   const freq = freqOf(sched);
   const enabled = sched.enabled;
+  const onCloud = workflow.execution_target === 'cloud';
 
   const patchSched = (p: Partial<ScheduleConfig>) => patch(workflow, { schedule: { ...sched, ...p } });
 
@@ -32,6 +36,11 @@ const ScheduleCard: React.FC<{ workflow: Workflow }> = ({ workflow }) => {
 
   // Turning a weekly schedule on with no days picked is "unconfigured", so the backend silently forces it back off and the switch looks dead. Seed today's weekday so the default Weekly 9am toggles on (and stays on) in one click.
   const toggleEnabled = () => {
+    // While the cloud holds the timer, this switch is the CLOUD's switch: flipping only our copy would pause nothing.
+    if (onCloud) {
+      cloud.choose('cloud', !enabled);
+      return;
+    }
     if (!enabled && sched.repeat_unit === 'week' && sched.on_days.length === 0) {
       patchSched({ enabled: true, on_days: [new Date().getDay()] });
     } else {
@@ -197,16 +206,21 @@ const ScheduleCard: React.FC<{ workflow: Workflow }> = ({ workflow }) => {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={WC.muted} strokeWidth="1.8" style={{ flex: 'none' }}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
         <span style={{ fontSize: 12.5, color: WC.ink4 }}>{describeSchedule(sched)}</span>
       </div>
-      <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width: 14, display: 'flex', justifyContent: 'center', flex: 'none' }}><div style={{ width: 6, height: 6, borderRadius: '50%', background: WC.accent }} /></div>
-        <span style={{ fontSize: 12.5, color: WC.ink4 }}>Next run {nextRunText(workflow, workflow.next_run_at ? new Date(workflow.next_run_at) : null)}</span>
-      </div>
+      {/* On cloud our copy of next_run_at is a mirror that only refreshes on a probe, so the cloud section prints the time it just fetched instead. */}
+      {!onCloud && (
+        <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 14, display: 'flex', justifyContent: 'center', flex: 'none' }}><div style={{ width: 6, height: 6, borderRadius: '50%', background: WC.accent }} /></div>
+          <span style={{ fontSize: 12.5, color: WC.ink4 }}>Next run {nextRunText(workflow, workflow.next_run_at ? new Date(workflow.next_run_at) : null)}</span>
+        </div>
+      )}
       {maxRuns != null && (
         <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 14, display: 'flex', justifyContent: 'center', flex: 'none' }}><div style={{ width: 6, height: 6, borderRadius: '50%', background: WC.muted }} /></div>
           <span style={{ fontSize: 12.5, color: WC.ink4 }}>{sched.runs_count} of {maxRuns} run{maxRuns === 1 ? '' : 's'} done</span>
         </div>
       )}
+
+      <CloudRunSection workflow={workflow} cloud={cloud} />
     </div>
   );
 };

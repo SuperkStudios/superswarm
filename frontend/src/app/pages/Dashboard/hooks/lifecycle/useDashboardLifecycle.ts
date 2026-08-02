@@ -23,6 +23,8 @@ import {
 } from '@/shared/state/dashboardLayoutSlice';
 import { fetchOutputs, type Output } from '@/shared/state/outputsSlice';
 import { generateDashboardName } from '@/shared/state/dashboardsSlice';
+import { isUserLaunchedSession } from '@/shared/state/isUserLaunchedSession';
+import { REVEAL_MIN_ZOOM } from '../../canvas/revealZoom';
 import { fetchWorkflows, fetchAllRuns, fetchActiveRuns } from '@/shared/state/workflowsSlice';
 import { fetchMissedRuns } from '@/shared/state/missedRunsSlice';
 import { fetchProviderHealth } from '@/shared/state/subscriptionsSlice';
@@ -31,6 +33,7 @@ import { initBrowserCommandHandler } from '@/shared/browserCommandHandler';
 import { getKeepAliveBrowserIds } from '@/shared/browserFocus';
 import { prepareDashboardSwitch } from '@/shared/dashboardSwitchTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { orphanViewCardKeys } from './orphanViewCardKeys';
 import { clearPendingBrowserUrl, clearPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { API_BASE } from '@/shared/config';
 import type { CanvasActions } from '../interaction/useCanvasControls';
@@ -187,7 +190,7 @@ export function useDashboardLifecycle({
     if (!layoutInitialized || hasFittedRef.current) return;
     if (pendingFocusAgentId) return;
     hasFittedRef.current = true;
-    const timer = setTimeout(() => canvasActions.fitToView(), 150);
+    const timer = setTimeout(() => canvasActions.fitToView(REVEAL_MIN_ZOOM), 150);
     return () => clearTimeout(timer);
   }, [isActive, layoutInitialized, canvasActions, pendingFocusAgentId]);
 
@@ -302,7 +305,7 @@ export function useDashboardLifecycle({
   useEffect(() => {
     if (!layoutInitialized) return;
     const dashboardSessionIds = Object.values(sessions)
-      .filter((s) => s.dashboard_id === dashboardId && !s.workflow_run_id && !s.workflow_edit_id && s.mode !== 'browser-agent' && s.mode !== 'invoked-agent' && s.mode !== 'sub-agent')
+      .filter((s) => s.dashboard_id === dashboardId && isUserLaunchedSession(s))
       .map((s) => s.id);
     const liveIds = dashboardSessionIds.sort().join(',');
     if (liveIds === prevSessionIdsRef.current) return;
@@ -313,7 +316,7 @@ export function useDashboardLifecycle({
   // Prune orphan view cards whose underlying output was deleted (e.g. via the Views page). Without this, the layout entry persists in the minimap and contentBounds even though DashboardViewCard renders nothing. Gated on outputsRefetched (THIS open's fresh fetch), NOT the sticky global outputsLoaded: on a freshly-imported dashboard the global flag is already true from a prior dashboard, so the old gate pruned the just-imported app card against a stale apps list and the debounced save persisted the wipe.
   useEffect(() => {
     if (!layoutInitialized || !outputsRefetched) return;
-    const orphans = Object.keys(viewCards).filter((id) => !outputs[id]);
+    const orphans = orphanViewCardKeys(viewCards, outputs);
     if (orphans.length === 0) return;
     // Serialize teardown (quiesce each GPU surface first): pruning several orphaned app cards in one
     // pass would rip their webviews out simultaneously, the same GPU-process SIGSEGV as mass delete.

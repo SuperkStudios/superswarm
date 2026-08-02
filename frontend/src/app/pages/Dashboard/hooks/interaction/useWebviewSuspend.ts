@@ -10,6 +10,7 @@ import { getWebview } from '@/shared/browserRegistry';
 import { getActivity, isAnyBrowserBusy } from '@/shared/browserCommandHandler';
 import { isKeepAliveBrowser } from '@/shared/browserFocus';
 import { captureTabCapsule } from '@/shared/browserStateCapsule';
+import { getMinimizedShot } from '../../desktop/minimizedShots';
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
 
@@ -83,6 +84,22 @@ function cardIsAudible(browserId: string, card: BrowserCardPosition): boolean {
   return false;
 }
 
+// Parked in the minimize rail: the card renders off-canvas behind a frozen still, so a live renderer
+// sitting behind it is pure waste (same call DashboardViewCard already makes for app previews).
+function isMinimized(browserId: string): boolean {
+  return !!store.getState().dashboardLayout.minimizedCards[browserId];
+}
+
+// Restoring from the rail flies the camera to the card, and that flight outlives one settle beat; without a grace the off-screen rule re-parks the card mid-flight and it flickers back to a dead snapshot.
+const RESTORE_GRACE_MS = 4000;
+const restoredAt = new Map<string, number>();
+
+function withinRestoreGrace(browserId: string): boolean {
+  const t = restoredAt.get(browserId);
+  for (const [k, v] of restoredAt) if (Date.now() - v > RESTORE_GRACE_MS) restoredAt.delete(k);
+  return t !== undefined && Date.now() - t < RESTORE_GRACE_MS;
+}
+
 // A card we must never snapshot-swap: an agent is driving it, it's in the keep-alive set (recently used), or it's playing audio. Suspending destroys the webContents (sessionStorage, playback), the things we're preserving.
 function mustStayLive(browserId: string, card: BrowserCardPosition): boolean {
   // The shield class marks a live card/marquee drag: suspending a browser MID-DRAG unmounts the
@@ -107,6 +124,8 @@ export function useWebviewSuspend(
 ) {
   const dispatch = useAppDispatch();
   const suspended = useAppSelector((s) => s.dashboardLayout.suspendedBrowserCards);
+  const minimized = useAppSelector((s) => s.dashboardLayout.minimizedCards);
+  const prevMinimizedRef = useRef<Record<string, boolean>>({});
   const vpRef = useRef<Viewport>({ panX, panY, zoom, vpW: 1200, vpH: 800 });
 
   // Window resize changes the viewport without touching pan/zoom/cards; tick so the evaluation below reruns, or a shrunken window never suspends anything.
@@ -134,6 +153,9 @@ export function useWebviewSuspend(
       vpH: el ? el.clientHeight : 800,
     };
 
+    const wasMinimized = prevMinimizedRef.current;
+    prevMinimizedRef.current = minimized;
+
     const liveCount = Object.keys(browserCards).filter((id) => !suspended[id]).length;
     let budget = MAX_LIVE_WEBVIEWS - liveCount;
     const parked = Object.keys(suspended)
@@ -146,7 +168,14 @@ export function useWebviewSuspend(
         budget--;
         continue;
       }
-      if (budget <= 0) continue;
+      if (budget <= 0 || minimized[id]) continue;
+      // Un-minimizing is an explicit "give it back", so it wakes the card wherever the camera happens to be pointing.
+      if (wasMinimized[id]) {
+        restoredAt.set(id, Date.now());
+        dispatch(resumeBrowserCard(id));
+        budget--;
+        continue;
+      }
       const bigEnough = card.width * zoom >= RESUME_MIN_CARD_PX;
       if (bigEnough && cardIntersectsViewport(card, vpRef.current, RESUME_MARGIN_PX)) {
         dispatch(resumeBrowserCard(id));
@@ -156,15 +185,19 @@ export function useWebviewSuspend(
 
     const timer = setTimeout(async () => {
       const isSuspended = (id: string) => !!store.getState().dashboardLayout.suspendedBrowserCards[id];
+      // Read live, not off the effect's closure: this re-runs after an await, and the user can restore a card mid-capture.
+      const wantsPark = (id: string, card: BrowserCardPosition): boolean =>
+        isMinimized(id)
+        || (!withinRestoreGrace(id) && !cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX));
       await refreshVisibleFrames(browserCards, isSuspended, vpRef.current);
       for (const [id, card] of Object.entries(browserCards)) {
         if (isSuspended(id)) continue;
-        if (cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX)) continue;
+        if (!wantsPark(id, card)) continue;
         if (mustStayLive(id, card)) continue;
         // An empty dataUrl still suspends (placeholder renders): a card whose capture hangs/fails must not keep its renderer alive forever.
         const dataUrl = await captureForSuspend(id, card);
         // The capture await yielded; conditions may have changed under us.
-        if (cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX) || mustStayLive(id, card)) continue;
+        if (!wantsPark(id, card) || mustStayLive(id, card)) continue;
         dispatch(suspendBrowserCard({ browserId: id, dataUrl }));
       }
 
@@ -183,7 +216,7 @@ export function useWebviewSuspend(
     }, SETTLE_MS);
 
     return () => clearTimeout(timer);
-  }, [browserCards, suspended, panX, panY, zoom, viewportRef, dispatch, resizeTick]);
+  }, [browserCards, suspended, minimized, panX, panY, zoom, viewportRef, dispatch, resizeTick]);
 }
 
 function distFromCenter(card: BrowserCardPosition, vp: Viewport): number {
@@ -219,6 +252,7 @@ async function refreshVisibleFrames(
   if (isAnyBrowserBusy()) return;
   for (const [id, card] of Object.entries(cards)) {
     if (isSuspended(id)) continue;
+    if (isMinimized(id)) continue;
     if (!cardIntersectsViewport(card, vp, 0)) continue;
     const prev = lastFrames.get(id);
     if (prev && Date.now() - prev.at < FRAME_TTL_MS) continue;
@@ -232,12 +266,14 @@ async function captureForSuspend(id: string, card: BrowserCardPosition): Promise
   for (const tab of card.tabs ?? []) {
     await captureTabCapsule(getWebview(id, tab.id), tab.id);
   }
-  const live = await captureCard(id, card);
+  // A minimized card is already parked off-canvas and will never paint again, so asking it for a frame
+  // just burns the capture timeout; the shot frozen on the way in is the only real one it has.
+  const live = isMinimized(id) ? '' : await captureCard(id, card);
   if (live) {
     rememberFrame(id, live);
     return live;
   }
-  return lastFrames.get(id)?.dataUrl ?? '';
+  return lastFrames.get(id)?.dataUrl ?? getMinimizedShot(id) ?? '';
 }
 
 async function captureCard(id: string, card: BrowserCardPosition): Promise<string> {

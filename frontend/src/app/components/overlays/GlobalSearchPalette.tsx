@@ -16,6 +16,7 @@ import { createDashboard } from '@/shared/state/dashboardsSlice';
 import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
+import TopLayerPortal from '@/shared/TopLayerPortal';
 
 interface Props {
   open: boolean;
@@ -205,7 +206,7 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
   const isStillSearching = !!query.trim() && searchLoading && searchQuery !== query.trim();
 
   return (
-    <>
+    <TopLayerPortal>
       {/* Backdrop */}
       <Box
         onClick={onClose}
@@ -338,7 +339,7 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
           <span>esc close</span>
         </Box>
       </Box>
-    </>
+    </TopLayerPortal>
   );
 };
 

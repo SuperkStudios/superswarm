@@ -157,6 +157,8 @@ p_SCHEDULE_GATED = {
     "mcp__openswarm-schedule__PauseAllWorkflows",
 }
 CLAUDE_INTERNAL_SCHEDULER_TOOLS = ("CronCreate", "CronList", "CronDelete")
+# Preset built-ins that deliver their payload BETWEEN turns. We drive the CLI one turn at a time and stop reading at the ResultMessage, so nothing ever consumes the event: the agent arms a Monitor, promises "I'll report back", ends the turn, and the user waits forever for a message that cannot arrive. Withheld here rather than only in the tool manifest, because the manifest has a kill switch (OSW_TOOL_MANIFEST=0) that would otherwise hand the model a promise we cannot keep.
+UNDELIVERABLE_BACKGROUND_TOOLS = ("Monitor", "PushNotification", "RemoteTrigger", "ScheduleWakeup")
 
 
 @typechecked

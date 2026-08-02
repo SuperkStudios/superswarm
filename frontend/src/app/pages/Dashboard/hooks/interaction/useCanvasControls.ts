@@ -1,16 +1,28 @@
-import { useState, useCallback, useRef, useEffect, useMemo, RefObject } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { store } from '@/shared/state/store';
+import { selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
+import { syncTiledGeometry } from '../../canvas/tiledGeometry';
+import { revealZoom, REVEAL_MIN_ZOOM } from '../../canvas/revealZoom';
 
 const MIN_ZOOM = 0.15;
+// The floor for AUTOMATIC reveals only. revealCards takes min(current, fit), which can only ever go
+// down, so every spawn that did not fit ratcheted the camera out and nothing ever brought it back:
+// measured 100% -> 88% -> 79% -> 61% -> 36% -> 18% over one ordinary session, at which point no word
+// on the canvas is readable. A hand-driven zoom can still go all the way to MIN_ZOOM.
+
 const MAX_ZOOM = 3.0;
 const ZOOM_IN_FACTOR = 1.1;
 const ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR;
 const FIT_PADDING = 200;
+// Tidy frames everything at once, so it gets its own tighter margin than a single-card fit. The wider
+// x inset is the left dock, which floats over the canvas and would otherwise sit on the first column.
+const TIDY_PADDING = { x: 120, y: 56 };
+const TIDY_MIN_ZOOM = REVEAL_MIN_ZOOM;
 // Card-framing (spawn, click-to-focus, arrow-nav) snaps as fast as the zoom buttons so a new card lands under you now, not after a lazy glide.
 const FIT_DURATION = 150;
 // Must outlast FIT_DURATION so the drift re-snap lands after the glide, never mid-flight.
@@ -63,7 +75,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
   const stateRef = useRef(state);
   const liveDirtyRef = useRef(false);
   const spaceRef = useRef(false);
-  const cmdRef = useRef(false);
   const sensitivityRef = useRef(zoomSensitivity);
   sensitivityRef.current = zoomSensitivity;
   const contentBoundsRef = useRef(contentBounds);
@@ -89,6 +100,9 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       // Dot RADIUS lives in the committed backgroundImage and lags to gesture-end; at 1-4px dots the mid-pinch error is invisible and skipping the per-frame gradient rebuild keeps this handler pure style writes.
       grid.style.backgroundSize = `${spacing}px ${spacing}px`;
     }
+    // Tiled cards are counter-transformed against this exact camera, in this exact task: same write,
+    // same frame, so the tile and the canvas can never be painted from two different cameras.
+    syncTiledGeometry(stateRef.current);
   }, []);
 
   // Per-frame camera write during a gesture: DOM + live ref only, NO React commit. Dragging cards re-pin to the cursor off the pan-changed event, same signal the old per-frame commit produced.
@@ -302,12 +316,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     const onWheel = (e: WheelEvent) => {
       // Full size view owns the whole surface: any wheel that escapes the chat's scroll container
       // (side gutters, header) must NOT zoom/pan the hidden canvas underneath, that read as a
-      // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period.
-      const tiledCards = store.getState().dashboardLayout.tiledCards;
-      for (const z of Object.values(tiledCards)) {
-        if (z === 'fullscreen') return;
-      }
-      // ctrl/cmd wheel is a modifier gesture: a real held key (cmd/ctrl + scroll → vertical pan) or a trackpad pinch, which also sets ctrlKey (→ zoom at cursor). Either way it bypasses scrollable children and acts on the canvas.
+      // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period. The selector's
+      // existence check matters: a stale tile entry for a removed card would wedge the wheel forever.
+      if (selectFullscreenCardId(store.getState())) return;
+      // ctrl/cmd wheel is the zoom gesture on every surface: a physically held key or a trackpad pinch (which also sets ctrlKey). It bypasses scrollable children so zoom is always reachable, even over a chat you're typing in.
       const isModifierWheel = e.ctrlKey || e.metaKey;
 
       // Let scrollable children handle the event when appropriate, but fall through to canvas pan if the child is at its scroll boundary.
@@ -375,14 +387,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         inertiaFrameRef.current = null;
       }
 
-      if (isModifierWheel && cmdRef.current) {
-        // Real cmd/ctrl physically held + scroll → vertical pan. cmdRef is set from a keydown; a trackpad pinch sets ctrlKey with no keydown, so it falls through to the zoom branch below and pinch-to-zoom survives.
-        pendingPanDy += dy;
-        scheduleWheelFlush();
-      } else if (isModifierWheel) {
-        // Trackpad pinch → accumulate zoom deltas + last cursor position. factor = 2^(-Σdy·s) which equals the product of per-event factors, so accumulating dy is mathematically identical to applying each event one at a time.
+      if (isModifierWheel) {
+        // Pinch or held cmd/ctrl → accumulate zoom deltas + last cursor position. factor = 2^(-Σdy·s) which equals the product of per-event factors, so accumulating dy is mathematically identical to applying each event one at a time.
         const rect = el.getBoundingClientRect();
-        pendingZoomDy += dy;
+        pendingZoomDy += clamp(dy, -WHEEL_ZOOM_DELTA_CAP, WHEEL_ZOOM_DELTA_CAP);
         pendingZoomCenter = { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
         scheduleWheelFlush();
       } else if (isTrackpadScroll) {
@@ -413,7 +421,8 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         cancelAnimationFrame(inertiaFrameRef.current);
         inertiaFrameRef.current = null;
       }
-      pendingZoomDy += dy;
+      // Same per-event cap as a host-side notch, so one wheel click inside a guest page is a step, not a lurch.
+      pendingZoomDy += clamp(dy, -WHEEL_ZOOM_DELTA_CAP, WHEEL_ZOOM_DELTA_CAP);
       pendingZoomCenter = {
         cx: (detail.clientX ?? 0) - rect.left,
         cy: (detail.clientY ?? 0) - rect.top,
@@ -599,7 +608,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         setSpaceHeld(true);
       }
       if ((e.key === 'Meta' || e.key === 'Control') && !e.repeat) {
-        cmdRef.current = true;
         setCmdHeld(true);
       }
       if (e.ctrlKey || e.metaKey) {
@@ -627,7 +635,6 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         setSpaceHeld(false);
       }
       if (e.key === 'Meta' || e.key === 'Control') {
-        cmdRef.current = false;
         setCmdHeld(false);
       }
     };
@@ -640,7 +647,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     };
   }, []);
 
-  const fitToView = useCallback(() => {
+  // minZoom is for the AUTOMATIC boot fit only: restoring a dashboard that had grown tall used to land
+  // at 29% with nothing readable, the same illness revealZoom cured on spawn. The toolbar's own Fit
+  // button passes nothing and still fits everything, however far out that is.
+  const fitToView = useCallback((minZoom?: number) => {
     const viewport = viewportRef.current;
     const content = contentRef.current;
     if (!viewport || !content) return;
@@ -674,7 +684,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
     const contentHeight = maxY - minY;
     const availW = vRect.width - FIT_PADDING * 2;
     const availH = vRect.height - FIT_PADDING * 2;
-    const newZoom = clamp(Math.min(availW / contentWidth, availH / contentHeight), MIN_ZOOM, MAX_ZOOM);
+    const newZoom = clamp(Math.min(availW / contentWidth, availH / contentHeight), Math.max(MIN_ZOOM, minZoom ?? MIN_ZOOM), MAX_ZOOM);
     const newPanX = (vRect.width - contentWidth * newZoom) / 2 - minX * newZoom;
     const newPanY = (vRect.height - contentHeight * newZoom) / 2 - minY * newZoom;
 
@@ -688,6 +698,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       maxZoom?: number,
       minZoom?: number,
       centered?: boolean,
+      padding?: { x: number; y: number },
     ): { panX: number; panY: number; zoom: number } | null => {
       const viewport = viewportRef.current;
       if (!viewport || cardRects.length === 0) return null;
@@ -708,8 +719,10 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
 
       const contentWidth = maxX - minX;
       const contentHeight = maxY - minY;
-      const availW = vRect.width - FIT_PADDING * 2;
-      const availH = vRect.height - FIT_PADDING * 2;
+      const padX = padding?.x ?? FIT_PADDING;
+      const padY = padding?.y ?? FIT_PADDING;
+      const availW = vRect.width - padX * 2;
+      const availH = vRect.height - padY * 2;
       const ceiling = maxZoom ?? MAX_ZOOM;
       const floor = minZoom ?? MIN_ZOOM;
       const targetZoom = clamp(
@@ -717,12 +730,16 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         floor,
         ceiling,
       );
-      const targetPanX =
-        (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom;
+      // Centering is right until the zoom floor bites and the content outgrows its margins: then the left
+      // edge slides under the dock (or off screen), so never let it start left of the inset.
+      const targetPanX = Math.max(
+        (vRect.width - contentWidth * targetZoom) / 2 - minX * targetZoom,
+        padX - minX * targetZoom,
+      );
       // A single card normally top-biases (header up top, no dead space below). On creation we want the opposite: the new card dead-centered "in front of you", so `centered` forces true vertical centering.
       const topBiased = cardRects.length === 1 && !centered;
-      const targetPanY = topBiased
-        ? FIT_PADDING * 0.4 - minY * targetZoom
+      const targetPanY = topBiased || contentHeight * targetZoom > vRect.height
+        ? padY * 0.4 - minY * targetZoom
         : (vRect.height - contentHeight * targetZoom) / 2 -
           minY * targetZoom;
       return { panX: targetPanX, panY: targetPanY, zoom: targetZoom };
@@ -737,10 +754,11 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       animate?: boolean,
       minZoom?: number,
       centered?: boolean,
+      padding?: { x: number; y: number },
     ) => {
       cancelAnimation();
 
-      const target = computeFitTarget(cardRects, maxZoom, minZoom, centered);
+      const target = computeFitTarget(cardRects, maxZoom, minZoom, centered, padding);
       if (!target) {
         // Keep current camera; snapping to (0,0,1) used to desync the minimap.
         if (cardRects.length === 0 || !viewportRef.current) {
@@ -758,7 +776,7 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         // Settle pass: cancelAnimation() must be able to cancel it, else back-to-back fitToCards races and the first settle overwrites the second target.
         settleTimerRef.current = window.setTimeout(() => {
           settleTimerRef.current = null;
-          const fresh = computeFitTarget(cardRects, maxZoom, minZoom, centered);
+          const fresh = computeFitTarget(cardRects, maxZoom, minZoom, centered, padding);
           if (!fresh) return;
           const cur2 = stateRef.current;
           const drift =
@@ -772,6 +790,15 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
       }
     },
     [cancelAnimation, animateTo, computeFitTarget, setCanvasState],
+  );
+
+  // The camera half of Tidy: frame the freshly gridded cards close in (the 200px fit padding was
+  // eating a third of the viewport), never below readable, and never magnified past life size.
+  const fitTidy = useCallback(
+    (cardRects: Array<{ x: number; y: number; width: number; height: number }>) => {
+      fitToCards(cardRects, 1, true, TIDY_MIN_ZOOM, false, TIDY_PADDING);
+    },
+    [fitToCards],
   );
 
   // Figma-style spawn camera: never zoom IN, never move if the cards are already on screen; otherwise the minimal pan that reveals them, zooming out only when they cannot fit at the current zoom.
@@ -795,7 +822,8 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
         (v.width - REVEAL_MARGIN * 2) / (maxX - minX),
         (v.height - REVEAL_MARGIN * 2) / (maxY - minY),
       );
-      const zoom = clamp(Math.min(cur.zoom, fitZoom), MIN_ZOOM, MAX_ZOOM);
+      // Never auto-zoom below readable: showing every card at 18% is worse than showing the new one at 50%, and the pan below still brings it into view.
+      const zoom = clamp(revealZoom(cur.zoom, fitZoom, MIN_ZOOM, MAX_ZOOM), MIN_ZOOM, MAX_ZOOM);
       // If zooming out, keep the viewport-center world point fixed first, then clamp.
       const ratio = zoom / cur.zoom;
       let panX = v.width / 2 - (v.width / 2 - cur.panX) * ratio;
@@ -829,9 +857,9 @@ export function useCanvasControls(zoomSensitivity: number = 50, contentBounds?: 
   const getLiveState = useCallback((): CanvasState => stateRef.current, []);
 
   const actions = useMemo(() => ({
-    zoomIn, zoomOut, resetZoom, fitToView, fitToCards, revealCards, animateTo, cancelAnimation,
+    zoomIn, zoomOut, resetZoom, fitToView, fitToCards, fitTidy, revealCards, animateTo, cancelAnimation,
     setState: setCanvasState, panBy, commit: commitLive, syncTransform: applyLiveToDom, getLiveState,
-  }), [zoomIn, zoomOut, resetZoom, fitToView, fitToCards, revealCards, animateTo, cancelAnimation, setCanvasState, panBy, commitLive, applyLiveToDom, getLiveState]);
+  }), [zoomIn, zoomOut, resetZoom, fitToView, fitToCards, fitTidy, revealCards, animateTo, cancelAnimation, setCanvasState, panBy, commitLive, applyLiveToDom, getLiveState]);
 
   return {
     ...state,

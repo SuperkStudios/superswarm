@@ -12,6 +12,7 @@ import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import InputAdornment from '@mui/material/InputAdornment';
 import SearchIcon from '@mui/icons-material/Search';
+import { EmptyState } from '@/app/components/feedback/Loading';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -132,9 +133,7 @@ const CommunitySkillsDialog: React.FC<Props> = ({ open, onClose, onInstalled }) 
             />
             {loading && <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={22} /></Box>}
             {!loading && results.length === 0 && (
-              <Typography sx={{ fontSize: '0.8125rem', color: c.text.tertiary, textAlign: 'center', py: 3 }}>
-                {query.trim() ? 'No matching skills.' : 'Type to search the community registry.'}
-              </Typography>
+              <EmptyState title={query.trim() ? 'No matching skills.' : 'Type to search the community registry.'} />
             )}
             {!loading && results.map((s) => (
               <Box key={`${s.source}/${s.skillId}`}

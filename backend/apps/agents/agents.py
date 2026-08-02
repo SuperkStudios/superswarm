@@ -438,10 +438,11 @@ async def subscriptions_connect(body: dict, request: Request):
             raise HTTPException(status_code=503, detail="9Router not available. Please install Node.js.")
 
     # Reconnecting gemini-cli must wipe antigravity; registry prefers AG and a stale AG token would 400 after gemini-cli refreshes.
-    cascade = P_PROVIDER_CASCADE_REMOVES.get(provider, [])
+    from backend.apps.agents.disconnect_subscription import PROVIDER_CASCADE_REMOVES, delete_provider_connections
+    cascade = PROVIDER_CASCADE_REMOVES.get(provider, [])
     if cascade:
         try:
-            await p_delete_provider_connections(cascade)
+            await delete_provider_connections(cascade)
         except Exception:
             pass
 
@@ -894,47 +895,12 @@ async def list_models():
     return {"models": result, "notes": notes}
 
 
-# gemini-cli and antigravity are two Google OAuth lanes; registry prefers AG, so we cascade-wipe AG when reconnecting gemini-cli to avoid stale-AG 400s. One-directional: AG operations MUST NOT cascade back.
-P_PROVIDER_CASCADE_REMOVES: dict[str, list[str]] = {
-    "gemini-cli": ["antigravity"],
-}
-
-
-async def p_delete_provider_connections(providers: list[str]) -> int:
-    """Delete 9Router connections in `providers`; returns count removed, silent on 9Router unreachable."""
-    import httpx
-    from backend.apps.nine_router import NINE_ROUTER_API, get_providers
-    try:
-        connections = await get_providers()
-    except Exception:
-        return 0
-    targets = [c for c in connections if c.get("provider") in providers and c.get("id")]
-    removed = 0
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for c in targets:
-            try:
-                await client.delete(f"{NINE_ROUTER_API}/providers/{c['id']}")
-                removed += 1
-            except Exception:
-                pass
-    return removed
-
-
 @agents.router.post("/subscriptions/disconnect")
 async def subscriptions_disconnect(body: dict):
-    """Disconnect a subscription provider via 9Router; cascades-wipe Google's paired lanes."""
+    """Disconnect a subscription provider's 9Router lane; reports ok only once the lane is verifiably gone."""
+    from backend.apps.agents.disconnect_subscription import disconnect_subscription
     provider = body.get("provider", "")
     if not provider:
         raise HTTPException(status_code=400, detail="provider required")
-
-    try:
-        to_remove = [provider, *P_PROVIDER_CASCADE_REMOVES.get(provider, [])]
-        removed = await p_delete_provider_connections(to_remove)
-        if removed:
-            from backend.apps.service.client import sync as p_sync
-            from backend.apps.settings.settings import load_settings
-            p_sync(load_settings().model_dump())
-            return {"ok": True}
-        return {"ok": False, "error": "Connection not found"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await disconnect_subscription(provider)
+    return result.model_dump()

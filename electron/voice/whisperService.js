@@ -6,58 +6,15 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
+const net = require('net');
 const os = require('os');
+const whisperModels = require('./whisperModels');
 
-const MODEL_FILE = 'ggml-base.en.bin';
-const MODEL_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin';
-
-// First-run model fetch, so a dev build (or a prod build that shipped without the model) still works
-// instead of dead-ending on "no model". Progress is exposed so the pill can say "Preparing voice 40%".
-const download = { active: false, pct: 0, error: null };
-
-function downloadModel(dest) {
-  if (download.active) return;
-  download.active = true;
-  download.pct = 0;
-  download.error = null;
-  try { fs.mkdirSync(path.dirname(dest), { recursive: true }); } catch (_) {}
-  const tmp = `${dest}.part`;
-  try { fs.unlinkSync(tmp); } catch (_) {}
-
-  const fail = (msg) => { download.active = false; download.error = String(msg); try { fs.unlinkSync(tmp); } catch (_) {} };
-
-  // HuggingFace bounces resolve -> CDN -> signed URL, so follow redirects instead of assuming one hop.
-  const fetchUrl = (url, hops) => {
-    if (hops > 6) { fail('too-many-redirects'); return; }
-    const req = https.get(url, { headers: { 'User-Agent': 'openswarm-voice' } }, (res) => {
-      const code = res.statusCode || 0;
-      if (code >= 300 && code < 400 && res.headers.location) {
-        res.resume(); // drain so the socket frees
-        fetchUrl(new URL(res.headers.location, url).toString(), hops + 1);
-        return;
-      }
-      if (code !== 200) { res.resume(); fail(`http-${code}`); return; }
-      const total = Number(res.headers['content-length'] || 0);
-      let got = 0;
-      const file = fs.createWriteStream(tmp);
-      res.on('data', (c) => { got += c.length; if (total) download.pct = Math.round((got / total) * 100); });
-      res.pipe(file);
-      file.on('finish', () => file.close(() => {
-        // A truncated download is worse than none: only accept a complete file.
-        if (total && got < total) { fail('truncated'); return; }
-        try { fs.renameSync(tmp, dest); download.pct = 100; download.active = false; } catch (e) { fail(e && e.message ? e.message : e); }
-      }));
-      res.on('error', () => fail('stream-error'));
-      file.on('error', () => fail('write-error'));
-    });
-    req.on('error', (e) => fail(e && e.message ? e.message : e));
-  };
-  fetchUrl(MODEL_URL, 0);
-}
+// Which catalog model the user picked. Settings pushes it in; until then the catalog default wins.
+let selectedModelId = whisperModels.DEFAULT_MODEL_ID;
 
 function modelStatus() {
-  return { downloading: download.active, pct: download.pct, error: download.error };
+  return whisperModels.downloadStatus();
 }
 
 // Resolve the whisper-server binary. Env override wins (dev convenience), then the bundled per-arch
@@ -74,37 +31,82 @@ function resolveBinary(resourceDir) {
   return exe; // last resort: hope it is on PATH
 }
 
-// Resolve the model file. Env override, then bundled, then a dev cache under the app's data dir.
 function resolveModel(resourceDir, userDataDir) {
-  if (process.env.OPENSWARM_WHISPER_MODEL && fs.existsSync(process.env.OPENSWARM_WHISPER_MODEL)) {
-    return process.env.OPENSWARM_WHISPER_MODEL;
-  }
-  const bundled = path.join(resourceDir, MODEL_FILE);
-  if (fs.existsSync(bundled)) return bundled;
-  const cached = path.join(userDataDir, 'whisper', MODEL_FILE);
-  if (fs.existsSync(cached)) return cached;
-  return null;
+  return whisperModels.resolveModelFile(resourceDir, userDataDir, selectedModelId);
 }
 
 let proc = null;
 let port = 0;
 let readyPromise = null;
+let idleTimer = null;
+let loadedModelFile = null;
 
-function pickPort() {
-  // Fixed-ish high port; whisper-server has no ephemeral-port reporting, so we pick and probe.
-  return 8300 + Math.floor(Math.random() * 400);
+// A warm server holds ~210MB (measured, base.en). Free it after a long quiet spell; the reload that
+// costs is the FIRST one on a cold page cache, and boot-warm already paid that.
+const IDLE_UNLOAD_MS = 10 * 60 * 1000;
+
+// Let the OS name a free port instead of guessing one. A guessed port that is already taken makes
+// whisper exit(1) AND makes our readiness probe accept the squatter's reply as proof of life, so we
+// would happily POST the user's audio at a stranger.
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const addr = probe.address();
+      probe.close(() => resolve(addr.port));
+    });
+  });
 }
 
-async function waitForReady(p, timeoutMs) {
+async function waitForReady(child, p, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) return false; // died mid-load; stop waiting
     try {
       const res = await fetch(`http://127.0.0.1:${p}/`, { method: 'GET' });
-      if (res.status) return true; // any HTTP answer means the socket is serving
+      if (res.status) return true; // the socket is ours and it is serving
     } catch (_) { /* not up yet */ }
-    await new Promise((r) => setTimeout(r, 150));
+    await new Promise((r) => setTimeout(r, 50));
   }
   return false;
+}
+
+function p_touchIdle() {
+  if (idleTimer) clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => { idleTimer = null; stopServer(); }, IDLE_UNLOAD_MS);
+  if (idleTimer.unref) idleTimer.unref(); // an idle countdown must never be the reason the app won't quit
+}
+
+// 44-byte RIFF header + silence, 16kHz mono, matching what the renderer sends.
+function p_silentWav(seconds) {
+  const samples = Math.round(16000 * seconds);
+  const buf = Buffer.alloc(44 + samples * 2);
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + samples * 2, 4); buf.write('WAVE', 8);
+  buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(16000, 24); buf.writeUInt32LE(32000, 28); buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34);
+  buf.write('data', 36); buf.writeUInt32LE(samples * 2, 40);
+  return buf;
+}
+
+// A loaded model is not a ready one: the first inference pays a one-off graph/kernel allocation
+// (measured ~180ms on an M2). Spend it on silence at boot so the user's first phrase doesn't.
+async function p_primeGraph(p) {
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([p_silentWav(0.5)], { type: 'audio/wav' }), 'warm.wav');
+    form.append('response_format', 'text');
+    const res = await fetch(`http://127.0.0.1:${p}/inference`, { method: 'POST', body: form });
+    await res.text();
+  } catch (_) { /* priming is an optimization; a failure just means the first phrase pays it */ }
+}
+
+// Pull the one line a human can act on out of whisper's chatty output.
+function p_reasonFrom(tail) {
+  const lines = tail.split('\n').map((l) => l.trim()).filter(Boolean);
+  const blame = lines.filter((l) => /error|failed|invalid|unable|cannot|no such|not found/i.test(l));
+  const pick = blame.length ? blame[blame.length - 1] : lines[lines.length - 1];
+  return pick ? `: ${pick.slice(0, 200)}` : '';
 }
 
 async function p_bootServer(resourceDir, userDataDir) {
@@ -112,27 +114,48 @@ async function p_bootServer(resourceDir, userDataDir) {
   const model = resolveModel(resourceDir, userDataDir);
   if (!model) {
     // Kick off a one-time background fetch so the NEXT dictation just works.
-    downloadModel(path.join(userDataDir, 'whisper', MODEL_FILE));
-    throw new Error(download.active ? 'model-downloading' : 'no-model');
+    whisperModels.downloadModel(userDataDir, selectedModelId);
+    throw new Error(whisperModels.downloadStatus().downloading ? 'model-downloading' : 'no-model');
   }
-  const p = pickPort();
+  loadedModelFile = model;
+  const p = await freePort();
   // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
   const child = spawn(bin, ['-m', model, '--port', String(p), '-nt'], {
     cwd: os.tmpdir(), // whisper writes per-request temp files beside cwd, and a Finder launch starts at the unwritable /
-    stdio: ['ignore', 'ignore', 'pipe'],
+    // BOTH pipes: whisper writes its fatal reasons to STDOUT and then exits 0, so an ignored stdout
+    // turns "ffmpeg is missing" into an unexplained failure. Draining also stops the pipe buffer
+    // filling and blocking the child.
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  // Drain stderr or the pipe buffer fills and blocks the child; it is also the only diagnostic we get.
-  child.stderr.on('data', (c) => console.log('[voice] whisper:', String(c).trim().slice(0, 400)));
+  // Keep a rolling tail rather than the last chunk: whisper prints its real reason and THEN keeps
+  // banner-dumping, so "the most recent bytes" is reliably the least useful line it wrote.
+  let tail = '';
+  const drain = (c) => {
+    const said = String(c);
+    if (!said.trim()) return;
+    tail = (tail + said).slice(-4000);
+    console.log('[voice] whisper:', said.trim().slice(0, 400));
+  };
+  child.stdout.on('data', drain);
+  child.stderr.on('data', drain);
   child.on('error', () => { proc = null; port = 0; });
   child.on('exit', (code) => { if (code) console.log(`[voice] whisper-server exited code=${code}`); proc = null; port = 0; readyPromise = null; });
   // Cold model load measured 15-38s on an M2; the old 20s budget timed out real first uses.
-  const ok = await waitForReady(p, 60000);
+  const ok = await waitForReady(child, p, 60000);
   if (!ok) {
     try { child.kill(); } catch (_) {}
+    // A dead child is not a slow one. Whisper can die in ~0.1s with exit code 0 (a missing ffmpeg on
+    // a Finder-launched PATH does exactly that), so report ITS reason instantly instead of making the
+    // user sit through the full ready budget for a process that was never coming back.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`whisper-exited-${child.exitCode}${p_reasonFrom(tail)}`);
+    }
     throw new Error('server-timeout');
   }
   proc = child;
   port = p;
+  await p_primeGraph(p);
+  p_touchIdle();
   return p;
 }
 
@@ -143,6 +166,9 @@ async function p_bootServer(resourceDir, userDataDir) {
 // settled-rejected promise forever so every later call kept throwing "model-downloading" even after
 // the model finished. Clearing on rejection here lets the next call retry cleanly.
 async function ensureServer(resourceDir, userDataDir) {
+  // A warm server is only reusable if it holds the file we would load now: a model switch, or the
+  // user's pick finishing its download while a fallback was serving, has to re-boot.
+  if (proc && port && resolveModel(resourceDir, userDataDir) !== loadedModelFile) stopServer();
   if (proc && port) return port;
   if (readyPromise) return readyPromise;
   readyPromise = p_bootServer(resourceDir, userDataDir);
@@ -158,6 +184,7 @@ async function ensureServer(resourceDir, userDataDir) {
 // never crosses a CORS boundary; we POST from the main process where there is none.
 async function transcribe(resourceDir, userDataDir, wavBuffer) {
   const p = await ensureServer(resourceDir, userDataDir);
+  p_touchIdle();
   const form = new FormData();
   form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
   form.append('response_format', 'text');
@@ -167,13 +194,53 @@ async function transcribe(resourceDir, userDataDir, wavBuffer) {
   return text;
 }
 
+// Boot the model in the background at app start so the expensive FIRST load (cold page cache, and on
+// a packaged build the OS's first-exec check of the bundled binary) never lands under a keypress.
+// Deliberately refuses to download: a user who never dictates should not silently pull 148MB.
+// Returns whether a warm was actually started, so the caller can log the honest reason.
+function warmInBackground(resourceDir, userDataDir) {
+  if (proc || readyPromise) return true; // already warm or warming; ensureServer dedupes anyway
+  if (!resolveModel(resourceDir, userDataDir)) return false;
+  ensureServer(resourceDir, userDataDir).catch(() => {});
+  return true;
+}
+
 function stopServer() {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
   if (proc) {
     try { proc.kill(); } catch (_) {}
   }
   proc = null;
   port = 0;
   readyPromise = null;
+  loadedModelFile = null;
 }
 
-module.exports = { ensureServer, transcribe, stopServer, resolveBinary, resolveModel, modelStatus };
+// Settings picked a different model. Downloads it if missing; the running server keeps serving the
+// old one until the new file is complete, so switching never leaves dictation dead in between.
+function setModel(userDataDir, id) {
+  const next = whisperModels.modelById(id).id;
+  if (next === selectedModelId) return whisperModels.isInstalled(userDataDir, next);
+  selectedModelId = next;
+  if (whisperModels.isInstalled(userDataDir, next)) return true;
+  whisperModels.downloadModel(userDataDir, next);
+  return false;
+}
+
+function selectedModel() {
+  return selectedModelId;
+}
+
+function isWarm() {
+  return Boolean(proc && port);
+}
+
+// Sleep evicts the GPU-side state a warm server built, so the first phrase after a lid-open pays for
+// it again. Re-prime on wake instead of restarting: same fix openwhispr and VoiceInk landed.
+async function reprimeAfterWake() {
+  if (!isWarm()) return false;
+  await p_primeGraph(port);
+  return true;
+}
+
+module.exports = { ensureServer, warmInBackground, reprimeAfterWake, transcribe, stopServer, isWarm, setModel, selectedModel, resolveBinary, resolveModel, modelStatus };

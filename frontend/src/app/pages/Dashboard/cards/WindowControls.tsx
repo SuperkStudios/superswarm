@@ -1,15 +1,13 @@
 import React, { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
-import { TILE_ZONES } from './tileZones';
+import { TILE_ZONES } from '../canvas/tiledGeometry';
+import { TILE_GROUPS, ZONE_LABELS } from './tileZones';
 
 interface WindowControlsProps {
   onClose: () => void;
   onMinimize: () => void;
-  onTile: (zone: string) => void; // a TILE_ZONES key, or 'restore'
+  onTile: (zone: string) => void; // a TILE_ZONES key, 'fullscreen', or 'restore'
   tiled?: boolean;
-  // Green = direct fullscreen toggle, no Fill/Halves/Quarters submenu (for surfaces that only
-  // support fullscreen, like the Workflows window, where half-tiling has nowhere to land).
-  noTileMenu?: boolean;
 }
 
 // macOS-style traffic lights on every card = the "AI OS" window feel. Grey at rest so a canvas
@@ -19,11 +17,6 @@ interface WindowControlsProps {
 const RED = '#ff5f57';
 const YELLOW = '#febc2e';
 const GREEN = '#28c840';
-
-const GROUPS: { label: string; zones: string[] }[] = [
-  { label: 'Fill & Halves', zones: ['fill', 'left', 'right', 'top', 'bottom'] },
-  { label: 'Quarters', zones: ['tl', 'tr', 'bl', 'br'] },
-];
 
 const dotSx = (color: string): Record<string, unknown> => ({
   width: 12, height: 12, p: 0, m: 0, borderRadius: '50%', border: '0.5px solid rgba(0,0,0,0.06)',
@@ -47,12 +40,14 @@ export const ARC_CHIP_SX: Record<string, unknown> = {
   },
   // red / yellow / green land at 150deg / 90deg / 30deg on a 12px arc over the chip's crown.
   // Keyed off the HOST (whole pill/thumb) hover, so grazing any part of it fans the dots out.
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(1)': { transform: 'translate(calc(-50% - 11px), calc(-50% + 5px)) scale(1)', opacity: 1 },
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(2)': { transform: 'translate(-50%, calc(-50% - 7px)) scale(1)', opacity: 1, transitionDelay: '40ms' },
-  '.osw-pill-host:hover & .osw-window-lights > :nth-of-type(3)': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
+  // Addressed by data-light, never by position: green is a wrapper DIV among two BUTTONs, and the
+  // old nth-of-type counted per tag, so it dealt green the red slot and parked it on top of Close.
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="close"]': { transform: 'translate(calc(-50% - 11px), calc(-50% + 5px)) scale(1)', opacity: 1 },
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="minimize"]': { transform: 'translate(-50%, calc(-50% - 7px)) scale(1)', opacity: 1, transitionDelay: '40ms' },
+  '.osw-pill-host:hover & .osw-window-lights > [data-light="zoom"]': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
 };
 
-function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: WindowControlsProps): React.ReactElement {
+function WindowControls({ onClose, onMinimize, onTile, tiled }: WindowControlsProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   // Menu DOM (12 tiles + labels, ~30 nodes) mounts on first green-dot hover, not per card at boot.
   const [menuHot, setMenuHot] = useState(false);
@@ -61,7 +56,6 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
   const greenRef = useRef<HTMLDivElement | null>(null);
   const closeTimer = useRef<number | null>(null);
   const openMenu = (): void => {
-    if (noTileMenu) return;
     if (closeTimer.current) window.clearTimeout(closeTimer.current);
     const rect = greenRef.current?.getBoundingClientRect();
     if (rect) setAlignRight(rect.left + 224 > window.innerWidth);
@@ -71,8 +65,8 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
   const scheduleClose = (): void => { closeTimer.current = window.setTimeout(() => setMenuOpen(false), 550); };
   const stop = (e: React.PointerEvent | React.MouseEvent): void => { e.stopPropagation(); };
 
-  const btn = (color: string, symbol: string, onClick: () => void, label: string): React.ReactElement => (
-    <Box component="button" type="button" aria-label={label}
+  const btn = (color: string, symbol: string, onClick: () => void, label: string, slot: string): React.ReactElement => (
+    <Box component="button" type="button" aria-label={label} data-light={slot}
       onClick={(e: React.MouseEvent) => { e.stopPropagation(); onClick(); }} onPointerDown={stop} sx={dotSx(color)}>
       <span>{symbol}</span>
     </Box>
@@ -86,9 +80,9 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
         // through the dots, and you can't aim at a dot without hovering its card first anyway.
         pointerEvents: 'none', '.osw-card:hover &': { pointerEvents: 'auto' },
       }}>
-      {btn(RED, '×', onClose, 'Close')}
-      {btn(YELLOW, '−', onMinimize, 'Minimize')}
-      <Box ref={greenRef} sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
+      {btn(RED, '×', onClose, 'Close', 'close')}
+      {btn(YELLOW, '−', onMinimize, 'Minimize', 'minimize')}
+      <Box ref={greenRef} data-light="zoom" sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}
         onMouseEnter={openMenu} onMouseLeave={scheduleClose}>
         <Box component="button" type="button" aria-label={tiled ? 'Exit Full Screen' : 'Full Screen'}
           onClick={(e: React.MouseEvent) => { e.stopPropagation(); onTile(tiled ? 'restore' : 'fullscreen'); }}
@@ -108,14 +102,14 @@ function WindowControls({ onClose, onMinimize, onTile, tiled, noTileMenu }: Wind
             opacity: menuOpen ? 1 : 0, transform: menuOpen ? 'none' : 'translateY(-6px) scale(0.96)',
             pointerEvents: menuOpen ? 'auto' : 'none', transition: 'opacity .16s, transform .18s cubic-bezier(.3,.9,.3,1)',
           }}>
-          {GROUPS.map((g) => (
+          {TILE_GROUPS.map((g) => (
             <Box key={g.label} sx={{ mb: 0.75, '&:last-of-type': { mb: 0 } }}>
               <Box sx={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(115,114,108,0.65)', textTransform: 'uppercase', mb: 0.5 }}>{g.label}</Box>
               <Box sx={{ display: 'flex', gap: '7px' }}>
                 {g.zones.map((zone) => {
                   const z = TILE_ZONES[zone];
                   return (
-                    <Box key={zone} role="button" aria-label={zone}
+                    <Box key={zone} role="button" aria-label={ZONE_LABELS[zone]}
                       onClick={(e: React.MouseEvent) => { e.stopPropagation(); setMenuOpen(false); onTile(zone); }}
                       sx={{ position: 'relative', flex: 1, height: 32, border: '1px solid rgba(0,0,0,0.08)', borderRadius: '6px', background: '#F5F4ED', cursor: 'pointer', overflow: 'hidden', transition: 'border-color .12s, background .12s', '&:hover': { borderColor: '#ae5630', background: '#ae56300d' } }}>
                       <Box sx={{ position: 'absolute', left: `${z.x * 100 + 8}%`, top: `${z.y * 100 + 14}%`, width: `${z.w * 100 - 16}%`, height: `${z.h * 100 - 28}%`, background: '#ae5630', opacity: 0.8, borderRadius: '2px' }} />

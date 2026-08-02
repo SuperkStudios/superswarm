@@ -68,6 +68,8 @@ class ConnectionManager:
     def __init__(self):
         self.connections: dict[str, list[WebSocket]] = {}
         self.global_connections: list[WebSocket] = []
+        # Latched on the first renderer and never cleared: it answers "can a window reach this backend at all", which a momentary socket blip must not un-answer. Only the process dying resets it.
+        self.renderer_ever_attached: bool = False
         # Which dashboard each global socket is currently showing, keyed by id(websocket). active_dashboard_id is the last one activated (the window the user is looking at most recently); a scheduled run targets it so its browser card spawns where the renderer can render it.
         self.global_dashboard_ids: dict[int, str] = {}
         self.active_dashboard_id: Optional[str] = None
@@ -85,6 +87,7 @@ class ConnectionManager:
     async def connect_global(self, websocket: WebSocket):
         await websocket.accept()
         self.global_connections.append(websocket)
+        self.renderer_ever_attached = True
 
     async def connect_main(self, websocket: WebSocket):
         """Register the single Electron-main bridge socket (replaces any stale prior one)."""

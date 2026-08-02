@@ -12,12 +12,19 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   const { state, lastText, error, pct, feedback, toggle, start, stop, volumeRef } = useVoiceDictation();
   const holdMode = useAppSelector((s) => s.settings.data.voice_hold_to_talk ?? true);
   const dictationShortcut = useAppSelector((s) => s.settings.data.dictation_shortcut ?? null);
+  const dictationModel = useAppSelector((s) => s.settings.data.dictation_model ?? null);
 
   // Push the user's combo to main on boot and on change so every hotkey tier rebinds live.
   useEffect(() => {
     const bridge = window as unknown as { openswarm?: { setVoiceHotkey?: (combo: string | null) => void } };
     bridge.openswarm?.setVoiceHotkey?.(dictationShortcut);
   }, [dictationShortcut]);
+
+  // Main boots with the catalog default, so a user who picked something else has to say so on every
+  // launch or dictation quietly runs on the wrong model.
+  useEffect(() => {
+    if (dictationModel) void window.openswarm?.voiceSetModel?.(dictationModel);
+  }, [dictationModel]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const heldRef = useRef(false);
@@ -28,7 +35,7 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
       // flips state to 'recording', so without this the mic could be started by a click but never
       // stopped by one.
       if (stateRef.current === 'recording') { heldRef.current = false; void stop(); return; }
-      if (stateRef.current === 'idle') { heldRef.current = true; void start(); }
+      if (stateRef.current === 'idle') { heldRef.current = true; void start(true); }
     } else {
       toggle();
     }

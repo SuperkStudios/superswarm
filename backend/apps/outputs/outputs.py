@@ -15,7 +15,8 @@ from backend.apps.outputs.models import (
     PublishPreflightRequest, PublishRequest, PublishPreflightResponse,
     PublishResult, PublishReview,
 )
-from backend.apps.outputs.executor import execute_backend_code, get_code_warnings
+from backend.apps.outputs.code_safety import get_code_warnings
+from backend.apps.outputs.executor import execute_backend_code
 from backend.apps.outputs.publish_common import slugify, PublishError
 from backend.apps.outputs.publish_scan import scan_for_publish, quick_ast_gate
 from backend.apps.outputs.publish_build import build_static, collect_bundle
@@ -41,7 +42,9 @@ from backend.apps.outputs.workspace_io import (
     save,
     load,
     load_output,
+    resolve_in_workspace,
     walk_directory,
+    workspace_root,
     would_shrink_oversize_file,
 )
 from backend.apps.outputs.prompts import VIBE_CODE_SYSTEM_PROMPT
@@ -53,6 +56,12 @@ logger = logging.getLogger(__name__)
 async def outputs_lifespan():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
+    # One-time sweep: an app whose record vanished still has its work on disk, and no way for the user to know it is there.
+    try:
+        from backend.apps.outputs.recover_orphaned_apps import recover_orphaned_apps
+        recover_orphaned_apps()
+    except Exception:
+        logger.exception("orphaned-app recovery failed; apps stay hidden but nothing else breaks")
     try:
         yield
     finally:
@@ -75,8 +84,8 @@ outputs = SubApp("outputs", outputs_lifespan)
 async def serve_workspace_file(workspace_id: str, filepath: str, p_d: str = ""):
     """Serve a file from a workspace folder. For index.html, inject OUTPUT data."""
     folder = os.path.join(WORKSPACE_DIR, workspace_id)
-    full_path = os.path.normpath(os.path.join(folder, filepath))
-    if not full_path.startswith(os.path.normpath(folder)):
+    full_path = resolve_in_workspace(folder, filepath)
+    if full_path is None:
         raise HTTPException(status_code=403, detail="Path traversal not allowed")
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -362,8 +371,8 @@ async def seed_workspace(body: WorkspaceSeedRequest):
     # Legacy flat path. Seed only fills in MISSING files; it never overwrites what's already on disk. A reopen re-sends the inline output.files snapshot, which lags behind whatever the agent just wrote to the workspace; writing it back reverted every edited file (new files survived, edited ones snapped to the snapshot). Disk wins once an app exists.
     if body.files:
         for rel_path, content in body.files.items():
-            full_path = os.path.normpath(os.path.join(folder, rel_path))
-            if not full_path.startswith(os.path.normpath(folder)):
+            full_path = resolve_in_workspace(folder, rel_path)
+            if full_path is None:
                 continue
             if os.path.exists(full_path):
                 continue
@@ -523,10 +532,8 @@ async def write_workspace_file(workspace_id: str, filepath: str, body: dict):
     folder = os.path.join(WORKSPACE_DIR, workspace_id)
     if not os.path.isdir(folder):
         raise HTTPException(status_code=404, detail="Workspace not found")
-    folder_norm = os.path.normpath(folder)
-    full_path = os.path.normpath(os.path.join(folder, filepath))
-    # `startswith(folder_norm + os.sep)` (not just folder_norm) so a workspace `abc-123` can't be tricked into writing into a sibling `abc-1234-evil`, prefix-string collision rather than path-component containment. Today's UUID-format ids make the collision unlikely in practice, but the check is one character and immunizes future id schemes.
-    if full_path != folder_norm and not full_path.startswith(folder_norm + os.sep):
+    full_path = resolve_in_workspace(folder, filepath)
+    if full_path is None:
         raise HTTPException(status_code=403, detail="Path traversal not allowed")
     content = body.get("content", "")
     if would_shrink_oversize_file(full_path, content):
@@ -543,14 +550,14 @@ async def delete_workspace_file(workspace_id: str, filepath: str):
     folder = os.path.join(WORKSPACE_DIR, workspace_id)
     if not os.path.isdir(folder):
         raise HTTPException(status_code=404, detail="Workspace not found")
-    folder_norm = os.path.normpath(folder)
-    full_path = os.path.normpath(os.path.join(folder, filepath))
-    if full_path != folder_norm and not full_path.startswith(folder_norm + os.sep):
+    full_path = resolve_in_workspace(folder, filepath)
+    if full_path is None:
         raise HTTPException(status_code=403, detail="Path traversal not allowed")
     if os.path.isfile(full_path):
         os.remove(full_path)
+        root = workspace_root(folder)
         parent = os.path.dirname(full_path)
-        while parent != os.path.normpath(folder):
+        while parent != root:
             if os.path.isdir(parent) and not os.listdir(parent):
                 os.rmdir(parent)
                 parent = os.path.dirname(parent)
@@ -723,9 +730,9 @@ async def execute_output(body: OutputExecute):
                 code_preview = output.backend_code
         if not warnings_out:
             try:
-                # We've either already vetted (no warnings above) or the user explicitly opted in with force=True. Pass skip_validation=True so we don't pay for a redundant AST walk inside execute_backend_code.
+                # `approved` is body.force alone: code that merely passed the gate above still runs sandboxed, because a clean scan is not consent.
                 exec_result = await execute_backend_code(
-                    output.backend_code, body.input_data, skip_validation=True
+                    output.backend_code, body.input_data, approved=bool(body.force)
                 )
                 backend_result = exec_result.result
                 stdout_text = exec_result.stdout

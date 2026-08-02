@@ -20,7 +20,8 @@ from .bundles import get_bundle, resolve_file
 from .fallback import apex_page, not_found_page
 from .inject import inject_runtime
 from .ratelimit import RateLimiter
-from .sandbox import UnsafeCodeError, run_backend
+from .code_safety import UnsafeCodeError
+from .sandbox import run_backend
 
 APPS_BASE_DOMAIN = os.environ.get("APPS_BASE_DOMAIN", "openswarm.host")
 # The metered-LLM call goes to the cloud over Fly's PRIVATE 6PN mesh (encrypted,

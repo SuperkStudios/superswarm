@@ -273,9 +273,8 @@ async def execute(
             mode=wf.mode or "agent",
             provider=wf.provider or "anthropic",
             system_prompt=_resolve_system_prompt(wf),
-            allowed_tools=resolved_allowed_tools if resolved_allowed_tools is not None else [
-                "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
-            ],
+            # None when the user has not frozen the Actions set, which means the workflow runs with the mode's full surface exactly like a chat does.
+            allowed_tools=resolved_allowed_tools,
             dashboard_id=resolve_workflow_dashboard_id(wf),
             workflow_run_id=run.id,
         )

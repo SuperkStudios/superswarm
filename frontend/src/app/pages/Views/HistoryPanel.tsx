@@ -8,6 +8,7 @@ import Fade from '@mui/material/Fade';
 import RestoreIcon from '@mui/icons-material/Restore';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import HistoryIcon from '@mui/icons-material/History';
+import { EmptyState } from '@/app/components/feedback/Loading';
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -162,12 +163,11 @@ const HistoryPanel: React.FC<Props> = ({ outputId, isAgentActive, saveLabel, onB
             <CircularProgress size={22} sx={{ color: c.text.tertiary }} />
           </Box>
         ) : versions.length === 0 ? (
-          <Box sx={{ textAlign: 'center', pt: 6, px: 2 }}>
-            <HistoryIcon sx={{ fontSize: 34, color: c.text.tertiary, opacity: 0.5, mb: 1 }} />
-            <Typography sx={{ fontSize: '0.875rem', color: c.text.muted, lineHeight: 1.5 }}>
-              No history yet. Every time you change your app, we'll save a snapshot here so you can go back.
-            </Typography>
-          </Box>
+          <EmptyState
+            icon={<HistoryIcon sx={{ fontSize: 32 }} />}
+            title="No history yet"
+            hint="Every time you change your app, we'll save a snapshot here so you can go back."
+          />
         ) : (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>

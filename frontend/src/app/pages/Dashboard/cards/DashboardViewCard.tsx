@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { store } from '@/shared/state/store';
 import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Fade from '@mui/material/Fade';
@@ -15,15 +14,18 @@ import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
 import AddIcon from '@mui/icons-material/Add';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
-import { Output, SERVE_BASE } from '@/shared/state/outputsSlice';
-import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, setTiledCard, clearTiledCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
+import { Output, SERVE_BASE, updateOutput } from '@/shared/state/outputsSlice';
+import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
+import { saveMinimizedShot } from '../desktop/minimizedShots';
 import { requestAppSlot, releaseAppSlot, subscribeAppBudget } from '@/shared/appWebviewBudget';
 import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { viewCardMenuRows } from './viewCardMenuRows';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
-import { useTiledStyle, computeTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
+import { useCardTiling } from './useCardTiling';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { API_BASE, getAuthToken } from '@/shared/config';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -32,6 +34,7 @@ import TerminalPanel, { TerminalLine } from '@/app/pages/Views/TerminalPanel';
 import AppCodePanel from '@/app/pages/Views/AppCodePanel';
 import HistoryPanel from '@/app/pages/Views/HistoryPanel';
 import ShareButton from '@/app/components/share/ShareButton';
+import ShareModal from '@/app/components/share/ShareModal';
 import { getDefault } from '@/shared/inputSchemaDefaults';
 import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
 import {
@@ -152,7 +155,11 @@ const DashboardViewCard: React.FC<Props> = ({
   const appGlow = useAppSelector((s) => s.dashboardLayout.glowingBrowserCards[`app:${cardKeyProp ?? output.id}`]);
   const showAgentGlow = !!appGlow && !appGlow.fading;
   const interactive = activeViewCardId === cardKey;
-  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[cardKey]);
+  const commitCardPosition = useCallback((x: number, y: number) => {
+    dispatch(setViewCardPosition({ outputId: cardKey, x, y }));
+  }, [dispatch, cardKey]);
+  const tiling = useCardTiling({ cardId: cardKey, getCanvasState, commitPosition: commitCardPosition });
+  const tileZone = tiling.zone;
   const isMinimized = useAppSelector((s) => !!s.dashboardLayout.minimizedCards[cardKey]);
   // Reveal-born apps stay a light "click to open" card until the first click, so the onboarding curtain
   // lifts instantly instead of behind an in-frame live Vite boot. The click (selecting it) clears the flag.
@@ -160,17 +167,7 @@ const DashboardViewCard: React.FC<Props> = ({
   useEffect(() => {
     if (previewDeferred && (isSelected || interactive)) dispatch(activateViewCardPreview(cardKey));
   }, [previewDeferred, isSelected, interactive, cardKey, dispatch]);
-  // Tiled geometry must track pan/zoom, but the camera lives outside React now; subscribe to the pan event ONLY while tiled and read the live getter.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, cardKey);
+  const isTiled = !!tileZone;
   const isFullscreen = tileZone === 'fullscreen';
 
   // ---- In-chat dock (mirrors BrowserCard): while docked to an expanded chat, overlay its slot rect.
@@ -223,7 +220,9 @@ const DashboardViewCard: React.FC<Props> = ({
   useEffect(() => {
     const evaluate = (): void => {
       let want: boolean;
-      if (previewDeferred) {
+      if (isMinimized) {
+        want = false; // parked in the rail as a still, so a live renderer behind it is pure waste
+      } else if (previewDeferred) {
         want = false; // reveal-parked: never boot until the first click clears the defer
       } else if (alwaysLive) {
         // Actively used (selected, interacting, agent-driven, tiled, fullscreen): pinned, never capped.
@@ -263,8 +262,8 @@ const DashboardViewCard: React.FC<Props> = ({
         previewLiveRef.current = true;
         setSuspendSnapshot(null);
         setPreviewLive(true);
-      } else if (previewDeferred) {
-        // Reveal-parked from birth: never booted, so no settle + no frame to capture, just stay light.
+      } else if (isMinimized || previewDeferred) {
+        // Parked (minimize already froze its own frame) or never booted: drop it now, no settle beat.
         if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
         previewLiveRef.current = false;
         setPreviewLive(false);
@@ -290,7 +289,7 @@ const DashboardViewCard: React.FC<Props> = ({
       window.removeEventListener('resize', evaluate);
       if (suspendTimerRef.current) { clearTimeout(suspendTimerRef.current); suspendTimerRef.current = null; }
     };
-  }, [alwaysLive, previewDeferred, cardX, cardY, cardWidth, cardHeight, getCanvasState, cardKey]);
+  }, [alwaysLive, previewDeferred, isMinimized, cardX, cardY, cardWidth, cardHeight, getCanvasState, cardKey]);
 
   // Free the cap slot on unmount (card deleted, dashboard switch) so a slot is never leaked.
   useEffect(() => () => releaseAppSlot(cardKey), [cardKey]);
@@ -385,17 +384,22 @@ const DashboardViewCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: dockRect?.x ?? cardX, origY: dockRect?.y ?? cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? dockRect?.x ?? cardX, origY: popped?.y ?? dockRect?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(cardKey, 'view');
-  }, [cardX, cardY, onDragStart, cardKey, getCanvasState, tileZone]);
+  }, [cardX, cardY, cardWidth, onDragStart, cardKey, getCanvasState, tiling, dockRect]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -500,27 +504,16 @@ const DashboardViewCard: React.FC<Props> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
-      // Grabbing an edge of a TILED card exits the tile and resizes from exactly where it sat,
-      // macOS-style; without this the handles resized the stale free-position geometry.
-      let origX = cardX, origY = cardY, origW = cardWidth, origH = cardHeight;
-      const zone = store.getState().dashboardLayout.tiledCards[cardKey];
-      if (zone) {
-        const cam = getCanvasState();
-        const ts = computeTiledStyle(zone, cam.panX, cam.panY, cam.zoom);
-        if (ts) {
-          origX = ts.left; origY = ts.top; origW = ts.width / cam.zoom; origH = ts.height / cam.zoom;
-          setLocalResize({ x: origX, y: origY, w: origW, h: origH });
-          dispatch(clearTiledCard(cardKey));
-        }
-      }
+      const popped = tiling.untileForResize();
+      if (popped) setLocalResize(popped);
       resizeRef.current = {
         dir, startX: e.clientX, startY: e.clientY,
-        origX, origY, origW, origH,
+        origX: popped?.x ?? cardX, origY: popped?.y ?? cardY, origW: popped?.w ?? cardWidth, origH: popped?.h ?? cardHeight,
       };
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, getCanvasState, dispatch],
+    [cardX, cardY, cardWidth, cardHeight, tiling],
   );
 
   const computeResize = useCallback(
@@ -568,11 +561,21 @@ const DashboardViewCard: React.FC<Props> = ({
     dispatch(recordClosedCard({ kind: 'view', id: cardKey }));
     void removeViewCardCleanly(cardKey, dispatch);
   };
-  const onMinimize = () => dispatch(toggleMinimizeCard({ cardId: cardKey }));
-  const onTile = (zone: string) => {
-    if (zone === 'restore') dispatch(clearTiledCard(cardKey));
-    else dispatch(setTiledCard({ cardId: cardKey, zone }));
-  };
+  // Freeze the app's last frame first so the rail tile shows the real app, then park the card.
+  const onMinimize = useCallback(() => {
+    let parked = false;
+    const park = (): void => { if (parked) return; parked = true; dispatch(toggleMinimizeCard({ cardId: cardKey })); };
+    // capturePage can hang forever on a guest that stopped painting (Electron 42); the timer guarantees the park.
+    window.setTimeout(park, 250);
+    void (async () => {
+      try {
+        const snap = await previewRef.current?.capture?.();
+        if (snap) saveMinimizedShot(cardKey, snap);
+      } catch { /* no frame, the tile falls back to the app's stored thumbnail */ }
+      park();
+    })();
+  }, [dispatch, cardKey]);
+  const onTile = tiling.applyZone;
 
   // Spawn ANOTHER independent instance of this app (own runtime + ports); the reducer picks the next #N and the lifecycle hook fits + highlights it.
   const handleOpenAnother = (e: React.MouseEvent) => {
@@ -581,8 +584,9 @@ const DashboardViewCard: React.FC<Props> = ({
   };
 
   const [reloadMenuRect, setReloadMenuRect] = useState<DOMRect | null>(null);
-  const handleHardReload = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const [shareOpen, setShareOpen] = useState(false);
+  const handleHardReload = useCallback(async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     setReloadMenuRect(null);
     const wsId = output.workspace_id;
     if (wsId) {
@@ -621,20 +625,28 @@ const DashboardViewCard: React.FC<Props> = ({
   const dragTx = dragging ? displayX - cardX : 0;
   const dragTy = dragging ? displayY - cardY : 0;
 
-  const dockActive = !!dockRect && !dragging && !localResize && !tiledStyle && !isMinimized;
+  const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !isMinimized;
+  const tiledSize = useTiledCard({ cardId: cardKey, zone: tileZone, active: !isMinimized, originX: displayX, originY: displayY, getCamera: getCanvasState });
 
   return (
     <Box
       ref={dockRootRef}
       data-select-type="view-card"
       data-select-id={cardKey}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
-        items: [
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Minimize', onClick: onMinimize },
-          { label: 'Close', danger: true, onClick: () => handleRemove() },
-        ],
-      })}
+      data-keepalive-hidden={isMinimized ? '1' : undefined}
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
+        rename: { value: output.name, onCommit: (name) => { void dispatch(updateOutput({ id: output.id, name })); } },
+        items: viewCardMenuRows({
+          output, cardKey, dispatch, tileZone, isMinimized,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          onTile,
+          onMinimize: () => (isMinimized ? dispatch(toggleMinimizeCard({ cardId: cardKey })) : onMinimize()),
+          onReload: () => previewRef.current?.reload(),
+          onHardReload: () => { void handleHardReload(); },
+          onShare: () => setShareOpen(true),
+          onClose: () => handleRemove(),
+        }),
+      }); }}
       data-select-meta={JSON.stringify({ name: output.name, description: output.description, path: output.workspace_path })}
       className="osw-card"
       onPointerDownCapture={() => onBringToFront?.(cardKey, 'view')}
@@ -651,12 +663,15 @@ const DashboardViewCard: React.FC<Props> = ({
         // contain + willChange: own compositor layer so paint stays scoped (see AgentCard for full rationale).
         contain: 'layout style',
         willChange: 'transform',
-        left: tiledStyle ? tiledStyle.left : dockActive ? dockRect!.x : (dragging ? cardX : displayX),
-        top: tiledStyle ? tiledStyle.top : (dragging ? cardY : displayY),
-        width: tiledStyle ? tiledStyle.width : (isMinimized ? 220 : displayW),
-        height: tiledStyle ? tiledStyle.height : (isMinimized ? 44 : displayH),
-        transform: tiledStyle ? tiledStyle.transform : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        // Minimized apps live in the right-edge rail, so the card itself parks off-canvas at full size
+        // (same trick as browser cards) and restores to exactly the geometry it left.
+        pointerEvents: isMinimized ? 'none' : undefined,
+        left: isMinimized ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
+        top: isMinimized ? -100000 : (dragging ? cardY : displayY),
+        width: tiledSize ? tiledSize.width : displayW,
+        height: tiledSize ? tiledSize.height : displayH,
+        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
+        transformOrigin: tiledSize ? '0 0' : undefined,
         borderRadius: isFullscreen ? '12px' : `${c.radius.lg}px`,
         border: isHighlighted
           ? `2px solid ${c.accent.primary}`
@@ -678,7 +693,7 @@ const DashboardViewCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledStyle ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {
@@ -748,9 +763,9 @@ const DashboardViewCard: React.FC<Props> = ({
         }}
       >
         <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, mr: 0.25 }}>
-          <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} noTileMenu={tileZone === 'fullscreen'} />
+          <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
         </Box>
-        {!isMinimized && <GridViewRoundedIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />}
+        <GridViewRoundedIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />
         <Typography
           sx={{
             flex: 1,
@@ -770,7 +785,7 @@ const DashboardViewCard: React.FC<Props> = ({
           </Typography>
         )}
 
-        {showControls && !isMinimized && (
+        {showControls && (
           <>
             {hasWorkspace && (
               <Box
@@ -849,18 +864,16 @@ const DashboardViewCard: React.FC<Props> = ({
           </>
         )}
 
-        {!isMinimized && (
-          <Tooltip title={headerCollapsed ? 'Show toolbar' : 'Hide toolbar'} placement="top">
-            <IconButton
-              size="small"
-              onClick={(e) => { e.stopPropagation(); setHeaderPeek(false); setHeaderCollapsed((v) => !v); }}
-              onPointerDown={(e) => e.stopPropagation()}
-              sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
-            >
-              <KeyboardArrowUpRounded sx={{ fontSize: 18, transition: 'transform 0.15s', transform: headerCollapsed ? 'rotate(180deg)' : 'none' }} />
-            </IconButton>
-          </Tooltip>
-        )}
+        <Tooltip title={headerCollapsed ? 'Show toolbar' : 'Hide toolbar'} placement="top">
+          <IconButton
+            size="small"
+            onClick={(e) => { e.stopPropagation(); setHeaderPeek(false); setHeaderCollapsed((v) => !v); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
+          >
+            <KeyboardArrowUpRounded sx={{ fontSize: 18, transition: 'transform 0.15s', transform: headerCollapsed ? 'rotate(180deg)' : 'none' }} />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Preview body */}
@@ -969,6 +982,8 @@ const DashboardViewCard: React.FC<Props> = ({
         </>,
         document.body,
       )}
+
+      {shareOpen && <ShareModal target={{ kind: 'app', id: output.id, name: output.name }} open onClose={() => setShareOpen(false)} />}
     </Box>
   );
 };

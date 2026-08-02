@@ -6,7 +6,7 @@ inline. resolved_model / api_type / global_settings are the loop's per-run confi
 
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from typeguard import typechecked
 
@@ -21,6 +21,35 @@ except ImportError:  # the SDK is optional at runtime (mock mode); keep this mod
     ResultMessage = object  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+class TurnResultError(Exception):
+    """The CLI's ResultMessage reported the turn ended in an error state (is_error, an
+    error_* subtype, or a max_tokens/refusal stop). Raised after the turn's token/cost
+    accounting so the run loop's existing error-card path owns the failure instead of the
+    turn being consumed as a silent success."""
+
+
+@typechecked
+def p_turn_result_error_text(message: ResultMessage, subtype: str, stop_reason: Optional[str]) -> str:
+    parts: List[str] = [str(x).strip() for x in (getattr(message, "errors", None) or []) if str(x).strip()]
+    if not parts:
+        result_text = getattr(message, "result", None)
+        if isinstance(result_text, str) and result_text.strip():
+            parts.append(result_text.strip())
+    denials = getattr(message, "permission_denials", None) or []
+    denied_tools = [str(d.get("tool_name")) for d in denials if isinstance(d, dict) and d.get("tool_name")]
+    if denied_tools:
+        parts.append("denied tools: " + ", ".join(denied_tools))
+    if stop_reason == "max_tokens":
+        headline = "The model hit its maximum output length before finishing"
+    elif stop_reason == "refusal":
+        headline = "The model refused to continue this turn"
+    else:
+        headline = "The agent runtime reported this turn failed"
+    label = subtype if subtype and subtype != "success" else (stop_reason or "unknown")
+    detail = "; ".join(parts)
+    return f"{headline} ({label})." + (f" {detail}" if detail else "")
 
 
 @typechecked
@@ -189,3 +218,13 @@ async def handle_result_message(
             })
         except Exception:
             logger.exception("Failed to emit agent:context_update")
+
+    # An error-shaped result used to be consumed as a normal end-of-turn: the user got preamble, then silence. Raise AFTER the accounting above so the failure surfaces as a real error card.
+    p_subtype = str(getattr(message, "subtype", "") or "")
+    p_stop_reason = getattr(message, "stop_reason", None)
+    if (
+        bool(getattr(message, "is_error", False))
+        or p_subtype.startswith("error")
+        or p_stop_reason in ("max_tokens", "refusal")
+    ):
+        raise TurnResultError(p_turn_result_error_text(message, p_subtype, p_stop_reason))

@@ -27,6 +27,19 @@ class SSRFBlocked(Exception):
     """A fetch was refused because it targets a forbidden IP range."""
 
 
+class DomainUnreachable(SSRFBlocked):
+    """The host has no DNS records at all: dead domain, typo, or no network.
+
+    A subclass so every existing `except SSRFBlocked` still fails closed, but
+    callers that care can tell "we refused this" apart from "this doesn't
+    exist", which are opposite messages to show a user and have opposite
+    fallbacks (nothing vs the archive)."""
+
+
+# A page we will truncate to ~250KB anyway; without this a link to a disk image buffers the whole thing into RAM.
+MAX_FETCH_BYTES = 10 * 1024 * 1024
+
+
 P_BLOCKED_V4_NETS = [
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -52,7 +65,7 @@ async def p_resolve_host_async(host: str) -> list[str]:
     try:
         infos = await loop.getaddrinfo(host, None)
     except OSError as e:
-        raise SSRFBlocked(f"DNS resolution failed for {host}: {e}") from e
+        raise DomainUnreachable(f"{host} could not be resolved (dead domain, typo, or no network): {e}") from e
     return list({info[4][0] for info in infos})
 
 
@@ -101,11 +114,38 @@ async def assert_safe_url(url: str) -> str:
 
     resolved = await p_resolve_host_async(host)
     if not resolved:
-        raise SSRFBlocked(f"No DNS records for {host}.")
+        raise DomainUnreachable(f"No DNS records for {host}.")
     for ip in resolved:
         if p_is_forbidden_ip(ip):
             raise SSRFBlocked(f"Host {host} resolves to forbidden IP {ip}.")
     return url
+
+
+async def p_read_capped(client: httpx.AsyncClient, request: httpx.Request,
+                        max_bytes: int) -> httpx.Response:
+    """Send `request` and buffer at most `max_bytes` of the body.
+
+    Returns a detached Response so callers keep the plain `.content` / `.text`
+    interface. Content-Encoding and Content-Length are dropped because
+    `aiter_bytes` already yields decoded bytes and the count may be short.
+    """
+    streamed = await client.send(request, stream=True)
+    chunks: list[bytes] = []
+    total = 0
+    try:
+        async for chunk in streamed.aiter_bytes():
+            chunks.append(chunk)
+            total += len(chunk)
+            if total >= max_bytes:
+                break
+    finally:
+        await streamed.aclose()
+    headers = httpx.Headers(
+        [(k, v) for k, v in streamed.headers.multi_items()
+         if k.lower() not in ("content-encoding", "content-length")]
+    )
+    return httpx.Response(status_code=streamed.status_code, headers=headers,
+                          content=b"".join(chunks)[:max_bytes], request=request)
 
 
 async def safe_fetch(
@@ -117,6 +157,7 @@ async def safe_fetch(
     max_redirects: int = 5,
     json_body: dict | None = None,
     data: dict | None = None,
+    max_bytes: int = MAX_FETCH_BYTES,
 ) -> httpx.Response:
     """Fetch with per-redirect SSRF re-validation.
 
@@ -126,15 +167,14 @@ async def safe_fetch(
     current_url = await assert_safe_url(url)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, headers=headers or {}) as client:
         for _ in range(max_redirects + 1):
+            req_kwargs: dict = {}
             if method.upper() == "POST":
-                req_kwargs = {}
                 if json_body is not None:
                     req_kwargs["json"] = json_body
                 if data is not None:
                     req_kwargs["data"] = data
-                resp = await client.post(current_url, **req_kwargs)
-            else:
-                resp = await client.get(current_url)
+            request = client.build_request(method.upper(), current_url, **req_kwargs)
+            resp = await p_read_capped(client, request, max_bytes)
             if not (300 <= resp.status_code < 400):
                 return resp
             location = resp.headers.get("location")

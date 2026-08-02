@@ -15,7 +15,7 @@ from backend.apps.agents.core.error_classify import CAPACITY_BACKOFFS, capacity_
 from backend.apps.agents.manager.streaming.state import ThinkingState, TurnState
 from backend.apps.agents.manager.streaming.handle_stream_event import handle_stream_event
 from backend.apps.agents.manager.streaming.handle_assistant_message import handle_assistant_message
-from backend.apps.agents.manager.streaming.handle_result_message import handle_result_message
+from backend.apps.agents.manager.streaming.handle_result_message import TurnResultError, handle_result_message
 from backend.apps.agents.manager.run.client_pool import (
     SdkClientLike,
     acquire_client,
@@ -152,6 +152,9 @@ class TurnRunner(AgentManagerProtocol):
                 else:
                     await p_run_streaming_turn()
                 break
+            except TurnResultError:
+                # The CLI already ran the whole turn (tools executed) and then reported failure; a resume-retry would re-execute side effects, so this goes straight to the error card.
+                raise
             except Exception as e:
                 # Make sure the consolidated-thinking ticker doesn't outlive the turn on error/retry. Without this, an exception mid-stream leaves a dangling task that keeps re-emitting against a stale msg id.
                 if thinking.ticker_task is not None and not thinking.ticker_task.done():

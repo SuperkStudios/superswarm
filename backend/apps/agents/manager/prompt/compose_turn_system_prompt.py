@@ -17,6 +17,7 @@ from backend.apps.agents.manager.prompt.prompt_context import (
     build_installed_skills_catalog,
     build_mcp_registry_summary,
     build_selected_app_context,
+    build_unselected_app_context,
     build_selected_settings_context,
     compose_system_prompt,
 )
@@ -122,6 +123,9 @@ def compose_turn_system_prompt(
 
     # App cards the user picked via the dashboard element picker: give the agent each app's on-disk path + meta + SKILL.md pointer so it can edit them in place (the dashboard card's runtime live-reloads). Additive and independent of view-builder mode above.
     app_ctx = build_selected_app_context(selected_app_output_ids)
+    # Nothing picked: name the apps anyway so the agent can point the user at the selection step instead of acting like their app does not exist.
+    if not app_ctx:
+        app_ctx = build_unselected_app_context()
     if app_ctx:
         composed_prompt = f"{composed_prompt}\n\n{app_ctx}" if composed_prompt else app_ctx
 

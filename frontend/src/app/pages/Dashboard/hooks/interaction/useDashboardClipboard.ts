@@ -1,22 +1,15 @@
 import { useEffect } from 'react';
 import { useAppDispatch } from '@/shared/hooks';
-import {
-  duplicateSession,
-  expandSession,
-  type AgentSession,
-} from '@/shared/state/agentsSlice';
-import {
-  addViewCard,
-  pasteBrowserCard,
-  placeCard,
-  type CardPosition,
-  type ViewCardPosition,
-  type BrowserCardPosition,
+import type { AgentSession } from '@/shared/state/agentsSlice';
+import type {
+  CardPosition,
+  ViewCardPosition,
+  BrowserCardPosition,
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
-import { store } from '@/shared/state/store';
 import { setClipboardCards, getClipboardCards, type ClipboardCard } from '@/shared/dashboardClipboard';
-import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
+import { pasteClipboardCards } from './pasteClipboardCards';
+import type { useDashboardSelection } from '../state/useDashboardSelection';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
 
@@ -102,68 +95,16 @@ export function useDashboardClipboard({
   }, [selection.selectedIds, sessions, cards, viewCards, browserCards, outputs, expandedSessionIds]);
 
   useEffect(() => {
-    const PASTE_OFFSET = 40;
-    const handlePaste = async (e: KeyboardEvent) => {
+    const handlePaste = (e: KeyboardEvent) => {
       if (!isActive) return;  // Don't fire shortcuts when dashboard is hidden
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'v') return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
-
-      const copied = getClipboardCards();
-      if (copied.length === 0) return;
+      if (getClipboardCards().length === 0) return;
       e.preventDefault();
-
-      selection.deselectAll();
-      const newSelection = new Map<string, CardType>();
-
-      for (const card of copied) {
-        const px = card.x + PASTE_OFFSET;
-        const py = card.y - PASTE_OFFSET;
-
-        if (card.type === 'agent') {
-          const action = await dispatch(duplicateSession({ sessionId: card.id, dashboardId }));
-          if (duplicateSession.fulfilled.match(action)) {
-            const newId = action.payload.id;
-            dispatch(placeCard({
-              sessionId: newId,
-              x: px,
-              y: py,
-              width: card.width,
-              height: card.height,
-              expandedSessionIds,
-            }));
-            if (card.expanded) {
-              dispatch(expandSession(newId));
-            }
-            newSelection.set(newId, 'agent');
-          }
-        } else if (card.type === 'view') {
-          // Pasting an app whose card is already open creates a NEW independent instance (own runtime + ports) instead of no-op'ing.
-          const outputId = card.id.split('#')[0];
-          dispatch(addViewCard({ outputId, expandedSessionIds, x: px, y: py, width: card.width, height: card.height, newInstance: true }));
-          const viewCards = store.getState().dashboardLayout.viewCards;
-          let pastedKey = outputId;
-          for (const [key, vc] of Object.entries(viewCards)) {
-            if (vc.output_id === outputId && (vc.instance ?? 1) >= (viewCards[pastedKey]?.instance ?? 1)) pastedKey = key;
-          }
-          newSelection.set(pastedKey, 'view');
-        } else if (card.type === 'browser') {
-          const browserId = `browser-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-          dispatch(pasteBrowserCard({
-            id: browserId, tabs: card.meta.tabs || [], url: card.meta.url || '',
-            x: px, y: py, width: card.width, height: card.height,
-          }));
-          newSelection.set(browserId, 'browser');
-        }
-      }
-
-      if (newSelection.size > 0) {
-        for (const [id, type] of newSelection) {
-          selection.selectCard(id, type, true);
-        }
-      }
+      void pasteClipboardCards({ dispatch, dashboardId, expandedSessionIds, selection });
     };
     window.addEventListener('keydown', handlePaste);
     return () => window.removeEventListener('keydown', handlePaste);
-  }, [dispatch, dashboardId, expandedSessionIds, selection]);
+  }, [dispatch, dashboardId, expandedSessionIds, selection, isActive]);
 }

@@ -11,6 +11,7 @@ import {
 } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 import WorkflowTitle from './WorkflowTitle';
+import { isScheduleActive } from '@/app/pages/Workflows/scheduleUtils';
 
 const DRAG_THRESHOLD = 3;
 
@@ -231,7 +232,10 @@ const RunMonitor: React.FC<Props> = ({ workflow, cardX, cardY, cardWidth, cardHe
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: c.text.tertiary, marginBottom: 6 }}>Schedule</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: c.text.primary }}>{formatSchedule(workflow.schedule)}</div>
+            {/* A paused workflow fell through formatSchedule to "Scheduled for 9:00 AM", so this card announced a schedule while the panel beside it said Not scheduled. */}
+            <div style={{ fontSize: 14, fontWeight: 600, color: c.text.primary }}>
+              {isScheduleActive(workflow.schedule) ? formatSchedule(workflow.schedule) : 'Not scheduled'}
+            </div>
             {workflow.next_run_at && (
               <div style={{ fontSize: 12, color: c.text.tertiary, marginTop: 3 }}>
                 Next run {new Date(workflow.next_run_at).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}

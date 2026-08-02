@@ -345,6 +345,40 @@ def test_thinking_block_before_text_is_handled(monkeypatch):
     assert session.status == "completed"
 
 
+def test_error_result_surfaces_error_card_not_silent_success(monkeypatch):
+    # An error-shaped ResultMessage used to be consumed as a normal end-of-turn: status "completed", no card, the user saw preamble then silence.
+    session, events = p_drive(monkeypatch, [
+        p_assistant([TextBlock(text="Let me work on that.")]),
+        p_result(subtype="error_during_execution", is_error=True,
+                 errors=["upstream exploded mid-run"]),
+    ])
+    assert session.status == "error"
+    p_cards = [m for m in session.messages if m.role == "system"]
+    assert any("upstream exploded mid-run" in str(m.content) for m in p_cards)
+    # the card is broadcast so the UI renders it, not just stored
+    assert any(e == "agent:message" and (d.get("message") or {}).get("role") == "system"
+               for e, d in events)
+
+
+def test_max_tokens_stop_reason_is_a_failed_turn(monkeypatch):
+    session, events = p_drive(monkeypatch, [
+        p_assistant([TextBlock(text="half an answ")]),
+        p_result(stop_reason="max_tokens"),
+    ])
+    assert session.status == "error"
+    assert any(m.role == "system" and "maximum output length" in str(m.content) for m in session.messages)
+
+
+def test_success_result_still_completes_normally(monkeypatch):
+    # the mutation pair for the error-result detection: success + is_error False must never be flagged
+    session, events = p_drive(monkeypatch, [
+        p_assistant([TextBlock(text="all done")]),
+        p_result(subtype="success", is_error=False, stop_reason="end_turn"),
+    ])
+    assert session.status == "completed"
+    assert not any(m.role == "system" for m in session.messages)
+
+
 def test_transient_capacity_error_is_retried_then_succeeds(monkeypatch):
     # the capacity-retry while-loop: first query() raises a transient error, the loop backs off (sleep mocked to no-op) and re-queries, which succeeds. This is the exact behavior the streaming restructuring must preserve.
     real_sleep = asyncio.sleep  # capture before patching to avoid self-recursion

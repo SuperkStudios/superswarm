@@ -1,5 +1,6 @@
 import { createSlice, createAsyncThunk, PayloadAction, createAction } from '@reduxjs/toolkit';
-import { launchAndSendFirstMessage, resumeSession } from './agentsSlice';
+import { launchAndSendFirstMessage, resumeSession, collapseSession, collapseAllSessions, setExpandedSessionIds } from './agentsSlice';
+import { untileClosedChats } from './untileClosedChats';
 import { API_BASE } from '@/shared/config';
 import { getLastDashboardId } from '@/shared/lastDashboardId';
 
@@ -26,7 +27,9 @@ export const DEFAULT_WORKFLOWS_HUB_W = DEFAULT_BROWSER_CARD_W;
 export const DEFAULT_WORKFLOWS_HUB_H = DEFAULT_BROWSER_CARD_H;
 export const DEFAULT_SETTINGS_CARD_W = 900;
 export const DEFAULT_SETTINGS_CARD_H = 640;
+// The two singleton windows have no card map to key off, so they own these fixed ids everywhere (selection, minimize, z-order).
 export const SETTINGS_CARD_ID = 'settings';
+export const WORKFLOWS_HUB_ID = 'workflows-hub';
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;
 // Gap between the Workflows window and the cards it spawns (run monitor, that monitor's browser). Keeps the hub -> monitor -> browser row evenly spaced.
@@ -110,8 +113,6 @@ export interface WorkflowsHubPosition {
   width: number;
   height: number;
   zOrder: number;
-  // Full size view: the card fills the whole dashboard (reuses the fullscreen tile geometry).
-  fullscreen?: boolean;
 }
 
 // One entry in the Ctrl/Cmd+Shift+T "reopen last closed" stack: a full snapshot for browser/view/workflow/tab, just the session id for an agent (its session is brought back via resumeSession).
@@ -344,10 +345,11 @@ export function findOpenGridCell(
   occupiedRects: Rect[],
   newW: number,
   newH: number,
+  colLimit?: number,
 ): { x: number; y: number } {
   const cellW = DEFAULT_CARD_W + GRID_GAP;
   const cellH = DEFAULT_CARD_H + GRID_GAP;
-  const maxCols = Math.max(
+  const maxCols = colLimit ?? Math.max(
     1,
     Math.floor((window.innerWidth - GRID_ORIGIN.x) / cellW) || GRID_COLS_FALLBACK,
   );
@@ -362,6 +364,34 @@ export function findOpenGridCell(
       }
     }
   }
+}
+
+// Tidy packs into the grid shape that fills the SCREEN best. The default column count is derived from
+// window.innerWidth, which is screen pixels pretending to be world units: it laid 8 cards out as a
+// 2-wide, 4-tall ribbon that the camera then had to pull back to 41% to show.
+function tidyColumnCount(itemSizes: Array<{ w: number; h: number }>): number {
+  const cellW = DEFAULT_CARD_W + GRID_GAP;
+  const cellH = DEFAULT_CARD_H + GRID_GAP;
+  let cells = 0;
+  let widest = 1;
+  for (const s of itemSizes) {
+    const cols = Math.max(1, Math.ceil(s.w / cellW));
+    cells += cols * Math.max(1, Math.ceil(s.h / cellH));
+    widest = Math.max(widest, cols);
+  }
+  const vw = window.innerWidth || 1440;
+  const vh = window.innerHeight || 900;
+  let best = widest;
+  let bestZoom = 0;
+  for (let cols = widest; cols <= Math.max(widest, cells); cols++) {
+    const rows = Math.ceil(cells / cols);
+    const zoom = Math.min(vw / (cols * cellW), vh / (rows * cellH));
+    if (zoom > bestZoom) {
+      bestZoom = zoom;
+      best = cols;
+    }
+  }
+  return best;
 }
 
 // Like findOpenGridCell but biased to stay near a proposed (x,y) anchor. Used when the backend hands us a card with a position that's already occupied (sub-agent or sub-browser spawning on top of its parent or a sibling). Spirals outward from the anchor on a grid, snapping to cell-aligned positions so the result still looks intentional, not dropped from orbit. Caps the spiral search at ~1000 cells to avoid pathological work in adversarial layouts, falls back to findOpenGridCell after that. Cost: O(rects × cells_scanned). Spawn events are rare (not per-frame), so this only runs when a new card appears. Typical scan resolves in <10 cells, well below the cap. No perf impact on steady-state UI.
@@ -569,16 +599,17 @@ const dashboardLayoutSlice = createSlice({
   name: 'dashboardLayout',
   initialState,
   reducers: {
-    // Window controls (traffic lights). Minimize toggles a per-card pill; tiling snaps a card to a
-    // macOS-style viewport zone (green = 'fill'). Minimizing an un-tiles and vice-versa, so a card
-    // is never both pill'd and tiled at once.
+    // Window controls (traffic lights). Minimize parks a card in the right-edge rail; tiling snaps it
+    // to a macOS-style viewport zone. Rule 6 of the tiling set (see cards/useCardTiling.ts): a parked
+    // card keeps its zone and restores back into it, but never keeps 'fullscreen', which would leave
+    // an off-canvas card hiding the whole shell.
     toggleMinimizeCard(state, action: PayloadAction<{ cardId: string }>) {
       const id = action.payload.cardId;
       if (state.minimizedCards[id]) {
         delete state.minimizedCards[id];
       } else {
         state.minimizedCards[id] = true;
-        if (state.tiledCards[id]) delete state.tiledCards[id];
+        if (state.tiledCards[id] === 'fullscreen') delete state.tiledCards[id];
       }
     },
     setTiledCard(state, action: PayloadAction<{ cardId: string; zone: string }>) {
@@ -766,19 +797,19 @@ const dashboardLayoutSlice = createSlice({
       ];
       allItems.sort((a, b) => a.y - b.y || a.x - b.x);
 
+      const sizeOf = (item: typeof allItems[number]): { w: number; h: number } => ({
+        w: item.storedW,
+        h: item.kind === 'agent' && expanded.has(item.id)
+          ? Math.max(EXPANDED_CARD_MIN_H, item.storedH)
+          : item.storedH,
+      });
+      const cols = tidyColumnCount(allItems.map(sizeOf));
       const placedRects: Rect[] = [];
 
       for (const item of allItems) {
-        let w: number, h: number;
-        if (item.kind === 'agent') {
-          w = item.storedW;
-          h = expanded.has(item.id) ? Math.max(EXPANDED_CARD_MIN_H, item.storedH) : item.storedH;
-        } else {
-          w = item.storedW;
-          h = item.storedH;
-        }
+        const { w, h } = sizeOf(item);
 
-        const pos = findOpenGridCell(placedRects, w, h);
+        const pos = findOpenGridCell(placedRects, w, h, cols);
         placedRects.push({ x: pos.x, y: pos.y, w, h });
 
         if (item.kind === 'agent') {
@@ -1093,6 +1124,9 @@ const dashboardLayoutSlice = createSlice({
 
     removeWorkflowCard(state, action: PayloadAction<string>) {
       delete state.workflowCards[action.payload];
+      // Rule 7: a dead card must never keep owning a tile; a stale entry poisons every reader of it.
+      delete state.tiledCards[action.payload];
+      delete state.minimizedCards[action.payload];
     },
 
     // Rekey draft- id to the server-assigned id without visually hopping the card.
@@ -1115,6 +1149,7 @@ const dashboardLayoutSlice = createSlice({
     openWorkflowsHub(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
       if (state.workflowsHub) {
         state.workflowsHub.zOrder = state.nextZOrder++;
+        delete state.minimizedCards[WORKFLOWS_HUB_ID];
         state.pendingFocusWorkflowsHub = true;
         return;
       }
@@ -1136,6 +1171,8 @@ const dashboardLayoutSlice = createSlice({
 
     closeWorkflowsHub(state) {
       state.workflowsHub = null;
+      delete state.minimizedCards[WORKFLOWS_HUB_ID];
+      delete state.tiledCards[WORKFLOWS_HUB_ID];
     },
 
     // The Workflows app is an on-canvas card (like chat/browser/view cards), backed by the singleton workflowsHub geometry. Opening it creates or raises that card and pans to it; an optional workflowId deep-links to that workflow's detail once the card mounts.
@@ -1143,6 +1180,8 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsAppTarget = action.payload?.workflowId ?? null;
       if (state.workflowsHub) {
         state.workflowsHub.zOrder = state.nextZOrder++;
+        // Opening means visible: a parked window must come back to the canvas, or the focus pan flies to empty space.
+        delete state.minimizedCards[WORKFLOWS_HUB_ID];
         state.pendingFocusWorkflowsHub = true;
         return;
       }
@@ -1160,17 +1199,12 @@ const dashboardLayoutSlice = createSlice({
 
     closeWorkflowsApp(state) {
       state.workflowsHub = null;
+      delete state.tiledCards[WORKFLOWS_HUB_ID];
+      delete state.minimizedCards[WORKFLOWS_HUB_ID];
       state.workflowsAppTarget = null;
       state.workflowsMonitorId = null;
       state.workflowsMonitorRunId = null;
       state.workflowsMonitorCard = null;
-    },
-
-    toggleWorkflowsHubFullscreen(state) {
-      if (state.workflowsHub) {
-        state.workflowsHub.fullscreen = !state.workflowsHub.fullscreen;
-        state.workflowsHub.zOrder = state.nextZOrder++;
-      }
     },
 
     clearWorkflowsAppTarget(state) {
@@ -1232,6 +1266,7 @@ const dashboardLayoutSlice = createSlice({
     openSettingsCard(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
       if (state.settingsCard) {
         state.settingsCard.zOrder = state.nextZOrder++;
+        delete state.minimizedCards[SETTINGS_CARD_ID];
         state.pendingFocusSettingsCard = true;
         return;
       }
@@ -1249,17 +1284,13 @@ const dashboardLayoutSlice = createSlice({
 
     closeSettingsCard(state) {
       state.settingsCard = null;
+      delete state.minimizedCards[SETTINGS_CARD_ID];
+      delete state.tiledCards[SETTINGS_CARD_ID];
       state.pendingFocusSettingsCard = false;
     },
 
     clearPendingFocusSettingsCard(state) {
       state.pendingFocusSettingsCard = false;
-    },
-
-    toggleSettingsCardFullscreen(state) {
-      if (!state.settingsCard) return;
-      state.settingsCard.fullscreen = !state.settingsCard.fullscreen;
-      state.settingsCard.zOrder = state.nextZOrder++;
     },
 
     setSettingsCardPosition(state, action: PayloadAction<{ x: number; y: number }>) {
@@ -1453,8 +1484,14 @@ const dashboardLayoutSlice = createSlice({
       const [moved] = source.tabs.splice(idx, 1);
       // Fresh id: reusing the old one makes the receiving BrowserCard think the tab is already initialized, so its webview never loads the URL and sits at about:blank.
       const tab = { ...moved, id: generateTabId() };
-      if (source.tabs.length === 0) {
+      const spun = {
+        owner: source.spawned_by ?? null,
+        x: source.x, y: source.y, width: source.width, height: source.height, dashboard_id: source.dashboard_id,
+      };
+      const dissolved = source.tabs.length === 0;
+      if (dissolved) {
         delete state.browserCards[fromBrowserId];
+        delete state.suspendedBrowserCards[fromBrowserId];
       } else if (source.activeTabId === tabId) {
         const nextActive = source.tabs[Math.min(idx, source.tabs.length - 1)];
         source.activeTabId = nextActive.id;
@@ -1466,18 +1503,24 @@ const dashboardLayoutSlice = createSlice({
         target.url = tab.url;
         target.zOrder = state.nextZOrder++;
       } else {
-        const id = `browser-${Date.now().toString(36)}`;
+        // The last tab leaving is the card MOVING, so it keeps its id; either way it keeps its agent
+        // owner, or the agent stops recognising its own browser and spawns a second one next time it
+        // browses. keep_open because pulling it out is the user claiming it: the owner finishing must
+        // not delete it out from under them, exactly as when it had no owner at all.
+        const id = dissolved ? fromBrowserId : `browser-${Date.now().toString(36)}`;
         state.browserCards[id] = {
           browser_id: id,
           url: tab.url,
           tabs: [tab],
           activeTabId: tab.id,
-          x: x ?? source.x + 60,
-          y: y ?? source.y + 60,
-          width: source.width,
-          height: source.height,
+          x: x ?? spun.x + 60,
+          y: y ?? spun.y + 60,
+          width: spun.width,
+          height: spun.height,
           zOrder: state.nextZOrder++,
-          dashboard_id: source.dashboard_id,
+          dashboard_id: spun.dashboard_id,
+          spawned_by: spun.owner,
+          keep_open: true,
         };
       }
     },
@@ -1746,6 +1789,17 @@ const dashboardLayoutSlice = createSlice({
         // Fail-open for RENDERING only; saveArmed stays false so this client can never persist the empty layout it booted with over the server's real one (the wipe that hit 2026-07-20).
         state.initialized = true;
       })
+      // Rule 8 of the tiling set: a chat's zone belongs to its OPEN state, so every action that closes
+      // chats untiles them here, in the same dispatch. See untileClosedChats.
+      .addCase(collapseSession, (state, action) => {
+        untileClosedChats(state.tiledCards, [action.payload], []);
+      })
+      .addCase(collapseAllSessions, (state) => {
+        untileClosedChats(state.tiledCards, Object.keys(state.cards), []);
+      })
+      .addCase(setExpandedSessionIds, (state, action) => {
+        untileClosedChats(state.tiledCards, Object.keys(state.cards), action.payload);
+      })
       .addCase(fetchSessionRejectedAction, (state, action) => {
         // 404/410 means permanent; strip the card. Other failure modes leave it (next fetch may succeed).
         const payload = action.payload;
@@ -1765,6 +1819,13 @@ const dashboardLayoutSlice = createSlice({
         if (card) {
           delete state.cards[draftId];
           state.cards[session.id] = { ...card, session_id: session.id, zOrder: state.nextZOrder++ };
+        }
+        // The zone rides the re-key too: left behind, a tiled draft pops out of its tile AND strands an
+        // entry no reader can ever clear (a stranded 'fullscreen' hides the whole shell until reload).
+        const draftZone = state.tiledCards[draftId];
+        if (draftZone) {
+          delete state.tiledCards[draftId];
+          state.tiledCards[session.id] = draftZone;
         }
         // Carry an optimistic browser tether from the draft id to the real session id, in place (no flicker, no stale draft endpoint).
         for (const entry of Object.values(state.glowingBrowserCards)) {
@@ -1853,7 +1914,6 @@ export const {
   closeWorkflowsHub,
   openWorkflowsApp,
   closeWorkflowsApp,
-  toggleWorkflowsHubFullscreen,
   clearWorkflowsAppTarget,
   openWorkflowMonitor,
   closeWorkflowMonitor,
@@ -1866,7 +1926,6 @@ export const {
   openSettingsCard,
   closeSettingsCard,
   clearPendingFocusSettingsCard,
-  toggleSettingsCardFullscreen,
   setSettingsCardPosition,
   setSettingsCardSize,
   recordClosedCard,
@@ -1901,8 +1960,9 @@ export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayout
   if (!entry) return null;
   const id = entry[0];
   // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
-  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards;
-  return exists ? id : null;
+  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards
+    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard);
+  return exists && !s.minimizedCards[id] ? id : null;
 };
 
 export default dashboardLayoutSlice.reducer;

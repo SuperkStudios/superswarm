@@ -19,7 +19,6 @@ import {
   collapseSession,
   expandSession,
   closeSession,
-  deleteSession,
   fetchSession,
   renameSession,
 } from '@/shared/state/agentsSlice';
@@ -33,17 +32,17 @@ import {
   clearGlowingAgentCard,
   removeCard,
   recordClosedCard,
-  setTiledCard,
-  clearTiledCard,
 } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
-import { useTiledStyle, computeTiledStyle } from './tileZones';
+import { useTiledCard } from './useTiledCard';
+import { useCardTiling } from './useCardTiling';
 import AgentNarratorPill from '../desktop/AgentNarratorPill';
-import { openCardContextMenu } from '../desktop/CardContextMenu';
+import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
+import { agentCardMenuRows } from './agentCardMenuRows';
 import { extractLatestTodos } from '../desktop/agentTodos';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
-import { captureBrowserShot } from '@/shared/captureBrowserShot';
+import { useBrowserPillShot } from '../desktop/useBrowserPillShot';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
@@ -301,13 +300,23 @@ const GLOW_FADE_MS = 2500;
 const SNAP_THRESHOLD = 60;
 
 const AgentCard: React.FC<Props> = ({
-  session, expanded, cardX, cardY, cardWidth, cardHeight, getCanvasState, spawnFrom, exitTarget,
+  session, expanded: expandedInStore, cardX, cardY, cardWidth, cardHeight, getCanvasState, spawnFrom, exitTarget,
   isSelected = false, isHighlighted = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
   onBranch, onMeasuredHeight, snapColumn, autoFocusInput, cardZOrder = 0, onDoubleClick, onBringToFront,
   shakeDirection,
 }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
+  const commitPosition = useCallback((x: number, y: number) => {
+    dispatch(setCardPosition({ sessionId: session.id, x, y }));
+  }, [dispatch, session.id]);
+  const tiling = useCardTiling({ cardId: session.id, getCanvasState, commitPosition });
+  const tileZone = tiling.zone;
+  const isTiled = !!tileZone;
+  const isFullscreen = tileZone === 'fullscreen';
+  // A tiled chat IS an open chat. One flag drives the window's SIZE and its SKIN together, so a tile
+  // can never wear the collapsed card's light surface (that was "fullscreen turns white").
+  const expanded = expandedInStore || isTiled;
   const isDashboardActive = useDashboardActive();
   const hasApiKey = !!useAppSelector((s) => s.settings.data.anthropic_api_key);
   const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
@@ -446,20 +455,24 @@ const AgentCard: React.FC<Props> = ({
   const justDraggedRef = useRef(false);
   const lastPointerRef = useRef<{ clientX: number; clientY: number }>({ clientX: 0, clientY: 0 });
 
-  const tileZone = useAppSelector((s) => s.dashboardLayout.tiledCards[session.id]);
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if (tileZone) return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
-    dragState.current = { startX: e.clientX, startY: e.clientY, origX: cardX, origY: cardY, startPanX: cs.panX, startPanY: cs.panY };
+    const popped = tiling.untileForDrag(e.clientX, e.clientY, cardWidth);
+    dragState.current = {
+      startX: e.clientX, startY: e.clientY,
+      origX: popped?.x ?? cardX, origY: popped?.y ?? cardY,
+      startPanX: cs.panX, startPanY: cs.panY,
+    };
+    if (popped) setLocalDragPos(popped);
     lastPointerRef.current = { clientX: e.clientX, clientY: e.clientY };
     didDrag.current = false;
     setIsDragging(true);
     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     onDragStart?.(session.id, 'agent');
-  }, [cardX, cardY, onDragStart, session.id, getCanvasState, tileZone]);
+  }, [cardX, cardY, cardWidth, onDragStart, session.id, getCanvasState, tiling]);
 
   const recomputeDragPos = useCallback(() => {
     const ds = dragState.current;
@@ -564,17 +577,10 @@ const AgentCard: React.FC<Props> = ({
       let effectiveY = cardY;
       let effectiveW = Math.max(cardWidth, MIN_W);
       let effectiveH = expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : cardHeight;
-      // Grabbing an edge of a TILED chat exits the tile and resizes from exactly where it sat,
-      // macOS-style; without this the handles resized the stale free-position geometry.
-      if (tileZone) {
-        const cam = getCanvasState();
-        const ts = computeTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom);
-        if (ts) {
-          effectiveX = ts.left; effectiveY = ts.top;
-          effectiveW = ts.width / cam.zoom; effectiveH = ts.height / cam.zoom;
-          setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
-          dispatch(clearTiledCard(session.id));
-        }
+      const popped = tiling.untileForResize();
+      if (popped) {
+        effectiveX = popped.x; effectiveY = popped.y; effectiveW = popped.w; effectiveH = popped.h;
+        setLocalResize({ x: effectiveX, y: effectiveY, w: effectiveW, h: effectiveH });
       }
       resizeRef.current = {
         dir,
@@ -588,7 +594,7 @@ const AgentCard: React.FC<Props> = ({
       setIsResizing(true);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [cardX, cardY, cardWidth, cardHeight, expanded, tileZone, dispatch, session.id],
+    [cardX, cardY, cardWidth, cardHeight, expanded, tiling],
   );
 
   const computeResize = useCallback(
@@ -657,34 +663,12 @@ const AgentCard: React.FC<Props> = ({
     }
   };
 
-  const isFullscreen = tileZone === 'fullscreen';
-  // Fullscreen pins the card to the viewport, so while tiled the geometry must track canvas pan/zoom.
-  // Chat cards read the camera via a getter (not props) to avoid re-rendering on every pan tick, so
-  // we subscribe to the pan event ONLY while tiled (one card at most), and read fresh camera then.
-  const [tileTick, setTileTick] = useState(0);
-  useEffect(() => {
-    if (!tileZone) return undefined;
-    const onPan = (): void => setTileTick((t) => t + 1);
-    window.addEventListener('openswarm:canvas-pan-changed', onPan);
-    return () => window.removeEventListener('openswarm:canvas-pan-changed', onPan);
-  }, [tileZone]);
-  void tileTick;
-  const cam = getCanvasState();
-  const tiledStyle = useTiledStyle(tileZone, cam.panX, cam.panY, cam.zoom, getCanvasState, session.id);
-  // A collapsed chat can never stay tiled: collapsing while fullscreen left a white full-window shell
-  // (the header collapse control still fires in full size view). Seal the state instead of the path.
-  useEffect(() => {
-    if (tileZone && !expanded) dispatch(clearTiledCard(session.id));
-  }, [tileZone, expanded, dispatch, session.id]);
   const onMinimize = (): void => { dispatch(collapseSession(session.id)); };
   const onTile = (zone: string): void => {
-    if (zone === 'restore') dispatch(clearTiledCard(session.id));
-    else {
-      if (!expanded) dispatch(expandSession(session.id));
-      dispatch(setTiledCard({ cardId: session.id, zone }));
-    }
+    // A collapsed chat has nothing to fill a zone with, so tiling one opens it first.
+    if (zone !== 'restore') dispatch(expandSession(session.id));
+    tiling.applyZone(zone);
   };
-
 
   const lastMessage = session.messages[session.messages.length - 1];
   // Subscribe to this card's own streaming entry so per-character mutations don't churn other cards.
@@ -712,7 +696,8 @@ const AgentCard: React.FC<Props> = ({
     () => (session.status === 'running' ? extractPendingAskUi(session.messages || []) : null),
     [session.messages, session.status],
   );
-  const pillMode = !expanded && !hasPending && !isDraft && !tileZone;
+  // Drafts collapse to the pill like everything else; only a pending approval keeps the full card, since you have to see what you are approving.
+  const pillMode = !expanded && !hasPending && !tileZone;
   // Glass bubble + fullscreen scrim are both dark in either theme, so the title goes light on them.
   const titleColor = expanded ? GLASS_SURFACE_TEXT : c.text.primary;
   // The answer a finished turn actually spoke, for pills with no widget/plan to show. Only the last assistant say, never a tool line.
@@ -740,29 +725,7 @@ const AgentCard: React.FC<Props> = ({
   }, [pillMode, session.messages, session.id, dispatch]);
 
   // f7's collapsed state: a session's browser (spawned by it or docked into it) shows under the pill.
-  const spawnedBrowserId = useAppSelector((s) => {
-    for (const bc of Object.values(s.dashboardLayout.browserCards)) {
-      if (bc.spawned_by === session.id || bc.docked_to === session.id) return bc.browser_id;
-    }
-    return null;
-  });
-  const [browserShot, setBrowserShot] = useState<string | null>(null);
-  useEffect(() => {
-    if (!pillMode || pillArtifact || !spawnedBrowserId) {
-      setBrowserShot(null);
-      return undefined;
-    }
-    let cancelled = false;
-    const capture = (): void => {
-      void captureBrowserShot(spawnedBrowserId).then((shot) => {
-        if (!cancelled && shot) setBrowserShot(shot);
-      });
-    };
-    capture();
-    // Refresh while the agent is driving so the shot tracks the page; parked cards keep the last frame.
-    const timer = pillRunning ? window.setInterval(capture, 5000) : null;
-    return () => { cancelled = true; if (timer) window.clearInterval(timer); };
-  }, [pillMode, pillArtifact, spawnedBrowserId, pillRunning]);
+  const browserShot = useBrowserPillShot(session.id, pillMode && !pillArtifact);
 
   const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
 
@@ -772,6 +735,7 @@ const AgentCard: React.FC<Props> = ({
   const activeY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
   const activeW = localResize?.w ?? cardWidth;
   const activeH = localResize?.h ?? cardHeight;
+  const tiledSize = useTiledCard({ cardId: session.id, zone: tileZone, active: true, originX: activeX, originY: activeY, getCamera: getCanvasState });
 
   const isBranchSpawn = spawnFrom?.type === 'branch';
   const spawnInitial = spawnFrom
@@ -799,14 +763,14 @@ const AgentCard: React.FC<Props> = ({
     <motion.div
       layout={false}
       initial={spawnInitial}
-      animate={{ opacity: 1, scale: 1, left: tiledStyle ? tiledStyle.left : activeX, top: tiledStyle ? tiledStyle.top : activeY }}
+      animate={{ opacity: 1, scale: 1, left: activeX, top: activeY }}
       exit={exitAnimation}
       // While tiled the card is pinned to the viewport: position must track pan instantly, never spring.
-      transition={tiledStyle ? { ...spawnTransition, left: { duration: 0 }, top: { duration: 0 } } : spawnTransition}
+      transition={isTiled ? { ...spawnTransition, left: { duration: 0 }, top: { duration: 0 } } : spawnTransition}
       onPointerDownCapture={() => onBringToFront?.(session.id, 'agent')}
       style={{
         position: 'absolute',
-        zIndex: tiledStyle ? 999990 : isDragging || isResizing ? 999999 : cardZOrder,
+        zIndex: isTiled ? 999990 : isDragging || isResizing ? 999999 : cardZOrder,
       }}
     >
     <Box
@@ -829,21 +793,20 @@ const AgentCard: React.FC<Props> = ({
         e.stopPropagation();
         onDoubleClick?.(session.id, 'agent');
       }}
-      onContextMenu={(e: React.MouseEvent) => openCardContextMenu(e, {
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
         rename: { value: displayChatTitle(session), onCommit: (name) => dispatch(renameSession({ sessionId: session.id, name })) },
-        items: [
-          { label: expanded ? 'Collapse' : 'Open', onClick: () => dispatch(expanded ? collapseSession(session.id) : expandSession(session.id)) },
-          { label: 'Full Screen', onClick: () => onTile('fullscreen') },
-          { label: 'Close', onClick: () => handleRemove() },
-          { label: 'Delete chat', danger: true, onClick: () => { void dispatch(deleteSession({ sessionId: session.id })); } },
-        ],
-      })}
+        items: agentCardMenuRows({
+          session, dispatch, expanded, tileZone, expandedSessionIds,
+          card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+          onTile, onClose: () => handleRemove(),
+        }),
+      }); }}
       sx={{
         position: 'relative',
         // Hover runway for the pop-above header: the header is pointer-events:none until the CARD
         // is hovered, but it floats ABOVE the card's box, so without this strip the pointer leaving
         // the card to reach it dropped :hover and the header died mid-approach (chats ungrabbable).
-        ...(expanded && !tiledStyle && !pillMode && {
+        ...(expanded && !isTiled && !pillMode && {
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -857,10 +820,9 @@ const AgentCard: React.FC<Props> = ({
         contain: 'layout style',
         // Each card gets its own compositor layer; hover-cross used to cost 100-200ms PRESENTATION by re-painting the whole canvas.
         willChange: 'transform',
-        width: pillMode ? 'fit-content' : tiledStyle ? tiledStyle.width : (localResize ? activeW : Math.max(cardWidth, MIN_W)),
-        height: tiledStyle ? tiledStyle.height : (localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto')),
-        transform: tiledStyle ? tiledStyle.transform : undefined,
-        transformOrigin: tiledStyle ? tiledStyle.transformOrigin : undefined,
+        width: pillMode ? 'fit-content' : tiledSize ? tiledSize.width : (localResize ? activeW : Math.max(cardWidth, MIN_W)),
+        height: tiledSize ? tiledSize.height : (localResize ? activeH : (expanded ? Math.max(EXPANDED_OVERLAY_H, cardHeight) : 'auto')),
+        transformOrigin: tiledSize ? '0 0' : undefined,
         bgcolor: c.bg.surface,
         border: isHighlighted
           ? `2px solid ${c.accent.primary}`
@@ -963,16 +925,16 @@ const AgentCard: React.FC<Props> = ({
         ...(expanded && {
           // Warm near-neutral dark (the Claude/ChatGPT family) instead of the saturated plum: long
           // reading sessions want a quiet ground; the accent system carries the brand color.
-          bgcolor: tiledStyle ? 'rgb(33,31,36)' : 'rgba(33,31,36,0.88)',
-          ...(tiledStyle ? {} : {
+          bgcolor: isTiled ? 'rgb(33,31,36)' : 'rgba(33,31,36,0.88)',
+          ...(isTiled ? {} : {
             backdropFilter: 'blur(24px) saturate(150%)',
             WebkitBackdropFilter: 'blur(24px) saturate(150%)',
           }),
           border: isFullscreen ? 'none' : isSelected ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.08)',
-          borderRadius: tiledStyle ? '12px' : '20px',
+          borderRadius: isTiled ? '12px' : '20px',
           boxShadow: '0 18px 48px rgba(0,0,0,0.4)',
           // The hover header floats ABOVE the card; the root must not clip it (the chat body clips itself).
-          ...(tiledStyle ? {} : { overflow: 'visible' }),
+          ...(isTiled ? {} : { overflow: 'visible' }),
         }),
       }}
     >
@@ -1017,7 +979,7 @@ const AgentCard: React.FC<Props> = ({
 
       {/* Grab band: the top sliver of an expanded card drags it, matching the "grab the window by
           its top edge" instinct; the pop-above header remains the labeled handle. */}
-      {expanded && !tiledStyle && !pillMode && (
+      {expanded && !isTiled && !pillMode && (
         <Box
           onPointerDown={handleDragPointerDown}
           onPointerMove={handleDragPointerMove}
@@ -1048,7 +1010,7 @@ const AgentCard: React.FC<Props> = ({
             <WindowControls
               onClose={() => handleRemove()}
               onMinimize={() => dispatch(expandSession(session.id))}
-              onTile={(zone: string) => { dispatch(expandSession(session.id)); onTile(zone); }}
+              onTile={onTile}
               tiled={false}
             />
           </Box>
@@ -1078,7 +1040,7 @@ const AgentCard: React.FC<Props> = ({
         onLostPointerCapture={abortDrag}
         sx={{
           ...(expanded
-            ? tiledStyle
+            ? isTiled
               ? {
                   // Fullscreen/tiled: no room above the card, so the scrim rides on top. Never hidden: in fullscreen the title and the lights are the only way out.
                   position: 'absolute',
@@ -1136,7 +1098,7 @@ const AgentCard: React.FC<Props> = ({
             onPointerDown={(e) => e.stopPropagation()}
             sx={{ display: 'flex', alignItems: 'center', mr: 0.75, flexShrink: 0 }}
           >
-            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} noTileMenu={tileZone === 'fullscreen'} />
+            <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
           </Box>
           <Box
             sx={{
@@ -1146,7 +1108,7 @@ const AgentCard: React.FC<Props> = ({
               alignItems: 'center',
               gap: 1,
               // Expanded titles wear the same glass bubble as the collapsed pill; a bare label floating over the canvas read as a stray caption.
-              ...(expanded && !tiledStyle && {
+              ...(expanded && !isTiled && {
                 alignSelf: 'flex-start',
                 flex: '0 1 auto',
                 // mr auto or the row's space-between flings the bubble to the far edge, away from the lights.
@@ -1160,7 +1122,7 @@ const AgentCard: React.FC<Props> = ({
                 WebkitBackdropFilter: GLASS_SURFACE_BLUR,
                 boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
               }),
-              ...(!(expanded && !tiledStyle) && { borderRadius: 1 }),
+              ...(!(expanded && !isTiled) && { borderRadius: 1 }),
             }}
           >
             <InlineEditableTitle
@@ -1179,8 +1141,7 @@ const AgentCard: React.FC<Props> = ({
                 )}
               </Typewriter>
             </InlineEditableTitle>
-            {/* Status speaks only when it needs the user; finished work sits quiet. The welcome
-                chat hides its 'draft' label so the title reads clean. */}
+            {/* The welcome chat hides its 'draft' label so the title reads clean. */}
             {session.status !== 'completed' && session.status !== 'stopped' && !session.is_welcome_draft && (
               <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
@@ -1188,6 +1149,24 @@ const AgentCard: React.FC<Props> = ({
                 </Typography>
               </Box>
             )}
+            {/* Finishing used to be signalled by the word 'working' DISAPPEARING, which is not a signal. */}
+            <Fade in={session.status === 'completed' && !session.is_welcome_draft} timeout={{ enter: 260, exit: 160 }} unmountOnExit>
+              <Chip
+                icon={<CheckIcon sx={{ fontSize: 13, color: `${c.status.success} !important` }} />}
+                label="Done"
+                size="small"
+                sx={{
+                  bgcolor: c.status.successBg,
+                  color: c.status.success,
+                  border: `1px solid ${c.status.success}33`,
+                  fontWeight: 600,
+                  fontSize: '0.6875rem',
+                  height: 22,
+                  flexShrink: 0,
+                  '& .MuiChip-icon': { ml: '4px' },
+                }}
+              />
+            </Fade>
             {/* Calm, zero-click signal: the agent recalled or built up memory of
                 this site, so the user feels it getting smarter on its own. */}
             <Fade in={session.memory_recalled || session.memory_learned} timeout={{ enter: 200, exit: 220 }} unmountOnExit>
@@ -1227,9 +1206,12 @@ const AgentCard: React.FC<Props> = ({
         >
           <Box sx={{ display: 'flex', gap: 1.5, minWidth: 0, overflow: 'hidden' }}>
             {session.cost_usd > 0 && hasApiKey && (
-              <Typography variant="caption" sx={{ color: c.accent.primary, whiteSpace: 'nowrap' }}>
-                ${session.cost_usd.toFixed(4)}
-              </Typography>
+              // Accent orange on a bare number read as a warning; it is just what the run cost.
+              <Tooltip title="What this run has cost so far" placement="bottom-start">
+                <Typography variant="caption" sx={{ color: c.text.tertiary, whiteSpace: 'nowrap' }}>
+                  ${session.cost_usd.toFixed(4)}
+                </Typography>
+              </Tooltip>
             )}
           </Box>
         </Box>
@@ -1248,7 +1230,7 @@ const AgentCard: React.FC<Props> = ({
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            borderRadius: tiledStyle ? undefined : '20px',
+            borderRadius: isTiled ? undefined : '20px',
           }}
         >
           <DarkTokensScope>

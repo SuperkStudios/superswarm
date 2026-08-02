@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 DISTILL_ENABLED = os.environ.get("OPENSWARM_DISTILL_HISTORY", "1") != "0"
 MAX_DISTILL_INPUT_CHARS = 60_000
+# Prose is free to paraphrase, so the paths get re-attached deterministically instead. Capped so a hundred-file refactor can't reinflate what the distill just shrank.
+MAX_PINNED_PATHS = 40
+PATH_INPUT_KEYS = ("file_path", "notebook_path", "path")
 
 P_SYSTEM = (
     "You are a note-taker that condenses a conversation transcript into a briefing. "
@@ -62,6 +65,34 @@ def p_format_dropped(messages: List) -> str:
 
 
 @typechecked
+def touched_file_paths(messages: List) -> List[str]:
+    """Every file path the dropped span operated on, read off the tool_call inputs rather than
+    scraped out of prose. Order-preserving and deduped."""
+    seen: List[str] = []
+    for m in messages:
+        if m.role != "tool_call" or not isinstance(m.content, dict):
+            continue
+        tool_input = m.content.get("input")
+        if not isinstance(tool_input, dict):
+            continue
+        for key in PATH_INPUT_KEYS:
+            value = tool_input.get(key)
+            if isinstance(value, str) and value and value not in seen:
+                seen.append(value)
+    return seen
+
+
+@typechecked
+def pin_missing_paths(summary: str, messages: List) -> str:
+    """Re-attach any touched path the summary dropped. A briefing that says 'the twelve handler
+    files' is unusable to the next turn; the literal paths have to survive verbatim."""
+    missing = [p for p in touched_file_paths(messages) if p not in summary][:MAX_PINNED_PATHS]
+    if not missing:
+        return summary
+    return summary + "\n\nFiles touched earlier: " + ", ".join(missing)
+
+
+@typechecked
 async def distilled_history_summary(session: AgentSession, settings: AppSettings) -> str:
     """Cached aux summary of everything up to and including compacted_through_msg_id.
     Empty string when there's nothing to distill, the feature is off, or the call fails."""
@@ -86,6 +117,7 @@ async def distilled_history_summary(session: AgentSession, settings: AppSettings
         return ""
     if not summary:
         return ""
+    summary = pin_missing_paths(summary, dropped)
     session.compacted_summary = summary
     session.compacted_summary_through = cutoff
     return summary

@@ -10,14 +10,17 @@ import DesktopSpawnPill from './desktop/DesktopSpawnPill';
 import SearchIcon from '@mui/icons-material/Search';
 import { motion } from 'framer-motion';
 import ChatInput from '@/app/pages/AgentChat/ChatInput';
+import { EmptyState } from '@/app/components/feedback/Loading';
 import type { ContextPath } from '@/app/components/editor/DirectoryBrowser';
 import SchedulePopover from '@/app/pages/Workflows/SchedulePopover';
 import { openWorkflowCard, fetchAllRuns, upsertRun } from '@/shared/state/workflowsSlice';
-import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
+import { addWorkflowCard, openWorkflowsApp, closeWorkflowsApp, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { searchHistory, clearHistorySearch } from '@/shared/state/agentsSlice';
+import { searchHistory, clearHistorySearch, deleteSession, renameSession } from '@/shared/state/agentsSlice';
+import { openCardContextMenu } from './desktop/openCardContextMenu';
+import { displaySessionName } from '@/shared/state/sessionDisplay';
 import { updateSettingsPatch, AppSettings } from '@/shared/state/settingsSlice';
 import { store } from '@/shared/state/store';
 import { API_BASE, getAuthToken } from '@/shared/config';
@@ -169,7 +172,8 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const allRuns = useAppSelector((s) => s.workflows.allRuns);
     const allRunsLoading = useAppSelector((s) => s.workflows.allRunsLoading);
     const workflowItems = useAppSelector((s) => s.workflows.items);
-    const workflowsHubOpen = useAppSelector((s) => Boolean(s.dashboardLayout.workflowsHub));
+    // Parked counts as not-showing, so the pill restores the window instead of throwing its state away.
+    const workflowsHubOpen = useAppSelector((s) => Boolean(s.dashboardLayout.workflowsHub) && !s.dashboardLayout.minimizedCards[WORKFLOWS_HUB_ID]);
 
     const outputList = useMemo(() => Object.values(outputs), [outputs]);
     const filteredOutputs = useMemo(() => {
@@ -251,6 +255,25 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       onHistoryResume(sessionId);
       handleCloseHistory();
     }, [onHistoryResume, handleCloseHistory]);
+
+    const handleHistoryContextMenu = useCallback((e: React.MouseEvent, entry: { id: string; name: string }) => {
+      openCardContextMenu(e, {
+        rename: { value: displaySessionName(entry.name), onCommit: (name) => { void dispatch(renameSession({ sessionId: entry.id, name })); } },
+        items: [
+          { label: 'Resume chat', onClick: () => handleHistorySelect(entry.id) },
+          { kind: 'separator' },
+          {
+            label: 'Delete chat',
+            danger: true,
+            onClick: () => {
+              void dispatch(deleteSession({ sessionId: entry.id })).then(() => {
+                dispatch(searchHistory({ q: historyQuery, limit: HISTORY_PAGE_SIZE, offset: 0 }));
+              });
+            },
+          },
+        ],
+      });
+    }, [dispatch, handleHistorySelect, historyQuery]);
 
     const handleHistoryLoadMore = useCallback(() => {
       if (historySearch.loading || !historySearch.hasMore) return;
@@ -460,6 +483,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               historyQuery={historyQuery}
               onHistoryQueryChange={setHistoryQuery}
               onHistorySelect={handleHistorySelect}
+              onHistoryContextMenu={handleHistoryContextMenu}
               onNewChat={() => { handleCloseHistory(); onNewAgent(); }}
               onWorkflowSelect={(wid) => {
                 dispatch(openWorkflowsApp({ workflowId: wid }));
@@ -514,11 +538,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               }}
             >
               {filteredOutputs.length === 0 ? (
-                <Box sx={{ px: 2, py: 3, textAlign: 'center' }}>
-                  <Typography sx={{ fontSize: '0.8125rem', color: c.text.muted }}>
-                    {outputList.length === 0 ? 'No apps created yet' : 'No matching apps'}
-                  </Typography>
-                </Box>
+                <EmptyState title={outputList.length === 0 ? 'No apps created yet' : 'No matching apps'} />
               ) : (
                 filteredOutputs.map((output) => (
                   <Box

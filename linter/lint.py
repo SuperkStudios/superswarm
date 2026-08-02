@@ -18,6 +18,7 @@ from checks.knip import run_knip
 from checks.endpoints import run_endpoint_check
 from checks.classes import run_class_check
 from checks.cycles import run_cycle_check
+from checks.dangling_refs import run_dangling_refs_check
 from checks.no_underscore_names import run_underscore_check
 from checks.p_private import run_p_private_check
 from checks.ruff import run_ruff
@@ -33,7 +34,7 @@ def load_config() -> dict[str, Any]:
         return json.load(f)
 
 
-def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str]]:
+def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str], list[str]]:
     config = load_config()
     enabled: dict[str, bool] = config.get("enabled", {})
     rules: dict[str, int] = config["rules"]
@@ -114,6 +115,14 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
     underscore_errors = run_underscore_check(root, exceptions, excludes, ignores) if enabled.get("no-underscore-names", False) else []
     p_private_errors = run_p_private_check(root, exceptions, excludes, ignores) if enabled.get("p-private", False) else []
 
+    # A dangling reference becomes a linter error at declaration time, not a blank card six months later.
+    dangling_ref_errors: list[str] = []
+    if enabled.get("dangling-refs", False):
+        try:
+            dangling_ref_errors = run_dangling_refs_check(root, exceptions, excludes, ignores)
+        except CheckError as e:
+            dangling_ref_errors = [f"dangling-refs: check could not run: {e.reason}"]
+
     # ruff (scoped dead-code codes) + pyright (existence errors), also from Haik's
     # linter. Both shell out to a tool, so a missing tool / timeout raises CheckError
     # and is surfaced as a loud error rather than a silently-clean empty result.
@@ -130,7 +139,7 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
         except CheckError as e:
             pyright_errors = [f"pyright: check could not run: {e.reason}"]
 
-    return sorted(structural_errors), sorted(vulture_errors), sorted(eslint_errors), sorted(knip_errors), sorted(endpoint_errors), sorted(class_errors), sorted(cycle_errors), sorted(underscore_errors), sorted(p_private_errors), sorted(ruff_errors), sorted(pyright_errors)
+    return sorted(structural_errors), sorted(vulture_errors), sorted(eslint_errors), sorted(knip_errors), sorted(endpoint_errors), sorted(class_errors), sorted(cycle_errors), sorted(underscore_errors), sorted(p_private_errors), sorted(dangling_ref_errors), sorted(ruff_errors), sorted(pyright_errors)
 
 
 def _print_section(name: str, errors: list[str]) -> None:
@@ -145,8 +154,8 @@ def print_results(
     eslint_errors: list[str], knip_errors: list[str],
     endpoint_errors: list[str], class_errors: list[str],
     cycle_errors: list[str], underscore_errors: list[str],
-    p_private_errors: list[str], ruff_errors: list[str],
-    pyright_errors: list[str],
+    p_private_errors: list[str], dangling_ref_errors: list[str],
+    ruff_errors: list[str], pyright_errors: list[str],
 ) -> None:
     _print_section("structural", structural_errors)
     _print_section("vulture", vulture_errors)
@@ -157,6 +166,7 @@ def print_results(
     _print_section("import-cycles", cycle_errors)
     _print_section("no-underscore-names", underscore_errors)
     _print_section("p-private", p_private_errors)
+    _print_section("dangling-refs", dangling_ref_errors)
     _print_section("ruff", ruff_errors)
     _print_section("pyright", pyright_errors)
 

@@ -52,6 +52,8 @@ class AppSettings(BaseModel):
     # None = platform default (Cmd/Ctrl+Shift+D); parts format matches new_agent_shortcut.
     dictation_shortcut: Optional[str] = None
     voice_hold_to_talk: bool = True
+    # Whisper model id from the desktop catalog (electron/voice/whisperModels.js); None = its default.
+    dictation_model: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
     # Opt-in: let a blocked browser agent borrow the sign-in you already have in your everyday

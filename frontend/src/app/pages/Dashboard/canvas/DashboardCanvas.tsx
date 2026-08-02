@@ -1,11 +1,13 @@
 import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { addViewCard, clearTiledCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
+import { addViewCard, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayer from './TetherLayer';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
+import CardContextMenu from '../desktop/CardContextMenu';
+import { useCanvasContextMenu } from './useCanvasContextMenu';
 import DashboardEmptyState from './DashboardEmptyState';
 import '../desktop/desktop.css';
 import DesktopDock from '../desktop/DesktopDock';
@@ -72,7 +74,8 @@ interface DashboardCanvasProps {
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   onViewportMouseDown: (e: React.MouseEvent) => void;
   onViewportMouseMove: (e: React.MouseEvent) => void;
-  onViewportMouseUp: (e: React.MouseEvent) => void;
+  /** Returns true when the release ended a marquee drag rather than a plain click. */
+  onViewportMouseUp: (e: React.MouseEvent) => boolean;
   onViewportDoubleClick: (e: React.MouseEvent) => void;
   onCardSelect: (id: string, type: CardType, shiftKey: boolean, originTarget?: EventTarget | null) => void;
   onDragStart: (id: string, type: CardType) => void;
@@ -170,11 +173,15 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // macOS full screen: one card owns the whole window, every piece of chrome steps aside; Esc exits.
   const dispatch = useAppDispatch();
   const fullscreenCardId = useAppSelector(selectFullscreenCardId);
-  // The singleton app windows (Workflows, Settings) carry their own fullscreen flag, not a tiledCard; their fill also hides the dock.
-  const settingsFullscreen = useAppSelector((s) => !!s.dashboardLayout.settingsCard?.fullscreen);
-  const anyFullscreen = !!fullscreenCardId || !!workflowsHub?.fullscreen || settingsFullscreen;
+  const minimizedCards = useAppSelector((s) => s.dashboardLayout.minimizedCards);
+  const anyFullscreen = !!fullscreenCardId;
   const [headerRevealed, setHeaderRevealed] = React.useState(false);
   const [appsWindowOpen, setAppsWindowOpen] = React.useState(false);
+  const openCanvasMenu = useCanvasContextMenu({
+    dispatch, dashboardId, expandedSessionIds, selection, canvasEmpty,
+    viewportRef: canvas.viewportRef, getCamera: canvas.actions.getLiveState,
+    onNewAgent, onAddBrowser, onApplications: () => setAppsWindowOpen(true), onTidy, onFitToView,
+  });
   useEffect(() => {
     if (!fullscreenCardId) return undefined;
     const onKey = (e: KeyboardEvent): void => {
@@ -246,7 +253,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           // page->transparent fade here just read as a light-leak band over the themed canvas.
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', pointerEvents: 'auto' }}>
+        {/* Must follow the reveal: an always-auto child overrides the hidden overlay's pointer-events:none and swallowed the whole top strip, so a top/left-tiled window's traffic lights were unclickable. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', pointerEvents: headerRevealed ? 'auto' : 'none' }}>
           <DashboardHeader
             dashboardName={dashboardName}
             sessions={sessions}
@@ -268,6 +276,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       {!anyFullscreen && (
         <MinimizedStack
           browserCards={browserCards}
+          viewCards={viewCards}
+          outputs={outputs}
+          selectedIds={Array.from(selection.selectedIds.keys())}
           onRestore={(cardId, rect) => {
             canvas.actions.fitToCards([rect], 1.15, true);
             onHighlightCard?.(cardId);
@@ -285,6 +296,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           outputs={outputs}
           selectedIds={Array.from(selection.selectedIds.keys())}
           onFocusCard={(cardId, rect) => {
+            // A parked card sits off-canvas, so flying to its stored rect would land on empty space; unpark it first.
+            if (minimizedCards[cardId]) dispatch(toggleMinimizeCard({ cardId }));
             canvas.actions.fitToCards([rect], 1.15, true);
             onHighlightCard?.(cardId);
           }}
@@ -307,16 +320,17 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         data-canvas-viewport
         onMouseDown={onViewportMouseDown}
         onMouseMove={onViewportMouseMove}
-        onMouseUp={onViewportMouseUp}
+        onMouseUp={(e) => {
+          const marqueed = onViewportMouseUp(e);
+          // The right button belongs to the marquee, so the canvas menu waits for the release and
+          // only opens when nothing was rubber-banded. Opening on press stole the drag.
+          if (e.button === 2 && !marqueed) openCanvasMenu(e);
+        }}
         onDoubleClick={onViewportDoubleClick}
-        onContextMenu={(e) => {
-          // Right-drag is the canvas marquee-select (Google-Maps style), so the native menu (Inspect
-          // Element in dev) shouldn't pop over it. Suppress only on the bare canvas; cards, inputs, and
-          // webviews keep their own menus.
+        onContextMenu={(e: React.MouseEvent) => {
+          // Bare canvas: kill the native menu (Inspect Element in dev) so the right-drag stays clean.
           const t = e.target as HTMLElement;
-          if (!t.closest('[data-select-id]') && !t.closest('input, textarea, [contenteditable]')) {
-            e.preventDefault();
-          }
+          if (!t.closest('[data-select-id]') && !t.closest('input, textarea, [contenteditable]')) e.preventDefault();
         }}
         sx={{
           position: 'absolute',
@@ -462,6 +476,10 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         toolbarPrefillMode={toolbarPrefillMode}
       />
       </Box>
+
+      {/* Sibling of everything: the menu used to live inside the help pill's z:10 box (so any card
+          brought to front painted over it) and inside the fullscreen display:none wrapper. */}
+      <CardContextMenu />
     </Box>
     </>
   );

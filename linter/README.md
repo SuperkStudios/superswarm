@@ -42,6 +42,16 @@ These rules apply to `.py`, `.ts`, `.tsx`, `.js`, and `.jsx` files.
 
 Both are backend-only and grandfather pre-existing debt via the `no-underscore-names` / `p-private` exception lists; new code must be clean. (Ported from Haik's linter, which also adds Pyright + Ruff and should eventually supersede this subset.)
 
+### Cross-entity references
+
+**Declared reference targets (`dangling-refs`)** — Backend entities are JSON records that point at each other with bare strings (`Workflow.edit_agent_session_id`, `Output.workspace_id`, `CardPosition.session_id`). The type says `str`, so nothing warns a reader that the referent may be gone, and the miss renders as a blank card instead of a designed empty state.
+
+Every field named `*_id` / `*_ids` on a pydantic `BaseModel` under `backend/` must therefore be declared in `backend/config/entity_references.py`, which names the entity it points at and the store that resolves that entity by id. A model's own primary key is spelled `id`, so it never matches; neither do words that merely end in "id" (`uuid`, `grid`, `valid`), since the underscore is required.
+
+The registry is verified in both directions: an entry for a field that no longer exists is an error, and so is an `EntityStore` whose lookup function has been renamed away. A registry nobody checks is a registry that rots.
+
+Pre-existing fields are grandfathered per FIELD, not per file — the exception entries are keyed `<path>::<Model>.<field>`, so a new id field added to an already-listed model is still caught. A file glob would exempt `workflows/models.py` forever, which is exactly where the next dangling pointer lands.
+
 ## How it runs
 
 ### Linter watch (automatic)
@@ -154,6 +164,7 @@ The project's code conventions live here (a tracked file) rather than in `CLAUDE
 ### Enforced by the linter
 - **No leading `_`** — use `p_` for private. (`no-underscore-names`, backend)
 - **`p_` is a private access boundary** — a `p_` name used across files/classes must be public. (`p-private`, backend)
+- **Cross-entity id fields declare their target.** A new `*_id` on a backend model must be registered in `backend/config/entity_references.py`. (`dangling-refs`, backend)
 - **No runtime import cycles.** (`import-cycles`)
 - **File and folder size caps.** (`max-file-lines`, `max-folder-items`)
 
@@ -190,6 +201,7 @@ linter/
     knip.py            # knip unused-code runner
     endpoints.py       # orphaned endpoint detection
     classes.py         # class-level dead code detection
+    dangling_refs.py   # cross-entity id fields must declare a target entity
   config/              # all configuration files
     config.json        # enabled checks, rules, exclusions, exceptions
     pyrightconfig.json # python type checking config
@@ -211,6 +223,7 @@ deferred.
 | `max-file-lines` (300) | on | Our 300-line precedence. Active for new files; existing debt is grandfathered (see below). |
 | `max-folder-items` (7) | on | Grandfathered per subtree via `.lintignore-max-folder-items` markers in `backend/`, `frontend/`, `debugger/`, `electron/`, `scripts/`. |
 | `vulture` | on | Dead-code detection over `backend/`. Runs against `backend/.venv/bin/vulture`. |
+| `dangling-refs` | on | Cross-entity id fields on backend models must declare a target entity. 42 of the 74 existing fields are in the registry; the other 32 are grandfathered per field. |
 | `no-nested-imports` | off | We deliberately use function-level / lazy imports to break import cycles (400+ sites). Flagging them all is wrong for this codebase. |
 | `eslint`, `knip` | off | Node tooling, deferred to a later pass. |
 | `endpoints` | off | Orphaned-endpoint triage deferred. |

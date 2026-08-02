@@ -20,6 +20,7 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
+import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { openSettingsModal, dismissMcpSuggestion } from '@/shared/state/settingsSlice';
 import { API_BASE, getAuthToken } from '@/shared/config';
 import {
@@ -77,6 +78,7 @@ import { setCardSidecar, commitDraft, updateWorkflowCard, controlWorkflowRun } f
 import { shallowEqual } from 'react-redux';
 import { useClaudeTokens, useThemeAccent, useThemeMode } from '@/shared/styles/ThemeContext';
 import { parseMcpToolName, getMcpInputSummary } from '@/shared/mcpToolMeta';
+import { isNarration } from './parsing/isNarration';
 
 const CONTEXT_WINDOWS: Record<string, number> = {
   'opus-4-8': 1_000_000,
@@ -694,6 +696,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
       if (e.ctrlKey || e.metaKey) return;
       // Horizontal-dominant gestures must also reach the canvas so a sideways swipe pans the dashboard (chat has no horizontal scroll to absorb).
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      // Google Maps model: a plain wheel over a chat you haven't clicked INTO belongs to the canvas, so let it through instead of swallowing it here (this is what made zoom look dead over any chat).
+      const cardId = el.closest('[data-select-id]')?.getAttribute('data-select-id') ?? null;
+      if (cardId && cardId !== getScrollFocusedCard()) return;
       const atTop = el.scrollTop <= 0;
       const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
       const scrollingDown = e.deltaY > 0;
@@ -1112,7 +1117,9 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             let j = i;
             while (j < activeBranchMessages.length && activeBranchMessages[j].role === 'assistant') j++;
             const next = activeBranchMessages[j];
-            if (next && (next.role === 'tool_call' || next.role === 'tool_result')) {
+            const absorbable = activeBranchMessages.slice(i, j).every((a) => isNarration(a.content));
+            // A long or structured message is the answer, not narration. Absorbing it hides the whole deliverable in a grey tool row and strips its markdown, which is worse than showing one redundant line.
+            if (next && absorbable && (next.role === 'tool_call' || next.role === 'tool_result')) {
               for (let k = i; k < j; k++) {
                 if (!activeBranchMessages[k].hidden) noteMarks.push({ afterCall: callsSoFar, msg: activeBranchMessages[k] });
               }

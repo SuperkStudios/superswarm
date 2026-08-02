@@ -23,6 +23,10 @@ SESSION_RECAP_CLOSE = "</openswarm_session_recap>"
 RECAP_TOOL_INPUT_CAP = 200
 RECAP_TOOL_RESULT_CAP = 500
 
+# Inline budget for a spilled tool result, split head/tail. Same total as the old head-only 4KB, but a test summary or build verdict lives at the END of the output and head-only threw it away every time.
+SPILL_HEAD_CHARS = 2_500
+SPILL_TAIL_CHARS = 1_500
+
 
 @typechecked
 def wrap_platform_note(body: str) -> str:
@@ -191,8 +195,9 @@ def truncate_large_tool_result(content: object, session_id: str, msg_id: str, ma
 
     Storage is session-scoped under data/sessions/<session_id>/blobs/,
     never honors caller-supplied paths (defense against path
-    traversal). The inline replacement keeps the first 4KB so the
-    model retains some signal about what was returned.
+    traversal). The inline replacement middle-elides: head AND tail
+    survive, so a verdict printed at the end of a long output (test
+    summary, build result) still reaches the model.
     """
     if not isinstance(content, str):
         try:
@@ -214,10 +219,21 @@ def truncate_large_tool_result(content: object, session_id: str, msg_id: str, ma
     except Exception as e:
         logger.warning(f"Failed to spill tool result to {blob_path}: {e}")
         return content, None
-    head = strip_forged_sentinels(serialized[:4_000])
+    return build_elided_replacement(serialized, blob_path), blob_path
+
+
+@typechecked
+def build_elided_replacement(serialized: str, blob_path: str) -> str:
+    """Head + tail of an oversized body with an elision marker between them, then the recovery
+    note. Degrades to the plain body when it is too short to elide."""
+    head = strip_forged_sentinels(serialized[:SPILL_HEAD_CHARS])
     note = wrap_platform_note(
         f"Output truncated by OpenSwarm. Full output ({len(serialized)} chars) saved to "
         f"{blob_path}. Ask the user or run a follow-up tool call if you need the rest."
     )
-    replacement = f"{head}\n\n{note}"
-    return replacement, blob_path
+    dropped = len(serialized) - SPILL_HEAD_CHARS - SPILL_TAIL_CHARS
+    if dropped <= 0:
+        return f"{strip_forged_sentinels(serialized)}\n\n{note}"
+    tail = strip_forged_sentinels(serialized[-SPILL_TAIL_CHARS:])
+    marker = f"\n\n[... {dropped} chars elided by OpenSwarm; full output at {blob_path} ...]\n\n"
+    return f"{head}{marker}{tail}\n\n{note}"

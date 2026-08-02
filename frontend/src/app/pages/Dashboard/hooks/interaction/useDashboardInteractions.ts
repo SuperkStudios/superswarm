@@ -206,9 +206,11 @@ export function useDashboardInteractions({
     selection.handleCanvasMouseMove(e.nativeEvent);
   }, [canvas.handlers, selection]);
 
-  const handleViewportMouseUp = useCallback((e: React.MouseEvent) => {
+  // Reports whether the release ended a marquee drag; the canvas uses that to tell a right-DRAG
+  // (rubber band) from a right-CLICK (context menu) without ever arbitrating on mousedown.
+  const handleViewportMouseUp = useCallback((e: React.MouseEvent): boolean => {
     canvas.handlers.onMouseUp();
-    selection.handleCanvasMouseUp(e.nativeEvent);
+    return selection.handleCanvasMouseUp(e.nativeEvent);
   }, [canvas.handlers, selection]);
 
   // Double-click empty canvas → zoom OUT anchored at the cursor (Google Maps style). It must never

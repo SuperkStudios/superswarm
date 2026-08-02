@@ -3,10 +3,10 @@ import Box from '@mui/material/Box';
 import DashboardToolbar from '../DashboardToolbar';
 import CanvasControls from '../controls/CanvasControls';
 import HelpPill from '../desktop/HelpPill';
-import CardContextMenu from '../desktop/CardContextMenu';
 import CardSearchPalette from '../controls/CardSearchPalette';
 import DirectionHints from '../controls/DirectionHints';
 import WorkflowRunningToast from '@/app/pages/Workflows/WorkflowRunningToast';
+import WorkflowNoticeToast from '@/app/pages/Workflows/WorkflowNoticeToast';
 import MissedRunsToast from '@/app/pages/Workflows/MissedRunsToast';
 import ProviderHealthToast from '@/app/components/overlays/ProviderHealthToast';
 import ScheduleOfferToast from '@/app/components/nudges/ScheduleOfferToast';
@@ -120,7 +120,6 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
       {!anyFullscreen && (
       <Box sx={{ position: 'absolute', top: 14, right: 16, zIndex: 10 }}>
         <HelpPill />
-      <CardContextMenu />
       </Box>
       )}
 
@@ -174,6 +173,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
 
       {/* Scheduled-run nudge: "your {workflow} is running now" + jump-to-canvas */}
       <WorkflowRunningToast />
+      <WorkflowNoticeToast />
 
       {/* Launch nudge when scheduled runs elapsed while the app was closed */}
       <MissedRunsToast />

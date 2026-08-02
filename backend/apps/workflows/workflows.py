@@ -20,6 +20,7 @@ from backend.apps.workflows.models import (
     GenerateMetadataResponse,
 )
 from backend.apps.workflows import storage, scheduler, executor, audit, escalation
+from backend.apps.workflows.cloud.handover import release_before_removing
 from backend.apps.settings.models import DEFAULT_MODEL
 
 logger = logging.getLogger(__name__)
@@ -150,8 +151,8 @@ def p_source_session_memory(session_id: Optional[str]) -> tuple[dict[str, str], 
         messages = getattr(sess, "messages", None) if sess is not None else None
         tool_latencies = getattr(sess, "tool_latencies", None) if sess is not None else None
         if decisions is None:
-            from backend.apps.agents.manager.session.session_store import _load_session_data
-            data = _load_session_data(session_id) or {}
+            from backend.apps.agents.manager.session.session_store import load_session_data
+            data = load_session_data(session_id) or {}
             decisions = data.get("approval_decisions") or []
             messages = data.get("messages") or []
             tool_latencies = data.get("tool_latencies") or {}
@@ -854,6 +855,10 @@ async def delete_workflow(workflow_id: str):
     wf = storage.get_workflow(workflow_id)
     if not wf or wf.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    # Trashing a cloud-hosted workflow has to stop the cloud copy first, or it keeps running (and billing) with nobody able to see it.
+    released = await release_before_removing(wf)
+    if not released.ok:
+        raise HTTPException(status_code=409, detail=released.message)
     wf.deleted_at = datetime.now()
     wf.schedule.enabled = False
     wf.next_run_at = None
@@ -896,10 +901,16 @@ async def restore_workflow(workflow_id: str):
 
 @workflows.router.delete("/{workflow_id}/purge")
 async def purge_workflow(workflow_id: str):
-    """Hard delete, only from Trash. Removes the record and its run history."""
+    """Hard delete, only from Trash. Removes the record, its run history and its own chats."""
     wf = storage.get_workflow(workflow_id)
     if not wf or wf.deleted_at is None:
         raise HTTPException(status_code=404, detail="Workflow not in trash")
+    released = await release_before_removing(wf)
+    if not released.ok:
+        raise HTTPException(status_code=409, detail=released.message)
+    # Before the record goes, or the ids that name the transcripts go with it and they leak forever.
+    from backend.apps.workflows.owned_sessions import purge_owned_sessions
+    await purge_owned_sessions(wf)
     storage.delete_workflow(workflow_id)
     try:
         from backend.apps.agents.core.ws_manager import ws_manager
@@ -940,8 +951,8 @@ async def edit_agent_session(workflow_id: str):
             p_sess.dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
             p_sess.workflow_edit_id = wf.id
             try:
-                from backend.apps.agents.manager.session.session_store import _save_session
-                _save_session(p_sess.id, p_sess.model_dump(mode="json"))
+                from backend.apps.agents.manager.session.session_store import save_session
+                save_session(p_sess.id, p_sess.model_dump(mode="json"))
             except Exception:
                 logger.debug("could not persist reattached edit-agent markers", exc_info=True)
             try:
@@ -1022,7 +1033,8 @@ async def edit_agent_session(workflow_id: str):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
-        allowed_tools=[],
+        # None, not [], since an empty list is now a real restriction and would leave this chat with no tools at all.
+        allowed_tools=None,
         dashboard_id=edit_dashboard_id,
         workflow_edit_id=wf.id,
     )
@@ -1033,8 +1045,8 @@ async def edit_agent_session(workflow_id: str):
         from backend.apps.agents.core.models import Message
         session.messages.append(Message(role="assistant", content=EDIT_AGENT_INTRO))
     try:
-        from backend.apps.agents.manager.session.session_store import _save_session
-        _save_session(session.id, session.model_dump(mode="json"))
+        from backend.apps.agents.manager.session.session_store import save_session
+        save_session(session.id, session.model_dump(mode="json"))
     except Exception:
         logger.debug("could not persist edit-agent session", exc_info=True)
     try:
@@ -1250,7 +1262,10 @@ async def test_run_workflow(workflow_id: str, body: dict):
         set_workflow_approval_step,
     )
     from backend.apps.workflows import executor
+    from backend.apps.workflows.owned_sessions import retire_previous_test_session
 
+    # One test card at a time: the previous test's chat is about to lose the only pointer to it, so retire it now rather than leave an orphan card on the canvas.
+    await retire_previous_test_session(wf)
     # Like a real run, the test must attach to the dashboard the user is watching, else its browser tools have no card to drive and the test "runs" but visibly does nothing. Prefer the live active dashboard over the workflow's stored home.
     from backend.apps.agents.core.ws_manager import ws_manager as p_wsm
     test_dashboard_id = p_wsm.active_dashboard_id or executor.resolve_workflow_dashboard_id(wf)
@@ -1261,9 +1276,8 @@ async def test_run_workflow(workflow_id: str, body: dict):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=executor._resolve_system_prompt(wf),
-        allowed_tools=resolved_allowed_tools if resolved_allowed_tools is not None else [
-            "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
-        ],
+        # A test run has to hit the same tool surface the scheduled run will, or the test proves nothing.
+        allowed_tools=resolved_allowed_tools,
         dashboard_id=test_dashboard_id,
     )
     session = await agent_manager.launch_agent(config)
@@ -1400,7 +1414,8 @@ async def schedule_agent_session(workflow_id: str):
         mode=wf.mode or "agent",
         provider=wf.provider or "anthropic",
         system_prompt=system_prompt,
-        allowed_tools=[],
+        # None, not [], since an empty list is now a real restriction and would leave this chat with no tools at all.
+        allowed_tools=None,
         dashboard_id=wf.dashboard_id,
     )
     session = await agent_manager.launch_agent(config)

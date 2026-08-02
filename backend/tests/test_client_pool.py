@@ -1,19 +1,16 @@
 """Invariant + seeded-simulation tests for the persistent-client pool (lever A of the TTFT work).
-Proves the red-teamed safety properties hold by construction: fingerprint-gated reuse, respawn on
-any boot-input change, pop-first disposal, never-raising teardown, and (seeded sim) that random op
-sequences never reuse a stale client, never double-boot needlessly, and always recover a dead one."""
+Proves the red-teamed safety properties hold by construction: fingerprint-gated reuse, pop-first
+disposal, never-raising teardown, idle/LRU reclaim, and (seeded sim) that random op sequences never
+reuse a stale client, never double-boot needlessly, and always recover a dead one. What the
+fingerprint itself hashes lives in test_boot_fingerprint.py."""
 
 import asyncio
 import random
 from typing import Dict, List
 
-import pytest
-
-from backend.apps.agents.core.models import AgentSession
 from backend.apps.agents.manager.run.client_pool import (
     ClientHandle,
     acquire_client,
-    boot_fingerprint,
     dispose_all_clients,
     dispose_client,
     dispose_client_soon,
@@ -37,56 +34,6 @@ class FakeClient:
         self.alive = False
         if self.raise_on_disconnect:
             raise RuntimeError("teardown boom")
-
-
-def make_session(branch: str = "main", compacted: str | None = None) -> AgentSession:
-    s = AgentSession(name="t", model="haiku", mode="agent")
-    s.active_branch_id = branch
-    s.compacted_through_msg_id = compacted
-    return s
-
-
-BASE_KWARGS = {
-    "model": "haiku",
-    "cwd": "/tmp/ws",
-    "system_prompt": {"type": "preset", "preset": "claude_code"},
-    "allowed_tools": ["Read"],
-    "disallowed_tools": ["mcp__claude_ai_*"],
-    "mcp_servers": {"openswarm-mcp-meta": {"command": "python", "args": ["m.py"], "type": "stdio"}},
-    "can_use_tool": lambda: None,
-    "stderr": lambda line: None,
-    "hooks": {"PreToolUse": []},
-}
-
-
-def test_fingerprint_stable_across_per_turn_keys():
-    s = make_session()
-    a = boot_fingerprint(dict(BASE_KWARGS), s)
-    changed = dict(BASE_KWARGS)
-    changed["can_use_tool"] = lambda: 1
-    changed["stderr"] = lambda line: 1
-    changed["hooks"] = {"PreToolUse": ["different"]}
-    changed["resume"] = "sdk-session-xyz"
-    changed["fork_session"] = True
-    assert boot_fingerprint(changed, s) == a
-
-
-@pytest.mark.parametrize("mutate", [
-    lambda k, s: k.__setitem__("mcp_servers", {**k["mcp_servers"], "x": {"command": "node", "type": "stdio"}}),
-    lambda k, s: k.__setitem__("system_prompt", {"type": "preset", "preset": "claude_code", "append": "sel"}),
-    lambda k, s: k.__setitem__("model", "gpt-5-mini"),
-    lambda k, s: k.__setitem__("cwd", "/tmp/other"),
-    lambda k, s: k.__setitem__("allowed_tools", ["Read", "Bash"]),
-    lambda k, s: setattr(s, "active_branch_id", "branch2"),
-    lambda k, s: setattr(s, "compacted_through_msg_id", "msg42"),
-])
-def test_fingerprint_changes_on_boot_inputs(mutate):
-    s = make_session()
-    kwargs = dict(BASE_KWARGS)
-    kwargs["mcp_servers"] = dict(BASE_KWARGS["mcp_servers"])
-    before = boot_fingerprint(kwargs, s)
-    mutate(kwargs, s)
-    assert boot_fingerprint(kwargs, s) != before
 
 
 def test_reuse_respawn_force_and_teardown():

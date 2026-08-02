@@ -1,4 +1,5 @@
 import { useRef, useEffect } from 'react';
+import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 
 /** Forwards wheel events through an overlay to the content beneath while keeping overlay click/drag; passes pinch-zoom. */
 export function useOverlayScrollPassthrough(active: boolean) {
@@ -10,6 +11,8 @@ export function useOverlayScrollPassthrough(active: boolean) {
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) return;
+      const cardId = el.closest('[data-select-id]')?.getAttribute('data-select-id') ?? null;
+      const cardOwnsScroll = !cardId || cardId === getScrollFocusedCard();
 
       el.style.pointerEvents = 'none';
       const underneath = document.elementFromPoint(e.clientX, e.clientY);
@@ -61,6 +64,9 @@ export function useOverlayScrollPassthrough(active: boolean) {
         }
 
         if (canScrollY || canScrollX) {
+          // Host content under the overlay follows the canvas rule: only the card you clicked INTO
+          // gets the plain wheel, otherwise swallowing it here is what kills zoom over a card.
+          if (!cardOwnsScroll) return;
           e.stopPropagation();
           e.preventDefault();
           node.scrollBy(dx, dy);

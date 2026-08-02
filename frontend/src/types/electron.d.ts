@@ -1,5 +1,14 @@
 export {};
 
+// One entry in the dictation model catalog, as the main process reports it.
+export interface VoiceModel {
+  id: string;
+  label: string;
+  note: string;
+  sizeMb: number;
+  installed: boolean;
+}
+
 declare global {
   namespace JSX {
     interface IntrinsicElements {
@@ -31,6 +40,23 @@ declare global {
     total: number;
   }
 
+  // A finished-run notification handed to the OS by the Electron main process.
+  interface OpenSwarmNotifyRequest {
+    title: string;
+    body?: string;
+    deepLink?: string;
+    runId?: string;
+    workflowId?: string;
+    actions?: Array<{ text: string; outcome: 'open' | 'ack' | 'rerun' | 'edit' }>;
+  }
+
+  interface OpenSwarmNotifyAction {
+    outcome: 'open' | 'ack' | 'rerun' | 'edit';
+    runId?: string;
+    workflowId?: string;
+    deepLink?: string;
+  }
+
   interface OpenSwarmAPI {
     getBackendPort: () => number;
     getWebviewPreloadPath: () => string;
@@ -55,7 +81,9 @@ declare global {
     hardReset?: () => Promise<void>;
     clearBrowserData?: () => Promise<{ ok: boolean }>;
     voiceWarmup?: () => Promise<{ ok: boolean; error?: string }>;
-    voiceStatus?: () => Promise<{ downloading: boolean; pct: number; error: string | null }>;
+    voiceStatus?: () => Promise<{ downloading: boolean; id: string | null; pct: number; error: string | null }>;
+    voiceModels?: () => Promise<{ models: VoiceModel[]; selected: string }>;
+    voiceSetModel?: (id: string) => Promise<{ ok: boolean; ready: boolean }>;
     voiceTranscribe?: (wav: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
     voiceInject?: (text: string) => Promise<{ ok: boolean; pasted?: boolean; error?: string }>;
     onVoiceToggle?: (cb: () => void) => () => void;
@@ -63,6 +91,8 @@ declare global {
     voiceRequestHoldPermission?: () => Promise<boolean>;
     onAuthUrl?: (cb: (url: string) => void) => () => void;
     onOauthClaim?: (cb: (url: string) => void) => () => void;
+    notify?: (payload: OpenSwarmNotifyRequest) => Promise<boolean>;
+    onNotificationAction?: (cb: (payload: OpenSwarmNotifyAction) => void) => () => void;
   }
 
   interface Window {

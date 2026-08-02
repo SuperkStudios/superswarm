@@ -21,8 +21,11 @@ export interface CardRect {
   height: number;
 }
 
+export type DockEntryKind = 'agent' | 'browser' | 'view' | 'workflow';
+
 export interface DockEntry {
   id: string;
+  kind: DockEntryKind;
   label: string;
   rect: CardRect;
   tileBg: string;
@@ -66,6 +69,7 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, wor
     const ChatIcon = pickIcon(title) || MessageCircle;
     list.push({
       id: card.session_id,
+      kind: 'agent',
       label: title,
       rect: card,
       tileBg: hueFor(title),
@@ -77,6 +81,7 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, wor
     const activeTab = bc.tabs.find((t) => t.id === bc.activeTabId) || bc.tabs[0];
     list.push({
       id: bc.browser_id,
+      kind: 'browser',
       label: activeTab?.title || 'Browser',
       rect: bc,
       tileBg: 'linear-gradient(135deg, #4f9fe8, #2f6ed4)',
@@ -90,6 +95,7 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, wor
     const appName = output?.name || 'App';
     list.push({
       id: cardKey,
+      kind: 'view',
       label: appName,
       rect: vc,
       tileBg: 'linear-gradient(135deg, #ef9552, #d96a2b)',
@@ -101,6 +107,7 @@ export function buildDockEntries({ sessions, cards, viewCards, browserCards, wor
   for (const [cardKey, wf] of Object.entries(workflowCards)) {
     list.push({
       id: cardKey,
+      kind: 'workflow',
       label: 'Workflow',
       rect: wf,
       tileBg: 'linear-gradient(135deg, #ef7a70, #d94f45)',

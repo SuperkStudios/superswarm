@@ -9,14 +9,15 @@ import httpx
 from typeguard import typechecked
 
 from backend.apps.agents.tools.base import BaseTool, ToolContext
-from backend.apps.agents.tools.search_ddg import (
+from backend.apps.agents.tools.search.search_ddg import (
     DDGRateLimited,
     HTTP_TIMEOUT,
     USER_AGENT,
-    strip_html,
 )
-from backend.apps.agents.tools.search_ddg import search_ddg as run_ddg_search
-from backend.apps.agents.tools.ssrf_guard import SSRFBlocked, safe_fetch
+from backend.apps.agents.tools.fetch.html_to_text import html_to_text
+from backend.apps.agents.tools.fetch.page_text import PageText, body_to_text, looks_like_pdf
+from backend.apps.agents.tools.search.search_ddg import search_ddg as run_ddg_search
+from backend.apps.agents.tools.ssrf_guard import DomainUnreachable, SSRFBlocked, safe_fetch
 
 P_MAX_OUTPUT_BYTES = 250 * 1024  # ~250 KB covers ~95% of articles/wikis/docs.
 
@@ -126,9 +127,11 @@ class WebSearchTool(BaseTool):
                 return [{"type": "text", "text": f"No search results found for: {query}"}]
             return [{"type": "text", "text": results}]
         except DDGRateLimited:
+            # "Wait and retry" was a dead end: the 202 is an anti-automation challenge on the client, not a cooldown, so an immediate retry gets the same answer.
             return [{"type": "text", "text": (
-                "DuckDuckGo is rate-limiting this network right now (HTTP 202). "
-                "Wait a bit and retry, or use a different search source."
+                "DuckDuckGo answered its bot challenge (HTTP 202) instead of results, on both "
+                "its html and lite frontends. Retrying the same query will not clear it; use "
+                "another search source."
             )}]
         except Exception as exc:
             return [{"type": "text", "text": f"Web search error: {exc}"}]
@@ -163,9 +166,13 @@ class WebFetchTool(BaseTool):
         }
 
     async def execute(self, input_data: dict, context: ToolContext) -> list[dict]:
-        url: str = input_data["url"]
-        prompt: str | None = input_data.get("prompt")
+        page = await self.fetch_page(input_data["url"], input_data.get("prompt"))
+        return [{"type": "text", "text": page.text}]
 
+    @staticmethod
+    async def fetch_page(url: str, prompt: str | None = None) -> PageText:
+        """The page as readable text, plus WHAT it was, so callers can tell a
+        JS wall (worth another tier) from a PNG (nothing left to try)."""
         try:
             resp = await safe_fetch(
                 url,
@@ -174,38 +181,27 @@ class WebFetchTool(BaseTool):
                 timeout=HTTP_TIMEOUT,
             )
             resp.raise_for_status()
+        except DomainUnreachable as exc:
+            return PageText(text=f"Could not reach {url}: {exc}", kind="error")
         except SSRFBlocked as exc:
-            return [{"type": "text", "text": f"Refused to fetch {url}: {exc}"}]
+            return PageText(text=f"Refused to fetch {url}: {exc}", kind="error")
         except httpx.HTTPStatusError as exc:
-            return [{"type": "text", "text": f"HTTP error {exc.response.status_code} fetching {url}"}]
+            return PageText(text=f"HTTP error {exc.response.status_code} fetching {url}", kind="error")
         except Exception as exc:
-            return [{"type": "text", "text": f"Error fetching {url}: {exc}"}]
+            return PageText(text=f"Error fetching {url}: {exc}", kind="error")
 
         content_type = resp.headers.get("content-type", "")
-        is_html = "html" in content_type or resp.text.strip().startswith("<!")
+        # A PDF's content-type often says html, so check the magic bytes before trusting the header.
+        is_pdf = looks_like_pdf(content_type, resp.content)
+        is_html = not is_pdf and ("html" in content_type or resp.text.strip().startswith("<!"))
 
         if is_html:
-            # Prefer trafilatura for main-content extraction; fall back to regex strip on apps/login walls/JS-heavy pages.
-            text: str | None = None
-            try:
-                import trafilatura  # type: ignore
-                text = trafilatura.extract(
-                    resp.text,
-                    include_comments=False,
-                    include_tables=True,
-                    favor_precision=True,
-                )
-            except Exception:
-                text = None
-            if not text:
-                text = strip_html(resp.text)
+            body = PageText(text=html_to_text(resp.text), kind="html")
         else:
-            text = resp.text
-
-        text = p_truncate(text)
+            body = body_to_text(content_type, resp.content, resp.text)
 
         header = f"Contents of {url}:"
         if prompt:
             header += f"\n(Looking for: {prompt})"
 
-        return [{"type": "text", "text": f"{header}\n\n{text}"}]
+        return PageText(text=f"{header}\n\n{p_truncate(body.text)}", kind=body.kind)

@@ -21,14 +21,12 @@ import {
   stopAgent,
   dismissAgentNotification,
   dismissAllFinishedNotifications,
-  clearSessionMessages,
   ApprovalRequest,
   AgentSession,
   HistorySession,
 } from '@/shared/state/agentsSlice';
 import { displaySessionName } from '@/shared/state/sessionDisplay';
-import { API_BASE, getAuthToken } from '@/shared/config';
-import { store } from '@/shared/state/store';
+import { isUserLaunchedSession } from '@/shared/state/isUserLaunchedSession';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import ApprovalBar, { BatchApprovalBar, parseMcpToolName, useMcpToolMeta, getToolIcon } from '@/app/pages/AgentChat/shell/ApprovalBar';
 import GlobalSearchPalette from '@/app/components/overlays/GlobalSearchPalette';
@@ -183,6 +181,7 @@ type DiSession = {
   name: string;
   status: string;
   dashboard_id?: string;
+  userLaunched: boolean;
   pending_approvals: AgentSession['pending_approvals'];
 };
 
@@ -210,6 +209,7 @@ const selectDynamicIslandSessions = createSelector(
           name: s.name,
           status: s.status,
           dashboard_id: s.dashboard_id,
+          userLaunched: isUserLaunchedSession(s),
           pending_approvals: s.pending_approvals,
         };
         _diSessionCache.set(sid, next);
@@ -255,48 +255,6 @@ const DynamicIsland: React.FC = () => {
     };
   }, []);
 
-  // Cmd/Ctrl+L: clear the chat (focused card > activeSessionId > sole session); same as /clear.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.shiftKey || e.altKey) return;
-      if (e.key.toLowerCase() !== 'l') return;
-
-      let target: string | null = null;
-      const ae = document.activeElement as HTMLElement | null;
-      if (ae) {
-        let el: HTMLElement | null = ae;
-        while (el) {
-          if (el.getAttribute?.('data-select-type') === 'agent-card') {
-            const sid = el.getAttribute('data-select-id');
-            if (sid) { target = sid; break; }
-          }
-          el = el.parentElement;
-        }
-      }
-      const state = store.getState();
-      if (!target) {
-        const activeId = state.agents.activeSessionId;
-        if (activeId) target = activeId;
-      }
-      if (!target) {
-        const ids = Object.keys(state.agents.sessions);
-        if (ids.length === 1) target = ids[0];
-      }
-      if (!target) return;
-
-      e.preventDefault();
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      try {
-        const tok = getAuthToken();
-        if (tok) headers['Authorization'] = `Bearer ${tok}`;
-      } catch { /* unauthenticated dev mode */ }
-      fetch(`${API_BASE}/agents/sessions/${target}/clear`, { method: 'POST', headers }).catch(() => {});
-      dispatch(clearSessionMessages(target));
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [dispatch]);
 
   const groups: SessionApprovalGroup[] = useMemo(() => {
     const result: SessionApprovalGroup[] = [];
@@ -322,10 +280,11 @@ const DynamicIsland: React.FC = () => {
       .map((id): TrackedAgent | null => {
         const session = sessions[id];
         if (session && session.status !== 'draft') {
+          if (!session.userLaunched) return null;
           return { id, name: session.name, status: session.status, dashboardId: session.dashboard_id };
         }
         const hist: HistorySession | undefined = history[id];
-        if (hist) {
+        if (hist && isUserLaunchedSession(hist)) {
           return { id, name: hist.name, status: hist.status, dashboardId: hist.dashboard_id };
         }
         return null;
@@ -336,7 +295,7 @@ const DynamicIsland: React.FC = () => {
     for (const g of groups) {
       if (!trackedIdSet.has(g.sessionId)) {
         const session = sessions[g.sessionId];
-        if (session && session.status !== 'draft') {
+        if (session && session.status !== 'draft' && session.userLaunched) {
           agents.push({ id: g.sessionId, name: session.name, status: session.status, dashboardId: session.dashboard_id });
         }
       }
@@ -615,12 +574,14 @@ const CompactPill: React.FC<{
         userSelect: 'none',
       }}
     >
-      <ActivityIndicator c={c} />
+      {activeCount > 0
+        ? <ActivityIndicator c={c} />
+        : <CheckIcon sx={{ fontSize: 13, color: c.status.success, flexShrink: 0 }} />}
       <Typography
         sx={{
           fontSize: '0.6875rem',
           fontWeight: 500,
-          color: c.text.tertiary,
+          color: activeCount > 0 ? c.text.tertiary : c.status.success,
           flex: 1,
           overflow: 'hidden',
           textOverflow: 'ellipsis',

@@ -29,6 +29,21 @@ from backend.apps.agents.manager.prompt.prompt_context import resolve_mode
 logger = logging.getLogger(__name__)
 
 
+@typechecked
+def resolve_launch_tools(mode_tools: List[str], allowed: Optional[List[str]]) -> List[str]:
+    """The tool surface a session actually launches with.
+
+    None means "whatever the mode allows". A list is a real restriction: a workflow whose Actions
+    set the user froze. This used to be computed and then discarded, so the Actions page sold a
+    boundary the runtime never enforced. Intersecting rather than trusting means a stale saved set
+    can only ever narrow the mode, never widen it.
+    """
+    if allowed is None:
+        return mode_tools
+    permitted = set(allowed)
+    return [t for t in mode_tools if t in permitted]
+
+
 from backend.apps.agents.manager.AgentManagerProtocol import AgentManagerProtocol
 
 
@@ -50,7 +65,7 @@ class AgentLaunch(AgentManagerProtocol):
                 config.target_directory = bound
 
         mode_tools, _, mode_folder = resolve_mode(config.mode, get_all_tool_names)
-        tools = mode_tools
+        tools = resolve_launch_tools(mode_tools, config.allowed_tools)
 
         global_settings = load_settings()
         effective_cwd = (

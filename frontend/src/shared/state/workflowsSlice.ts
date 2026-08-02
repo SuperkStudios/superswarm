@@ -74,6 +74,9 @@ export interface Workflow {
   steps: WorkflowStep[];
   actions: ActionsConfig;
   schedule: ScheduleConfig;
+  /** Where a SCHEDULED fire runs. Only the cloud_workflows routes may change it, and only once
+   *  the cloud has actually taken (or released) the workflow. Manual runs are always local. */
+  execution_target?: 'device' | 'cloud';
   permissions: PermissionTier[];
   source_session_id?: string | null;
   dashboard_id?: string | null;
@@ -200,12 +203,14 @@ interface State {
   allRuns: WorkflowRun[];
   allRunsLoading: boolean;
   runningToast: RunningToast | null;
+  /** One-off explanation for something the user asked for that the server refused. */
+  noticeToast: string | null;
   runControlPending: Record<string, WorkflowRunControlAction>;
   deleted: Workflow[];
   deletedLoading: boolean;
 }
 
-const initialState: State = { items: {}, runs: {}, openCards: {}, loaded: false, loading: false, paused: false, active: [], cloudSmsEnabled: false, allRuns: [], allRunsLoading: false, runningToast: null, runControlPending: {}, deleted: [], deletedLoading: false };
+const initialState: State = { items: {}, runs: {}, openCards: {}, loaded: false, loading: false, paused: false, active: [], cloudSmsEnabled: false, allRuns: [], allRunsLoading: false, runningToast: null, noticeToast: null, runControlPending: {}, deleted: [], deletedLoading: false };
 
 function mergeRunIntoState(state: State, r: WorkflowRun) {
   const arr = state.runs[r.workflow_id] || [];
@@ -402,8 +407,13 @@ export const discardDraft = createAsyncThunk('workflows/discardDraft', async (id
   return (await res.json()) as Workflow;
 });
 
-export const deleteWorkflow = createAsyncThunk('workflows/delete', async (id: string) => {
-  await fetch(`${API}/${id}`, { method: 'DELETE' });
+export const deleteWorkflow = createAsyncThunk('workflows/delete', async (id: string, { rejectWithValue }) => {
+  const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
+  // A refused delete must not remove the card: the workflow is still there, and if it is cloud-hosted it is still running.
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    return rejectWithValue(typeof body?.detail === 'string' ? body.detail : "Couldn't delete this workflow. Try again in a moment.");
+  }
   return id;
 });
 
@@ -414,9 +424,12 @@ export const fetchDeletedWorkflows = createAsyncThunk('workflows/fetchDeleted', 
   return data.workflows as Workflow[];
 });
 
-export const restoreWorkflow = createAsyncThunk('workflows/restore', async (id: string) => {
+export const restoreWorkflow = createAsyncThunk('workflows/restore', async (id: string, { dispatch }) => {
   const res = await fetch(`${API}/${id}/restore`, { method: 'POST' });
   if (!res.ok) throw new Error(`restore failed ${res.status}`);
+  // Trashing drops the run rows from the store; the server kept them, so pull them back or a restored workflow claims "No runs yet" over a real history.
+  void dispatch(fetchRuns(id));
+  void dispatch(fetchAllRuns(200));
   return (await res.json()) as Workflow;
 });
 
@@ -567,6 +580,9 @@ const slice = createSlice({
     dismissRunningToast(state) {
       state.runningToast = null;
     },
+    dismissNoticeToast(state) {
+      state.noticeToast = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -588,6 +604,9 @@ const slice = createSlice({
       .addCase(updateWorkflow.fulfilled, (state, action) => { state.items[action.payload.id] = action.payload; })
       .addCase(commitDraft.fulfilled, (state, action) => { state.items[action.payload.id] = action.payload; })
       .addCase(discardDraft.fulfilled, (state, action) => { state.items[action.payload.id] = action.payload; })
+      .addCase(deleteWorkflow.rejected, (state, action) => {
+        state.noticeToast = typeof action.payload === 'string' ? action.payload : "Couldn't delete this workflow. Try again in a moment.";
+      })
       .addCase(deleteWorkflow.fulfilled, (state, action) => {
         delete state.items[action.payload];
         delete state.runs[action.payload];
@@ -667,5 +686,6 @@ export const {
   upsertWorkflow,
   removeWorkflow,
   dismissRunningToast,
+  dismissNoticeToast,
 } = slice.actions;
 export default slice.reducer;

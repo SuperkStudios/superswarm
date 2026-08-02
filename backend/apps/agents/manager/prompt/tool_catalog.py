@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 FULL_TOOLS = [
     "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
     "WebSearch", "WebFetch", "NotebookEdit", "TodoWrite",
-    "EnterPlanMode", "ExitPlanMode", "EnterWorktree",
+    # Both halves of each pair, always: EnterWorktree shipped without ExitWorktree, so an agent told to work in a worktree had no way back out mid-session.
+    "EnterPlanMode", "ExitPlanMode", "EnterWorktree", "ExitWorktree",
     "TaskOutput", "TaskStop",
     # ToolSearch is the loader the CLI uses to expose deferred tool schemas on demand. Must be in the allowedTools whitelist or the model can't call it, which means none of the deferred extended tools become reachable even when the CLI advertises them in the system prompt.
     "ToolSearch",
@@ -28,16 +29,20 @@ FULL_TOOLS = [
 def resolve_builtin_tools_option() -> Union[List[str], Dict[str, str]]:
     """The SDK `tools` option (CLI `--tools`), the base set of built-in tools.
 
-    Default: the full claude_code preset, which ships every preset built-in's schema. With
-    OSW_TOOL_MANIFEST=1, an explicit FULL_TOOLS list instead, ONLY the built-ins OpenSwarm exposes,
-    which prunes the ~9 preset extras nothing here references (Cron*/Monitor/Task*/PushNotification/
-    RemoteTrigger/etc) for ~940 schema tokens/turn, cache-stable. MCP tools ride mcp_servers, so
-    SpawnAgent/browser/schedule/skill/web/user MCPs are untouched; ToolSearch stays in FULL_TOOLS so
-    deferred loading survives (live-proven: the model still ToolSearch-loads + calls MCP tools under
-    the manifest). Flag-gated pending a real-app soak before default-on."""
-    if os.environ.get("OSW_TOOL_MANIFEST") == "1":
-        return list(FULL_TOOLS)
-    return {"type": "preset", "preset": "claude_code"}
+    Default: an explicit FULL_TOOLS list, ONLY the built-ins OpenSwarm exposes. The claude_code
+    preset also ships Monitor/PushNotification/RemoteTrigger/ScheduleWakeup, which deliver their
+    payload between turns and so can never fire here, plus a bare `Skill`. All five are ALSO
+    hard-denied in build_effective_tool_lists, because this list has a kill switch and those
+    promises must not come back with it. Measured on a live "hi" turn (Anthropic count_tokens on
+    the captured wire request, and the provider's own usage reporting, agreeing within 1 token):
+    31,091 -> 26,880 prompt tokens, 4,211 saved per turn, cache-stable; that figure predates
+    ExitWorktree rejoining the list, so the real saving is now one tool schema smaller. MCP tools
+    ride mcp_servers, so SpawnAgent/browser/schedule/skill/web/user MCPs are untouched; ToolSearch
+    stays in FULL_TOOLS so deferred loading survives.
+    Kill switch: OSW_TOOL_MANIFEST=0 restores the preset."""
+    if os.environ.get("OSW_TOOL_MANIFEST") == "0":
+        return {"type": "preset", "preset": "claude_code"}
+    return list(FULL_TOOLS)
 
 
 @typechecked
