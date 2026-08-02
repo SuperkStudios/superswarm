@@ -1,6 +1,6 @@
 {
   "name": "openswarm",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "license": "AGPL-3.0-only",
   "description": "OpenSwarm — AI Agent Orchestrator",
   "author": "openswarm-ai",
