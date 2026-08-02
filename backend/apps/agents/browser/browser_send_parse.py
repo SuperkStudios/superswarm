@@ -41,6 +41,15 @@ P_LOGIN_WALL_URL_RE = re.compile(
 # A password box disqualifies the page whoever is signed in: whatever that form is for, typing a
 # post into it is wrong. Kept apart from the softer copy below because only this one is absolute.
 P_PASSWORD_FIELD_RE = re.compile(r'<\s*textbox\s+"[^"]*(?:password|passwd)', re.I)
+# The rest of a sign-in form. A login page is password + these and nothing else; a content page that
+# merely carries a header login widget also has a box that is none of them, and that box is the
+# whole difference. Named structurally rather than by composer vocabulary on purpose: "New Paste"
+# matches no compose word anyone would think to list, and it is still obviously somewhere to write.
+P_AUTH_FIELD_NAME_RE = re.compile(
+    r"password|passwd|e-?mail|user\s?name|\buser\b|\blogin\b|phone|mobile|"
+    r"verification|one.?time|\botp\b|\bcode\b|captcha|security answer",
+    re.I,
+)
 # Wording a login screen uses. Also, unfortunately, wording a signed-IN page uses in its footer and
 # its upsells, which is why this half is overridable and the password field is not.
 P_LOGIN_WALL_STATE_RE = re.compile(
@@ -81,6 +90,16 @@ def login_wall_reason(current_url: str, state_text: str) -> str:
         return ""
     pw = P_PASSWORD_FIELD_RE.search(state_text)
     if pw:
+        # A password field proves a login FORM is on the page, never that the whole page is a wall.
+        # pastebin serves its "New Paste" box and a header login widget together, and this gate
+        # refused the box sitting right beside it; every site with a header sign-in widget was
+        # losing its write path the same way. The disproof is structural: a real login page's
+        # editables are ALL auth fields, so one that is neither password nor email/username/OTP is
+        # somewhere to write. Counting non-auth boxes rather than matching composer words matters,
+        # because "New Paste" matches no compose vocabulary and is still plainly a composer.
+        if any(not P_AUTH_FIELD_NAME_RE.search(name or "")
+               for _, name in P_COMPOSER_ROW_RE.findall(state_text)):
+            return ""
         return f"password field: {pw.group(0)[:60]}"
     soft = P_LOGIN_WALL_STATE_RE.search(state_text)
     if not soft:
