@@ -1182,6 +1182,30 @@ async function enumerateCandidates(wv: BrowserWebview): Promise<RankItem[]> {
   return candidates;
 }
 
+// Put a real cursor in an editable by clicking its centre with trusted CDP mouse events. Best
+// effort on purpose: a failure here just means the keystroke tier tries without it, exactly as
+// before. Coordinates are viewport-relative and the caller has already scrolled the node into view.
+async function clickToFocus(
+  wv: BrowserWebview, objectId: string, sessionId: string | undefined,
+): Promise<void> {
+  try {
+    const r = await sendCdp(wv, 'Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration:
+        'function() { this.scrollIntoView({ block: "center", behavior: "instant" }); '
+        + 'var b = this.getBoundingClientRect(); '
+        + 'return b.width > 0 && b.height > 0 ? { x: b.x + b.width / 2, y: b.y + b.height / 2 } : null; }',
+      returnByValue: true,
+    }, sessionId);
+    const box = r?.result?.value as { x: number; y: number } | null;
+    if (!box) return;
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await sendCdp(wv, 'Input.dispatchMouseEvent',
+        { type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
+    }
+  } catch { /* the tier below reports honestly whether the text landed */ }
+}
+
 // Resolve + click a specific backend node (revalidate, frame-local box model, OS-level dispatch in the element's own frame, cosmetic top-level ripple). Shared by click_index (cache lookup) and click_by_name (fresh resolution).
 async function clickBackendNode(
   wv: BrowserWebview, backendNodeId: number, sessionId: string | undefined, label: string,
@@ -1257,6 +1281,11 @@ async function clickBackendNode(
       let typed: TypedKeys = { dispatched: false, skipped: 'empty' };
       try {
         const t = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
+        // Click the box for real before typing into it. DOM.focus sets the focused node but never
+        // runs the editor's own mousedown/selection handling, so a Slate/Lexical/ProseMirror editor
+        // has no cursor and drops genuine keystrokes on the floor. That is twitch exactly: focus
+        // fine, real keys, text ignored. Third rung of the same focus ladder browser-use climbs.
+        await clickToFocus(wv, t.object.objectId, sessionId);
         await sendCdp(wv, 'Runtime.callFunctionOn', {
           objectId: t.object.objectId,
           functionDeclaration:
