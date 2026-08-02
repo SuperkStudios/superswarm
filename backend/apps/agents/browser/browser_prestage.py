@@ -19,6 +19,7 @@ import time
 from typing import Awaitable, Callable
 
 from backend.apps.agents.browser import browser_send_parse, compose_discovery, compose_entry
+from backend.apps.agents.browser.strip_lone_surrogates import strip_lone_surrogates
 
 logger = logging.getLogger(__name__)
 
@@ -224,8 +225,11 @@ async def run_prestage(
             li = li if isinstance(li, dict) else {}
             gt = gt if isinstance(gt, dict) else {}
             url = str(li.get("url") or gt.get("url") or "")
-            li_text = str(li.get("text") or "") if "error" not in li else ""
-            gt_text = str(gt.get("text") or "") if "error" not in gt else ""
+            # Scrub here, the one door page text comes through: an unpaired surrogate (half an
+            # emoji, and twitch chat is made of them) survives in Python but detonates the moment
+            # the aux request is encoded, and the whole stage was dying in a blanket except.
+            li_text = strip_lone_surrogates(str(li.get("text") or "")) if "error" not in li else ""
+            gt_text = strip_lone_surrogates(str(gt.get("text") or "")) if "error" not in gt else ""
             return li_text, gt_text, url
 
         current_url = start_url

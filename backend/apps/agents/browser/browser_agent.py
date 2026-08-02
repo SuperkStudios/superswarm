@@ -53,6 +53,7 @@ from backend.apps.agents.browser.browser_loop import (
     stagnation_exhausted,
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
+from backend.apps.agents.browser.strip_lone_surrogates import strip_lone_surrogates
 
 # Single actions the model could have folded into one BrowserBatch turn; reads, waits, and the batch tools themselves don't count toward the streak.
 P_BATCHABLE_ACTION_TOOLS = {
@@ -529,11 +530,6 @@ async def run_api_write(tool_input: dict, current_url: str, browser_id: str = ""
     params = {k: v for k, v in (tool_input or {}).items() if k not in ("action", "expect")}
     res = await site_write_registry.api_write(domain, action, params)
     return p_api_write_result(res)
-
-
-def strip_lone_surrogates(s: str) -> str:
-    # The JS/webview hands us page text as UTF-16, so an emoji can arrive as half of its surrogate pair; Python carries the orphan but .encode('utf-8') later (the SDK serializing the request to the LLM) detonates with "surrogates not allowed" and kills the turn. Swap any orphan for the replacement char.
-    return re.sub(r"[\ud800-\udfff]", "�", s) if s else s
 
 
 def format_tool_result(result: dict, tool_name: str) -> list[dict]:

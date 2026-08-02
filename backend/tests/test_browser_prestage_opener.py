@@ -83,3 +83,23 @@ def test_send_script_enables_opener_mode(monkeypatch):
     assert pre.opener_mode() is True
     monkeypatch.setenv("OSW_SEND_SCRIPT", "0")
     assert pre.opener_mode() is False
+
+
+def test_half_an_emoji_cannot_kill_the_whole_prestage():
+    """Live on twitch: a lone surrogate in the page text raised "'utf-8' codec can't encode
+    character '\\ud83e'" out of the aux request encode, prestage's blanket except swallowed it as
+    "[browser-prestage] skipped (...)", and the site lost its entire composer-reach stage. The
+    agent loop already knew this (strip_lone_surrogates, written for the same detonation); prestage
+    just never applied it. The scrub now sits on perceive(), the one door page text comes through.
+    """
+    from backend.apps.agents.browser.strip_lone_surrogates import strip_lone_surrogates
+
+    raw = "chat \ud83e is half an emoji"
+    with pytest.raises(UnicodeEncodeError):
+        raw.encode("utf-8")
+    cleaned = strip_lone_surrogates(raw)
+    assert cleaned.encode("utf-8"), "must survive the encode that killed the stage"
+    assert "\ud83e" not in cleaned
+    # A well-formed emoji is left alone; scrubbing real content would be its own bug.
+    assert strip_lone_surrogates("done \U0001f9e0 ok") == "done \U0001f9e0 ok"
+    assert strip_lone_surrogates("") == ""
