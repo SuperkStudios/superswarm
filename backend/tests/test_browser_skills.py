@@ -60,6 +60,34 @@ def test_distill_refuses_click_without_resolved_name():
     assert sk.distill_steps(log) == []
 
 
+def test_one_unnamed_click_throws_away_every_other_step_in_the_run():
+    """Why the skill layer has recorded exactly zero skills in production.
+
+    The rule above is right on its own, but its blast radius is the whole run, and the clicks that
+    browser_send_script appends to the action log carry no `clicked_name`: it puts the element's
+    name into `result_summary` as prose instead ("script fill into 'Post text'"). Since the send
+    script runs on every fast-path write, one un-named click discards the navigate and the type
+    that came before it, and the run records nothing.
+
+    Measured across 104 sweep logs / 7MB of real runs: 55 record attempts, 43 of them holding a
+    productive action, 0 skills recorded, 0 replays, 244 lookups that found nothing.
+    """
+    log = [
+        {"tool": "BrowserNavigate", "input": {"url": "https://x.com/home"}, "ok": True},
+        {"tool": "BrowserType", "input": {"selector": "#c", "text": "hi"}, "ok": True},
+        {"tool": "BrowserClickIndex", "input": {"index": 7, "text": "hi"}, "ok": True,
+         "result_summary": "script fill into 'Post text'"},
+    ]
+    assert sk.distill_steps(log) == [], "if this ever records, read the payload warning below"
+    # The trap for whoever fixes it: a click carrying TEXT distills into BrowserClickByName, which
+    # has no text parameter, so a replayed send would click the composer, type nothing, and submit.
+    named = dict(log[-1], clicked_name="Post text", clicked_role="textbox")
+    steps = sk.distill_steps(log[:2] + [named])
+    assert "hi" not in str(steps[-1]["params"]), (
+        "the payload is dropped on the way into a replayable step; naming the click without fixing "
+        "this is how a skill replays an empty post")
+
+
 def test_distill_skips_navigate_only():
     log = [{"tool": "BrowserNavigate", "input": {"url": "http://h/"}, "ok": True}]
     assert sk.distill_steps(log) == []
