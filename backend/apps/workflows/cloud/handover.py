@@ -108,11 +108,17 @@ async def hand_to_cloud(wf: Workflow, enabled: bool) -> TargetOutcome:
         if hosted.enabled != enabled:
             hosted = await cloud.set_enabled(hosted.id, enabled)
     except cloud.SignedOut:
+        await p_reclaim_credential_if_last(wf.id)
         return TargetOutcome(ok=False, message=SIGN_IN_MESSAGE)
     except cloud.CloudRefused as exc:
+        # The lease already happened, so a refusal here (wrong plan, slots full) would otherwise
+        # leave the account lent out for a workflow that never went up, and this device unable to
+        # refresh its own token.
+        await p_reclaim_credential_if_last(wf.id)
         return TargetOutcome(ok=False, message=exc.message)
     except cloud.CloudUnreachable as exc:
         logger.info("cloud workflow push unreachable for %s: %s", wf.id, exc.detail)
+        await p_reclaim_credential_if_last(wf.id)
         return TargetOutcome(ok=False, message=UNREACHABLE_UP)
 
     wf.execution_target = "cloud"

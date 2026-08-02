@@ -164,6 +164,56 @@ async def test_a_workflow_never_reaches_the_cloud_without_a_credential(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_a_refused_push_gives_the_account_back(monkeypatch, p_oauth, p_lease):
+    """A hobby user clicking Cloud leases fine (leasing does not check plan) and is then refused by
+    the server. Without giving it back, their account stays lent for a workflow that never went up
+    and this device can no longer refresh its own token."""
+    p_oauth(["conn-a"])
+    p_lease("leased")
+    wf = p_wf()
+    reclaimed: list = []
+
+    async def p_call(method, path, body=None):
+        raise cloud.CloudRefused("Cloud workflows need a Pro plan or higher.", 402)
+
+    async def fake_release(connection_id: str):
+        reclaimed.append(connection_id)
+        return LeaseOutcome(status="released")
+
+    monkeypatch.setattr(cloud, "p_call", p_call)
+    monkeypatch.setattr(handover.credential_lease, "release_to_device", fake_release)
+
+    out = await handover.hand_to_cloud(wf, enabled=True)
+    assert out.ok is False
+    assert out.message == "Cloud workflows need a Pro plan or higher."
+    assert reclaimed == ["conn-a"], "the account must come home when the workflow never went up"
+
+
+@pytest.mark.asyncio
+async def test_a_reclaim_spares_an_account_another_cloud_workflow_still_needs(monkeypatch, p_oauth, p_lease):
+    p_oauth(["conn-a"])
+    p_lease("leased")
+    keeper = p_wf()
+    keeper.execution_target = "cloud"
+    storage.save_workflow(keeper)
+    wf = p_wf()
+    reclaimed: list = []
+
+    async def p_call(method, path, body=None):
+        raise cloud.CloudRefused("nope", 402)
+
+    async def fake_release(connection_id: str):
+        reclaimed.append(connection_id)
+        return LeaseOutcome(status="released")
+
+    monkeypatch.setattr(cloud, "p_call", p_call)
+    monkeypatch.setattr(handover.credential_lease, "release_to_device", fake_release)
+
+    await handover.hand_to_cloud(wf, enabled=True)
+    assert reclaimed == [], "another cloud workflow still needs it; taking it back would break that one"
+
+
+@pytest.mark.asyncio
 async def test_a_failed_lease_leaves_the_workflow_on_this_device(monkeypatch, p_oauth, p_lease):
     p_oauth(["conn-a"])
     p_lease("cloud_rejected")
