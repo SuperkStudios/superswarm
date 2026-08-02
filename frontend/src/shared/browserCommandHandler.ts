@@ -8,6 +8,7 @@ import { resolveInput } from './resolveUrl';
 import { rankAndCapInteractives, type RankItem } from './interactiveRanking';
 import { shouldStopWaiting, SETTLE_POLL_MS, settleProbeJs } from './browserSettle';
 import { unwrapCdpEval } from './cdpEval';
+import { typeChars, type TypedKeys } from './typeChars';
 
 let initialized = false;
 
@@ -745,18 +746,17 @@ async function handleFindComposer(wv: BrowserWebview, params: Record<string, any
   return result;
 }
 
-// Type `text` into the element at `selector` as real OS-level key events (Electron
-// sendInputEvent 'char'), for editors that reject synthetic execCommand insertText. Focuses +
-// clears in-page first, types each char natively, then reads the value back in-page to verify.
+// Type `text` into the element at `selector` as real, trusted key events, for editors that reject
+// synthetic execCommand insertText. Focuses + clears in-page first, types each char, then reads the
+// value back in-page to verify.
 async function keystrokeFill(wv: BrowserWebview, selector: string, text: string): Promise<boolean> {
   const safeSel = JSON.stringify(selector);
   await evalInPage(wv, `(() => { const el = document.querySelector(${safeSel});
     if (!el) return false; el.scrollIntoView({ block: 'center', behavior: 'instant' }); el.focus();
     if (el.select) el.select(); document.execCommand('selectAll', false); document.execCommand('delete', false);
     return true; })()`);
-  for (const ch of text) {
-    wv.sendInputEvent({ type: 'char', keyCode: ch });
-  }
+  const typed = await typeChars((m, p) => sendCdp(wv, m, p), text);
+  if (!typed.dispatched) return false;
   // Read back from the marked element OR the active element: editors like Reddit's swap the
   // node on activation, so the original selector can go stale even though the keystrokes landed
   // in whatever now holds focus. Checking both survives that re-render.
@@ -1254,6 +1254,7 @@ async function clickBackendNode(
       // live on twitch, the composer was found and focused and the fill still errored, which cost
       // the site its entire write path. Clearing first, because a partial insert plus keystrokes is
       // how you post the same sentence twice.
+      let typed: TypedKeys = { dispatched: false, skipped: 'empty' };
       try {
         const t = await sendCdp(wv, 'DOM.resolveNode', { backendNodeId }, sessionId);
         await sendCdp(wv, 'Runtime.callFunctionOn', {
@@ -1261,7 +1262,11 @@ async function clickBackendNode(
           functionDeclaration:
             'function() { this.focus(); if (this.select) this.select(); document.execCommand("selectAll", false); document.execCommand("delete", false); }',
         }, sessionId);
-        for (const ch of opts.text) wv.sendInputEvent({ type: 'char', keyCode: ch });
+        // Focus is set in the node's own frame above, but the key events themselves go to the ROOT
+        // target with no sessionId: Chromium routes keyboard input to whichever frame holds focus,
+        // and the Input domain is not reliably there on an OOPIF session. Sending them at the child
+        // would kill exactly the case this cares about, a composer inside an iframe.
+        typed = await typeChars((m, p) => sendCdp(wv, m, p), opts.text);
       } catch { /* verified below; the honest error covers this failing too */ }
       got = await readBack();
       if (got !== null) return landedMsg(got, ' (via keystrokes)');
@@ -1275,6 +1280,11 @@ async function clickBackendNode(
         if (typeof live === 'string') return landedMsg(live, ' (via keystrokes)');
       } catch { /* fall through to the honest error */ }
       flashField(wv, resolvedObjectId, sessionId, 'fail');
+      // Saying "not even as real keystrokes" when we deliberately declined to send them is the
+      // kind of small lie that costs a debugging session.
+      if (typed.skipped === 'multiline') {
+        return { error: `Focused ${label} but this editor ignored both synthetic fills, and the text contains a line break, so real keystrokes were NOT attempted: pressing Enter in a composer can send it half-written. Fill it as a single line, or use a different element.` };
+      }
       return { error: `Focused ${label} but the text did not register even as real keystrokes; the box may be a custom editor that rejects automation. Try a different element.` };
     }
     return { text: `Focused ${label}; the cursor is in it now (type with BrowserPressKey, or pass a text arg to fill it in one call).` };
