@@ -1,0 +1,109 @@
+name: Windows packaged smoke
+
+# Install the SHIPPED installer on a clean Windows runner and prove it runs.
+#
+# Everything else about a Windows release can be checked from a Mac: the signature, the update
+# feed's hash, even whether the bundle contains the code it claims (a nupkg is a zip). The one
+# thing that needs Windows is whether the thing actually starts. This is that check, and it
+# exists because "signed and uploaded" has never meant "boots".
+#
+# Deliberately reads the RELEASE ASSET, not a fresh build. A build made here would prove a
+# different binary works than the one users download.
+#
+#   gh workflow run smoke-windows-packaged.yml -f tag=v1.7.0
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to smoke (e.g. v1.7.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the shipped installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.tag }}" --pattern "OpenSwarm-Setup-x64.exe" --dir "$env:RUNNER_TEMP" --clobber
+          $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
+          if (-not (Test-Path $exe)) { throw "installer not found in ${{ inputs.tag }}" }
+          "installer: $((Get-Item $exe).Length) bytes"
+
+      - name: It is signed, and Windows agrees
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
+          $sig = Get-AuthenticodeSignature $exe
+          "status : $($sig.Status)"
+          "signer : $($sig.SignerCertificate.Subject)"
+          if ($sig.Status -ne 'Valid') { throw "FAIL: signature is $($sig.Status)" }
+          "PASS  authenticode valid"
+
+      - name: Install it the way a user does
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
+          # NSIS silent install. /S is the switch electron-builder's installer honours.
+          $p = Start-Process -FilePath $exe -ArgumentList "/S" -PassThru -Wait
+          "installer exit: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "FAIL: installer exited $($p.ExitCode)" }
+          "PASS  installed"
+
+      - name: The app landed where it should
+        id: locate
+        run: |
+          $roots = @("$env:LOCALAPPDATA\Programs\OpenSwarm", "$env:ProgramFiles\OpenSwarm")
+          $app = $roots | ForEach-Object { Join-Path $_ "OpenSwarm.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $app) { throw "FAIL: OpenSwarm.exe not found after install" }
+          "app: $app"
+          "PASS  binary present"
+          "app=$app" >> $env:GITHUB_OUTPUT
+
+      - name: The bundle carries the code it claims
+        run: |
+          # Same check the macOS smoke does. A stale build passes every signature test and still
+          # ships none of the fixes, which is exactly how a release gets shipped twice.
+          $res = Split-Path "${{ steps.locate.outputs.app }}" -Parent
+          $checks = @(
+            @{ f = "resources\backend\apps\agents\manager\run\TurnRunner.py"; needle = "pending_continuation";      name = "MCP activation hard-stop" },
+            @{ f = "resources\backend\apps\workflows\cloud\handover.py";      needle = "lend_credential_for_cloud"; name = "cloud credential lease" },
+            @{ f = "resources\backend\apps\tools_lib\mcp_failure_reason.py";  needle = "sign-in has expired";       name = "readable MCP failures" }
+          )
+          $bad = 0
+          foreach ($c in $checks) {
+            $path = Join-Path $res $c.f
+            if ((Test-Path $path) -and (Select-String -Path $path -Pattern $c.needle -Quiet)) {
+              "PASS  $($c.name)"
+            } else { "FAIL  $($c.name) missing"; $bad++ }
+          }
+          if ($bad -gt 0) { throw "$bad expected fix(es) absent from the shipped bundle" }
+
+      - name: It launches, and its backend answers
+        run: |
+          $app = "${{ steps.locate.outputs.app }}"
+          $proc = Start-Process -FilePath $app -PassThru
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep -Seconds 3
+            try {
+              # Unauthenticated, so a 401 is a healthy backend: it answered and refused.
+              Invoke-WebRequest -Uri "http://127.0.0.1:8324/api/settings" -TimeoutSec 4 -UseBasicParsing | Out-Null
+              $ok = $true; break
+            } catch {
+              if ($_.Exception.Response.StatusCode.value__ -eq 401) { $ok = $true; break }
+            }
+            if ($proc.HasExited) { throw "FAIL: app exited early with $($proc.ExitCode)" }
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "FAIL: backend never answered on :8324" }
+          "PASS  app launched and its backend answered"
+
+      - name: Verdict
+        run: '"Windows packaged smoke passed for ${{ inputs.tag }}"'
