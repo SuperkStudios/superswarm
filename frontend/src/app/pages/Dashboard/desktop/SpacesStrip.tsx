@@ -169,6 +169,8 @@ const SpacesStrip: React.FC = () => {
           sx={{
             position: 'relative',
             display: 'flex', alignItems: 'flex-start', gap: 2.25, px: 3,
+            // The active/hover ring is a box-shadow OUTSIDE the tile, so the clipping scroll box needs breathing room or the ring's top edge gets sheared off (the "Dashboard 1 looks cut off" report).
+            py: '4px',
             // "safe center" centers a short row but falls back to start-aligned once it overflows, so tile one is never clipped out of reach.
             justifyContent: 'safe center',
             overflowX: 'auto', overflowY: 'hidden', userSelect: 'none',
