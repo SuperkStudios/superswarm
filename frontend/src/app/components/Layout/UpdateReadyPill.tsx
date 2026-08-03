@@ -56,9 +56,9 @@ const UpdateReadyPill: React.FC = () => {
         aria-label={availableVersion ? `Restart to update to ${availableVersion}` : 'Restart to update'}
         sx={{
           position: 'fixed',
-          top: 34,
-          // Clears the canvas Help pill, which owns the right:16 corner (banners above shift it vertically, so horizontal separation is the stable axis).
-          right: 84,
+          // Owns the very corner while visible, deliberately covering the canvas Help pill: the card is transient (relaunch or dismiss) and the corner should show the most important thing. Top clears the 3px Spaces hot zone.
+          top: 14,
+          right: 16,
           zIndex: 1400,
           WebkitAppRegion: 'no-drag',
           display: 'flex',
