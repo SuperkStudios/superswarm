@@ -6,7 +6,9 @@ the exact broadcast payload."""
 import asyncio
 
 import backend.apps.agents.manager.context_budget as cb
+import backend.apps.agents.manager.run.run_options_helpers as roh
 from backend.apps.agents.core.models import AgentSession, Message
+from backend.apps.agents.manager.session.history_compaction import SPILL_HEAD_CHARS, SPILL_TAIL_CHARS, build_history_prefix, clamp_recap_text
 
 
 def p_session_with(messages: int, input_tokens: int, context_window: int = 100, threshold: float = 0.65) -> AgentSession:
@@ -129,3 +131,52 @@ def test_emit_zero_input_yields_zero_ctx_pct(monkeypatch):
     asyncio.run(cb.emit_context_update("sid", s, input_tokens=0))
     _, data = sent[0]
     assert data["ctx_used_pct"] == 0.0
+
+# ---- pre_send_context_guard: the threshold now pays for the rebuild ---------
+
+class P_GuardManager:
+    def maybe_compact(self, session, force=False):
+        return cb.maybe_compact(session, force)
+
+    async def emit_context_update(self, session_id, session, **kwargs):
+        return None
+
+
+def p_run_guard(monkeypatch, session):
+    async def fake_send(session_id, event, data):
+        return None
+    monkeypatch.setattr(roh.ws_manager, "send_to_session", fake_send, raising=True)
+    asyncio.run(roh.pre_send_context_guard(P_GuardManager(), session, session.id))
+
+
+def test_threshold_compaction_forces_the_rebuild(monkeypatch):
+    # Marking alone never applied on the resume path (the CLI replays its own untrimmed transcript), so crossing the threshold must also drop the SDK convo.
+    s = p_session_with(messages=10, input_tokens=80)
+    p_run_guard(monkeypatch, s)
+    assert s.compacted_through_msg_id is not None
+    assert s.needs_fresh_session is True
+
+
+def test_below_threshold_keeps_the_resume_session(monkeypatch):
+    s = p_session_with(messages=10, input_tokens=10)
+    p_run_guard(monkeypatch, s)
+    assert s.compacted_through_msg_id is None
+    assert s.needs_fresh_session is False
+
+
+# ---- recap clamp: a pasted log can't ride through compaction verbatim ------
+
+def test_recap_clamps_giant_messages_and_keeps_both_ends():
+    giant = "HEAD" + ("x" * (SPILL_HEAD_CHARS + SPILL_TAIL_CHARS + 10_000)) + "TAIL"
+    msgs = [Message(role="user", content=giant), Message(role="assistant", content="ok")]
+    recap = build_history_prefix(msgs)
+    assert "HEAD" in recap and "TAIL" in recap
+    assert "chars elided from recap" in recap
+    assert len(recap) < len(giant)
+
+
+def test_recap_leaves_normal_messages_verbatim():
+    text = "a perfectly ordinary message"
+    assert clamp_recap_text(text) == text
+    recap = build_history_prefix([Message(role="user", content=text)])
+    assert text in recap and "elided" not in recap

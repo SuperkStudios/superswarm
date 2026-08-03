@@ -350,10 +350,10 @@ async def compact_session(session_id: str):
 
     Wired to the 'Compact memory' button in the pre-send overflow banner and the
     /compact slash command. Marks compacted_through_msg_id AND sets
-    needs_fresh_session: the user explicitly opted into the prompt-cache loss for a
-    real visible trim, so the next turn drops the SDK convo and rebuilds from history
-    with the cutoff (and distilled summary) actually applied. Auto-compact only marks;
-    the button is the user paying for the rebuild.
+    needs_fresh_session so the next turn drops the SDK convo and rebuilds from history
+    with the cutoff (and distilled summary) actually applied. Auto-compact at the
+    threshold now does the same (pre_send_context_guard); this button is the manual
+    "do it now" for a user who wants the trim before the threshold.
     """
     session = agent_manager.sessions.get(session_id)
     if not session:
