@@ -134,8 +134,14 @@ amd64 host: under qemu on an arm64 Mac, Electron never registers and the harness
 scoring anything.
 
 One row is expected to fail there and is not going to be fixed: `obstacle.bot_wall`, because the run
-comes from a datacenter IP. Separately, one whole capability is refused at create time rather than
-failed at 3am:
+comes from a datacenter IP.
+
+**Eric accepted this gap explicitly for 1.7.0 (2026-08-03)**, on the record so nobody has to re-open
+the question: a cloud run may hit a bot wall a laptop would have walked through, and that is the
+cost of running from a datacenter. Workflows that need your logins are a separate matter and are
+refused up front, below.
+
+Separately, one whole capability is refused at create time rather than failed at 3am:
 
 **A workflow that needs an account you are already signed into.** Every run gets a fresh browser
 profile in a throwaway container. There is no keychain, no cookie jar, and nobody there to type a
