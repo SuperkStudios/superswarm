@@ -43,11 +43,9 @@ case "$CHOICE" in
     read -r -p "First name: " FIRST
     read -r -p "Last name: " LAST
     read -r -p "Organization: " ORG
+    # signup prompts for the emailed code itself, so do NOT ask again afterwards.
     $EVS signup -A "$ACCOUNT" -P "$PASSWD" -E "$ACCOUNT" \
       -F "$FIRST" -L "$LAST" -O "$ORG"
-    echo
-    read -r -p "Confirmation code from your email: " CODE
-    $EVS confirm-signup -A "$ACCOUNT" -C "$CODE"
     ;;
   r|R)
     $EVS reset -A "$ACCOUNT"
