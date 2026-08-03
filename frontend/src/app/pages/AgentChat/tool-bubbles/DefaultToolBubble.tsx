@@ -20,7 +20,8 @@ import { useTermColors, colorizeInput, colorizeOutput } from '../parsing/toolCol
 import { ParsedResult } from '../parsing/toolResultParsing';
 import { McpToolInfo } from '@/shared/mcpToolMeta';
 import { McpResultCard } from '../mcp-cards/McpResultCard';
-import { domainFromUrl, faviconUrlForDomain } from './SourceFavicons';
+import { domainFromUrl } from './SourceFavicons';
+import { DomainIcon } from './DomainIcon';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -143,16 +144,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
           )}
           {inputSummary && !isStreaming && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-              {webDomain && (
-                <Box
-                  component="img"
-                  src={faviconUrlForDomain(webDomain)}
-                  alt=""
-                  loading="lazy"
-                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
-                  sx={{ width: 13, height: 13, borderRadius: '3px', flexShrink: 0 }}
-                />
-              )}
+              {webDomain && <DomainIcon domain={webDomain} size={13} />}
               <Typography
                 noWrap
                 sx={{

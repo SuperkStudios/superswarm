@@ -19,7 +19,8 @@ import { ParsedResult } from '../parsing/toolResultParsing';
 import { isSettingsWriteTool, settingsWriteSummary } from '../parsing/settingsToolMeta';
 import { McpToolInfo, getMcpShortAction, getMcpInputSummary, getWorkflowToolLabel } from '@/shared/mcpToolMeta';
 import { McpResultCard } from '../mcp-cards/McpResultCard';
-import { domainFromUrl, faviconUrlForDomain } from './SourceFavicons';
+import { domainFromUrl } from './SourceFavicons';
+import { DomainIcon } from './DomainIcon';
 
 interface CompactMcpBubbleProps {
   call: AgentMessage;
@@ -106,16 +107,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           )}
           {visibleSummary && !isError && !stackBelow && (
             <>
-              {webDomain && (
-                <Box
-                  component="img"
-                  src={faviconUrlForDomain(webDomain)}
-                  alt=""
-                  loading="lazy"
-                  onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
-                  sx={{ width: 13, height: 13, borderRadius: '3px', flexShrink: 0 }}
-                />
-              )}
+              {webDomain && <DomainIcon domain={webDomain} size={13} />}
               <Typography
                 sx={{
                   color: hideVerbLabel ? c.text.primary : c.text.secondary,
