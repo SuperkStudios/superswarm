@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import { useAppDispatch } from '@/shared/hooks';
+import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { getWebview } from '@/shared/browserRegistry';
 import { buildDockEntries, CardRect, DockEntry } from './dockEntries';
@@ -81,13 +82,10 @@ function DesktopDock({
       hoverTimer.current = window.setTimeout(() => {
         setHovered({ id: entry.id, top });
         if (entry.browserId) {
-          const wv = getWebview(entry.browserId);
-          const capture = wv?.capturePage?.();
-          if (capture && typeof (capture as Promise<unknown>).then === 'function') {
-            (capture as Promise<{ toDataURL(): string }>)
-              .then((img) => setLiveShot({ id: entry.id, dataUrl: img.toDataURL() }))
-              .catch(() => undefined);
-          }
+          const entryId = entry.id;
+          void captureBrowserShot(entry.browserId).then((shot) => {
+            if (shot) setLiveShot({ id: entryId, dataUrl: shot });
+          });
         }
       }, 220);
     },

@@ -78,6 +78,26 @@ def test_record_task_summary_and_rollups(metrics):
     assert len(tasks) == 1 and tasks[0]["status"] == "completed"
 
 
+def test_the_latency_split_is_persisted_not_just_logged(metrics):
+    """wall = llm + tools + ours, and only the last term is ours to improve. The split existed as a
+    log line nobody could analyse later, so every latency claim was measured on the wall clock, and
+    the wall clock on live sites swings 5-12x on model turn count alone. Persist it or it is not
+    evidence."""
+    bm, d = metrics
+    summary = bm.record_task("s1", "b1", "t", "completed", __import__("time").time() - 10.0,
+                             4, [], {}, llm_ms=6000, tools_ms=2500)
+    assert summary["llm_ms"] == 6000 and summary["tools_ms"] == 2500
+    assert 1000 <= summary["other_ms"] <= 2000, summary["other_ms"]
+    assert p_read(d, "tasks.jsonl")[0]["other_ms"] == summary["other_ms"]
+
+
+def test_a_run_that_reported_no_split_never_shows_negative_time(metrics):
+    """Default 0s (the stopped/error paths) must read as "unknown", never as a bogus fast run."""
+    bm, _ = metrics
+    s = bm.record_task("s1", "b1", "t", "stopped", __import__("time").time() - 1.0, 1, [], {})
+    assert s["llm_ms"] == 0 and s["other_ms"] == s["total_ms"] >= 0
+
+
 def test_metrics_never_raises_on_bad_dir(monkeypatch):
     # An unwritable dir must not throw into the agent loop.
     monkeypatch.setenv("OPENSWARM_BROWSER_METRICS_DIR", "/proc/cannot/write/here")

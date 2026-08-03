@@ -64,7 +64,7 @@ p_key_cache: Dict[str, Optional[bytes]] = {}
 
 
 @typechecked
-def p_win_dpapi_unprotect(data: bytes) -> Optional[bytes]:
+def win_dpapi_unprotect(data: bytes) -> Optional[bytes]:
     """CryptUnprotectData via crypt32.dll (no pywin32 dependency). None on any failure."""
     if sys.platform != "win32":
         return None
@@ -105,7 +105,7 @@ def win_storage_key(browser: str) -> Optional[bytes]:
         raw = base64.b64decode(enc_b64)
         if raw[:5] != b"DPAPI":
             return None
-        return p_win_dpapi_unprotect(raw[5:])
+        return win_dpapi_unprotect(raw[5:])
     except Exception:
         return None
 
@@ -204,6 +204,12 @@ def decrypt_cookie_value(enc: bytes, key: bytes) -> Optional[str]:
 
 
 @typechecked
+def has_store(domain: str) -> bool:
+    """Whether any browser store holds records for `domain`, without decrypting and without touching the keychain. The public shape of the presence check, so callers outside this file never need the store tuple."""
+    return p_best_store(domain) is not None
+
+
+@typechecked
 def read_provider_cookies(domain: str) -> Dict[str, str]:
     """Decrypted cookie jar for `domain`, from whichever browser store actually has the session. At most one keychain touch (that store's browser), cached for the process."""
     store = p_best_store(domain)
@@ -239,7 +245,7 @@ def read_provider_cookies(domain: str) -> Dict[str, str]:
 
 @typechecked
 def read_provider_cookie_records(domain: str) -> List[Dict[str, Any]]:
-    """Full cookie records ({name,value,domain,path,secure,httponly}) for `domain`, so Electron's offscreen browser can re-inject the session faithfully and pass Cloudflare with a real Chrome TLS handshake. Same one-store, one-keychain-touch path as read_provider_cookies."""
+    """Full cookie records ({name,value,domain,path,secure,httponly,expires_utc}) for `domain`, so Electron's offscreen browser can re-inject the session faithfully and pass Cloudflare with a real Chrome TLS handshake. Same one-store, one-keychain-touch path as read_provider_cookies. `expires_utc` stays in Chromium's own units (microseconds since 1601, 0 = session cookie); whoever needs unix seconds converts."""
     store = p_best_store(domain)
     if store is None:
         return []
@@ -254,10 +260,11 @@ def read_provider_cookie_records(domain: str) -> List[Dict[str, Any]]:
         con = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
         cur = con.cursor()
         cur.execute(
-            "SELECT name, encrypted_value, host_key, path, is_secure, is_httponly FROM cookies WHERE host_key LIKE ?",
+            "SELECT name, encrypted_value, host_key, path, is_secure, is_httponly, expires_utc "
+            "FROM cookies WHERE host_key LIKE ?",
             (f"%{domain}",),
         )
-        for name, enc, host_key, path, is_secure, is_httponly in cur.fetchall():
+        for name, enc, host_key, path, is_secure, is_httponly, expires_utc in cur.fetchall():
             if not enc:
                 continue
             val = decrypt_cookie_value(bytes(enc), key)
@@ -266,6 +273,7 @@ def read_provider_cookie_records(domain: str) -> List[Dict[str, Any]]:
             records.append({
                 "name": str(name), "value": val, "domain": str(host_key),
                 "path": str(path) or "/", "secure": bool(is_secure), "httponly": bool(is_httponly),
+                "expires_utc": int(expires_utc or 0),
             })
         con.close()
     except Exception:
@@ -297,3 +305,13 @@ def read_google_session_records() -> List[Dict[str, Any]]:
 @typechecked
 def cookie_header(jar: Dict[str, str]) -> str:
     return "; ".join(f"{k}={v}" for k, v in jar.items())
+
+
+@typechecked
+def logged_in_providers() -> List[str]:
+    """Which providers have a readable session, WITHOUT decrypting or touching the keychain: safe for a UI presence check."""
+    out: List[str] = []
+    for provider, domain in (("codex", "chatgpt.com"), ("claude", "claude.ai"), ("gemini", "gemini.google.com")):
+        if p_best_store(domain) is not None:
+            out.append(provider)
+    return out

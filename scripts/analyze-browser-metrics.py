@@ -13,6 +13,7 @@ Defaults to $OPENSWARM_BROWSER_METRICS_DIR, else
 
 import json
 import os
+import statistics
 import sys
 from collections import Counter, defaultdict
 
@@ -170,6 +171,35 @@ def playbook_report(tasks):
         print(f"    {h[:40]:40} cold avg {cold:.1f} turns -> seeded avg {seeded:.1f} turns  {verdict}")
 
 
+def latency_report(tasks):
+    """Where a run's time actually goes, and which part a code change can move.
+
+    Live-site wall clocks swing 5-12x on model turn count alone, so a wall-clock A/B needs ~30 runs
+    per arm to say anything at all. Split it: llm_ms is the model's, tools_ms is the browser's, and
+    the remainder is OURS (perception, waits, dispatch, bookkeeping). The spread column is the point.
+    If wall swings 8x while ours swings 1.4x, then ours is the only column worth optimising against,
+    and any speed claim measured on the wall was measuring the model's mood.
+    """
+    runs = [t for t in tasks
+            if t.get("completed") and t.get("llm_ms") and t.get("path") in ("llm", "llm_fallback")]
+    print("\n=== WHERE THE TIME GOES (completed model-path runs) ===")
+    if len(runs) < 2:
+        old = sum(1 for t in tasks if "other_ms" not in t)
+        noloop = sum(1 for t in tasks if t.get("other_ms") is not None and not t.get("llm_ms"))
+        print(f"  {len(runs)} qualifying run(s); need at least 2. Skipped: {old} recorded before the "
+              f"split existed, {noloop} that never called the model (a script or replay answered).")
+        return
+    cols = [("wall", "total_ms"), ("llm", "llm_ms"), ("browser", "tools_ms"), ("OURS", "other_ms")]
+    print(f"  {'part':<9}{'median':>9}{'min':>9}{'max':>9}{'spread':>9}   share")
+    med_total = statistics.median([r["total_ms"] for r in runs]) or 1
+    for label, key in cols:
+        vals = sorted(r.get(key, 0) for r in runs)
+        med, lo, hi = statistics.median(vals), vals[0], vals[-1]
+        spread = f"{hi / lo:.1f}x" if lo > 0 else "n/a"
+        print(f"  {label:<9}{round(med):>8}ms{lo:>8}ms{hi:>8}ms{spread:>9}   {round(100 * med / med_total):>3}%")
+    print(f"  n={len(runs)} runs. A change to our code can only move the OURS row; judge it there.")
+
+
 def main():
     d = sys.argv[1] if len(sys.argv) > 1 else _default_dir()
     events = load(os.path.join(d, "events.jsonl"))
@@ -235,6 +265,7 @@ def main():
         print(f"honest completion rate: {round(100*(completed-ghosts)/n,1)}% "
               f"(completed minus ghosts)")
 
+    latency_report(tasks)
     skill_layer_report(tasks, skill_events)
     playbook_report(tasks)
 

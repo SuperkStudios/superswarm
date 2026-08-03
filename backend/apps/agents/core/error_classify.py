@@ -1,6 +1,8 @@
 import re
-from typing import Optional
+from typing import Optional, Tuple
 
+import anthropic
+import httpx
 from typeguard import typechecked
 
 # Secret shapes that must never ride along when we ship a stderr tail or an error string to telemetry. own_key mode means the subprocess stderr can echo the user's OWN provider key, so this scrub is the wall between a diagnostic and a key leak; over-redacting is fine, leaking is not.
@@ -199,13 +201,24 @@ def parse_retry_after(exc: BaseException, extra_text: str = "") -> int | None:
     return None
 
 
+# anthropic.APIConnectionError stringifies to the bare "Connection error.", so the patterns above
+# score it NON-transient and one network hiccup throws away a whole run (measured live, twice). A
+# transport failure is transient by construction, so classify by TYPE, which no rewording breaks.
+P_TRANSIENT_EXC_TYPES: Tuple[type, ...] = (
+    anthropic.APIConnectionError, anthropic.InternalServerError,  # APITimeoutError subclasses the first
+    httpx.TransportError, ConnectionError, TimeoutError)          # connect/read/pool timeouts, protocol errors
+
+
 @typechecked
 def is_transient_capacity_error(exc: BaseException, extra_text: str = "") -> bool:
     # The Claude CLI's underlying ProcessError stringifies to a generic "Command failed with exit code 1 / Check stderr output for details"; the real cause (rate_limit_error / No pool capacity available / 429 / overloaded) only surfaces in the subprocess's stderr stream, which we capture via the SDK's `stderr` callback and pass in as extra_text. Classify against both so we catch capacity errors regardless of which channel carried the message.
     combined = f"{exc!s}\n{extra_text}".strip()
-    if not combined:
+    if combined and NON_TRANSIENT_PATTERNS.search(combined):
         return False
-    if NON_TRANSIENT_PATTERNS.search(combined):
+    # Ahead of the empty-string bail on purpose: what the exception IS doesn't depend on whether it bothered to say anything.
+    if isinstance(exc, P_TRANSIENT_EXC_TYPES):
+        return True
+    if not combined:
         return False
     if TRANSIENT_CAPACITY_PATTERNS.search(combined):
         return True

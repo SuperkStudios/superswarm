@@ -65,7 +65,9 @@ P_CLASSIFIER_SYSTEM = (
     "If line 1 is READ or ACT, follow it with a short browsing brief:\n"
     "ENTRY: the best starting URL; use a direct deep/search URL when the site's "
     "pattern is well known (LinkedIn people search is "
-    "https://www.linkedin.com/search/results/people/?keywords=NAME).\n"
+    "https://www.linkedin.com/search/results/people/?keywords=NAME). Always a normal "
+    "page a person would see, never a raw JSON/API endpoint (e.g. Instagram's "
+    "web/search/topsearch), which renders as an unreadable data wall.\n"
     "Then 3-6 numbered steps, one short action each.\n"
     "Copy any text the user wants typed, sent, or posted EXACTLY, character for "
     "character. Never invent names, values, or wording the user did not give."
@@ -115,6 +117,11 @@ def entry_url_from_brief(brief: str) -> str:
     return m.group(1).rstrip(".,;)") if m else ""
 
 
+# Opens the advisory-brief section of a composed task; consumers strip everything after it when a
+# check must apply only to the human's words (the brief once false-flagged a real send read-only).
+BRIEF_MARKER = "[routing brief"
+
+
 def compose_task(prompt: str, brief: str) -> str:
     """User's words first and authoritative; the brief is advisory routing.
     Skill replay keys on the parent's user message, so brief variance is safe."""
@@ -122,7 +129,7 @@ def compose_task(prompt: str, brief: str) -> str:
         return prompt
     return (
         f"{prompt}\n\n"
-        "[routing brief from a fast pre-pass; follow it unless the live page disagrees]\n"
+        f"{BRIEF_MARKER} from a fast pre-pass; follow it unless the live page disagrees]\n"
         f"{brief}"
     )
 
@@ -219,6 +226,22 @@ def normalize_for_classifier(prompt: str) -> str:
     return re.sub(r"\btext(ing|ed|s)?\b", "message", prompt, flags=re.I)
 
 
+def seed_hints_for_task(prompt: str) -> str:
+    """Documented facts for sites the task names, fed to the classifier so its ENTRY
+    uses the site's real search-URL pattern instead of the homepage (measured: the aux
+    sent walmart to the homepage while the seed had the exact /search?q= pattern)."""
+    from backend.apps.agents.browser.seed_playbooks import SEED_PLAYBOOKS
+    low = f" {prompt.lower()} "
+    lines: list[str] = []
+    for domain, facts in SEED_PLAYBOOKS.items():
+        name = domain.split(".")[0]
+        if len(name) >= 4 and f" {name}" in low and facts:
+            lines.append(f"{domain}: {facts[0][:180]}")
+            if len(lines) >= 2:
+                break
+    return ("\n\nKnown site facts (use their URL patterns for ENTRY):\n" + "\n".join(lines)) if lines else ""
+
+
 async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> tuple[str, str]:
     """One cheap aux call returns a READ/ACT/NO verdict plus a routing brief
     (entry URL + step outline), timeboxed; any failure means NO (normal path)."""
@@ -227,22 +250,35 @@ async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> 
         from backend.apps.settings.credentials import get_anthropic_client_for_model
         from backend.apps.agents.providers.registry import resolve_aux_model
 
-        aux_model, _ = await resolve_aux_model(
-            settings, preferred_tier="haiku", primary_api=primary_api,
-        )
-        client = get_anthropic_client_for_model(settings, aux_model)
-        resp = await asyncio.wait_for(
-            client.messages.create(
-                model=aux_model,
-                max_tokens=250,
-                temperature=0,
-                system=P_CLASSIFIER_SYSTEM,
-                messages=[{"role": "user", "content": normalize_for_classifier(prompt[:2000])}],
-            ),
-            timeout=8.0,
-        )
         from backend.apps.agents.core.aux_llm import safe_resp_text
-        verdict, brief = parse_verdict_and_brief(safe_resp_text(resp))
+
+        async def p_ask(api: str | None) -> tuple[str, str, str]:
+            aux_model, _ = await resolve_aux_model(
+                settings, preferred_tier="haiku", primary_api=api,
+            )
+            client = get_anthropic_client_for_model(settings, aux_model)
+            resp = await asyncio.wait_for(
+                client.messages.create(
+                    model=aux_model,
+                    max_tokens=250,
+                    temperature=0,
+                    system=P_CLASSIFIER_SYSTEM,
+                    messages=[{"role": "user", "content": (
+                        normalize_for_classifier(prompt[:2000]) + seed_hints_for_task(prompt))}],
+                ),
+                timeout=8.0,
+            )
+            return safe_resp_text(resp), aux_model, ""
+
+        text, aux_model, _ = await p_ask(primary_api)
+        # An EMPTY body is a broken lane, not a verdict. Measured live: cx/gpt-5.4-mini returns ''
+        # for this call, which parsed to "no" and silently switched the whole browser fast path off
+        # for every GPT user, with no error to show for it. Fall back once to the provider-agnostic
+        # cheap tier (same cure as the distill fix) so a mute aux can't disable a working feature.
+        if not text.strip() and primary_api:
+            logger.info(f"[browser-fast-path] classifier empty on {aux_model}; retrying provider-agnostic")
+            text, aux_model, _ = await p_ask(None)
+        verdict, brief = parse_verdict_and_brief(text)
         logger.info(
             f"[browser-fast-path] classifier: {verdict.upper()} brief={len(brief)}ch "
             f"model={aux_model} in {int((time.monotonic() - t0) * 1000)}ms"

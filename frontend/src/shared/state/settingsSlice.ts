@@ -55,6 +55,7 @@ export interface AppSettings {
   openrouter_api_key?: string | null;
   custom_providers?: CustomProvider[];
   browser_homepage: string;
+  browser_import_signins: boolean;
   auto_select_mode_on_new_agent: boolean;
   expand_new_chats_in_dashboard: boolean;
   auto_reveal_sub_agents: boolean;
@@ -179,6 +180,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictation_model: null,
   anthropic_api_key: null,
   browser_homepage: 'https://duckduckgo.com',
+  browser_import_signins: false,
   auto_select_mode_on_new_agent: false,
   expand_new_chats_in_dashboard: true,
   auto_reveal_sub_agents: true,

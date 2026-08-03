@@ -6,6 +6,65 @@ const { injectText } = require('./voice/textInjector');
 // Browser cards live in their own persistent partition so cookies/localStorage/IndexedDB survive reload + quit (Discord etc. stay logged in) and site data stays isolated from the app's defaultSession. The "clear browsing data" wipe nukes only this partition. MUST match BROWSER_PARTITION in frontend BrowserCard.tsx.
 const BROWSER_PARTITION = 'persist:openswarm-browser';
 
+// Sites whose sign-in we borrowed out of the user's real Chrome. Populated when a session is
+// imported, and it changes exactly one thing: what user agent we present to that site.
+//
+// Our normal browser-card UA deliberately carries an "openswarm/<ver>" product token, because
+// Google's sign-in rejects a BARE Chrome UA as not-genuine-Chrome (see BrowserCard.tsx). But a
+// borrowed session was minted by real Chrome, and the anti-bot layer in front of these sites checks
+// the session against the UA that earned it, so that same token reads as "this is not the browser
+// that logged in" and the session is refused. On a borrowed site only, we drop the token and
+// present the same Chrome version bare, which is exactly what the onboarding harvest window does
+// (hiddenBrowser.js) and how it gets through Cloudflare with borrowed cookies. Google keeps the
+// token because we never borrow for it: its own sign-in is the thing the token exists to satisfy.
+const p_borrowedSessionDomains = new Set();
+const p_uaSwapLogged = new Set();
+const { warmBorrowedSession } = require('./warmBorrowedSession');
+
+// The borrowed cookies live in a PERSISTENT partition, so they outlive a quit; this list has to as
+// well or the two halves drift apart. They did: the backend memoizes "already borrowed for this
+// domain" and skips re-importing, so after an Electron restart the site kept its session but
+// silently stopped being told we were plain Chrome. That desync produced a false negative in the
+// 2026-07-27 measurements and would have been invisible in normal use. Domain names only, never
+// cookie values.
+function p_borrowedDomainsPath() {
+  return path.join(app.getPath('userData'), 'borrowed-session-domains.json');
+}
+
+function loadBorrowedDomains() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p_borrowedDomainsPath(), 'utf8'));
+    if (Array.isArray(raw)) raw.filter((d) => typeof d === 'string').forEach((d) => p_borrowedSessionDomains.add(d));
+  } catch {
+    // No file yet, or unreadable: an empty list just means the first navigate re-borrows.
+  }
+}
+
+function saveBorrowedDomains() {
+  try {
+    fs.writeFileSync(p_borrowedDomainsPath(), JSON.stringify([...p_borrowedSessionDomains]));
+  } catch {
+    // Losing this only costs one redundant re-import next launch; never worth failing an import over.
+  }
+}
+
+function bareChromeUserAgent(ua) {
+  return String(ua || '').replace(/\s*(?:openswarm|Electron)\/\S+/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function hostHasBorrowedSession(url) {
+  if (!p_borrowedSessionDomains.size) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    for (const d of p_borrowedSessionDomains) {
+      if (host === d || host.endsWith(`.${d}`)) return true;
+    }
+  } catch {
+    // A malformed URL simply isn't a borrowed site.
+  }
+  return false;
+}
+
 // E2E flag: when OPENSWARM_E2E=1, append a Chromium command-line switch the
 // renderer reads at startup to set window.__OPENSWARM_E2E__ = true BEFORE any
 // page script parses, so the production-build store-on-window gate fires
@@ -392,6 +451,11 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 // timeout the moment the user looked away. Same lever VS Code ships with.
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
+// The other half of that same problem: those two keep a guest's SCRIPTS running, this keeps its
+// PIXELS coming. Chromium marks a fully covered window occluded and stops compositing it, and a
+// guest with no composited frame cannot be screenshotted at all (capturePage never even settles),
+// so the agent went blind the moment you put another window in front of OpenSwarm.
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 // Heavy WebGL/webview churn (spam-switching apps, busy dashboards) can crash the
 // shared GPU process; Chromium kills the whole app after a few GPU crashes. Lift
 // that cap so a GPU hiccup recovers by restarting the GPU process instead of
@@ -1905,6 +1969,9 @@ app.whenReady().then(async () => {
   };
   configureBrowsingSession(session.defaultSession, { allowFullscreen: false });
   configureBrowsingSession(session.fromPartition(BROWSER_PARTITION), { allowFullscreen: true });
+  // Restore which sites we borrowed a sign-in for BEFORE any card can load one, so the very first
+  // request of the launch already presents as the browser that earned the session.
+  loadBorrowedDomains();
 
   // PASSKEY SPIKE: when a site offers several discoverable passkeys, Electron fires this so we pick one; without a handler the WebAuthn flow stalls. For the spike just take the first; a real impl would surface a picker. macOS-only event (no-op elsewhere).
   for (const ses of [session.defaultSession, session.fromPartition(BROWSER_PARTITION)]) {
@@ -1927,10 +1994,20 @@ app.whenReady().then(async () => {
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
       const headers = { ...(details.requestHeaders || {}) };
+      const borrowed = hostHasBorrowedSession(details.url);
       for (const k of Object.keys(headers)) {
         const lk = k.toLowerCase();
         if (lk === 'sec-ch-ua' || lk === 'sec-ch-ua-full-version-list') {
           headers[k] = addGoogleChromeBrand(headers[k]);
+        } else if (borrowed && lk === 'user-agent') {
+          const swapped = bareChromeUserAgent(headers[k]);
+          // Once per site: proof the swap actually fired, so "borrowed but still signed out" can be
+          // read as the site refusing us rather than as this code silently never running.
+          if (swapped !== headers[k] && !p_uaSwapLogged.has(details.url.split('/')[2])) {
+            p_uaSwapLogged.add(details.url.split('/')[2]);
+            console.log(`[borrowed-ua] ${details.url.split('/')[2]} -> ${swapped}`);
+          }
+          headers[k] = swapped;
         }
       }
       callback({ requestHeaders: headers });
@@ -2512,6 +2589,25 @@ app.on('web-contents-created', (_event, contents) => {
       `).catch(() => {});
     });
 
+    // On a site whose sign-in we borrowed we send a bare Chrome UA header (see
+    // p_borrowedSessionDomains), so navigator.userAgent has to say the same thing. A page that
+    // reads one UA in JS while the request carried another is a louder automation tell than the
+    // product token we removed, and plenty of anti-bot scripts compare exactly those two.
+    contents.on('dom-ready', () => {
+      let borrowed = false;
+      try { borrowed = hostHasBorrowedSession(contents.getURL()); } catch { borrowed = false; }
+      if (!borrowed) return;
+      const bare = bareChromeUserAgent(contents.getUserAgent());
+      contents.executeJavaScript(`
+        (function(){
+          try {
+            if (navigator.userAgent === ${JSON.stringify(bare)}) return;
+            Object.defineProperty(navigator, 'userAgent', { get: function(){ return ${JSON.stringify(bare)}; }, configurable: true });
+          } catch (e) {}
+        })();
+      `).catch(() => {});
+    });
+
     // Real headed Chrome exposes window.chrome.app/csi/loadTimes; an Electron webview's window.chrome is empty ({}), the single most-checked headless/automation tell (PerimeterX/DataDome et al). Stub the same shape real Chrome reports (app = object, csi + loadTimes = functions, NO runtime, matching a non-extension page). Also restore the base 'en' language Electron drops. Page-world (contextIsolation hides the preload), measured to flip every bot.sannysoft row to its Chrome value.
     contents.on('dom-ready', () => {
       contents.executeJavaScript(`
@@ -3005,6 +3101,10 @@ ipcMain.handle('browser:clear-data', async () => {
   const ses = session.fromPartition(BROWSER_PARTITION);
   await ses.clearStorageData();
   await ses.clearCache();
+  // The borrowed sessions just went with it, so stop claiming we are the browser that earned them.
+  p_borrowedSessionDomains.clear();
+  p_uaSwapLogged.clear();
+  saveBorrowedDomains();
   return { ok: true };
 });
 
@@ -3062,6 +3162,60 @@ ipcMain.on('browser-capsule-take', (event, origin) => {
   pendingSessionCapsules.delete(event.sender.id);
   event.returnValue = entry.capsule;
 });
+// Populate the browser-card partition with the user's OWN existing sign-in for a site, so an agent
+// stuck at a login wall can carry on as them without anybody typing a password. This is the exact
+// opposite direction from the read above: cookies only go INTO our own partition, never out, so it
+// is not a disclosure surface. The backend gates it behind an explicit opt-in setting and always
+// derives the domain from the page the agent is already stuck on, never from model text.
+async function writePartitionCookies(domain, cookies) {
+  const d = String(domain || '').toLowerCase().trim().replace(/^\./, '');
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d)) return { ok: false, set: 0, error: `bad domain: ${d || '(empty)'}` };
+  const list = Array.isArray(cookies) ? cookies : [];
+  const ses = session.fromPartition(BROWSER_PARTITION);
+  let set = 0;
+  for (const c of list) {
+    if (!c || !c.name) continue;
+    const rawHost = String(c.domain || d);
+    const host = rawHost.replace(/^\./, '');
+    // Every cookie has to belong to the domain we were asked for, so importing one site can never
+    // plant another site's session in the partition.
+    if (host !== d && !host.endsWith(`.${d}`)) continue;
+    const path = String(c.path || '/') || '/';
+    try {
+      await ses.cookies.set({
+        url: `https://${host}${path.startsWith('/') ? path : `/${path}`}`,
+        name: String(c.name),
+        value: String(c.value == null ? '' : c.value),
+        // A leading dot is Chromium's marker for a domain-wide cookie; without it the cookie is
+        // host-only and passing `domain` at all would silently widen it.
+        domain: rawHost.startsWith('.') ? rawHost : undefined,
+        path,
+        secure: !!c.secure,
+        httpOnly: !!c.httponly,
+        expirationDate: Number(c.expires) > 0 ? Number(c.expires) : undefined,
+      });
+      set += 1;
+    } catch (err) {
+      // One malformed cookie must not sink the whole sign-in.
+    }
+  }
+  // Borrowing the session and presenting as the browser that earned it are one decision, not two:
+  // apply the cookies without the matching UA and the site refuses them.
+  if (set > 0) {
+    p_borrowedSessionDomains.add(d);
+    saveBorrowedDomains();
+  }
+  // Let a plain hidden window take the site's challenge before the card does. It shares this
+  // partition, so whatever clearance it earns is already waiting when the card loads.
+  let warmed = false;
+  if (set > 0) {
+    const ua = bareChromeUserAgent(session.fromPartition(BROWSER_PARTITION).getUserAgent());
+    warmed = await warmBorrowedSession(BROWSER_PARTITION, `https://${d}/`, ua);
+    console.log(`[borrowed-warm] ${d} warmed=${warmed}`);
+  }
+  return { ok: set > 0, set, total: list.length, warmed };
+}
+ipcMain.handle('set-partition-cookies', (_e, domain, cookies) => writePartitionCookies(domain, cookies));
 
 // The renderer relays cookie reads for the session-borrow bridge, but macOS throttles it when the
 // window is backgrounded, so those reads intermittently time out. Main never throttles: hold our own
@@ -3483,14 +3637,23 @@ async function ensureDebuggerAttached(wc) {
 // Bounded + fail-open: a wedged pipe must never block the card from closing.
 async function detachCdpCleanly(wc) {
   if (!wc || wc.isDestroyed()) return;
-  cdpTearingDown.add(wc.id);
   let attached = false;
   try { attached = wc.debugger.isAttached(); } catch (_) { return; }
+  // Mark tearing-down only once we know there IS a session to tear down. The flag is a one-way
+  // latch that permanently bars re-attach, so setting it before this check meant a card that had
+  // never used CDP got latched by any teardown call and could never be perceived again: a live,
+  // healthy card with permanently dead perception, which reads exactly like a wedged webview.
   if (!attached) return;
+  cdpTearingDown.add(wc.id);
   const drain = (method, params) =>
     raceCdp(wc.debugger.sendCommand(method, params || {}), 1200, method).catch(() => {});
+  // Recheck between every await. Each drain can take 1.2s, and this runs while the guest is being
+  // torn down, so the webContents these commands target can die mid-sequence; both crashes we
+  // have logs for end in a CDP detach racing a guest teardown.
   await drain('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true });
+  if (wc.isDestroyed() || wc.isCrashed()) return;
   await drain('Network.disable', {});
+  if (wc.isDestroyed() || wc.isCrashed()) return;
   try { wc.debugger.detach(); } catch (_) { /* already detached / gone */ }
 }
 

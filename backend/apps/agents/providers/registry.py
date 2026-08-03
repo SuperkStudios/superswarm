@@ -144,7 +144,7 @@ BUILTIN_MODELS: dict[str, list[dict[str, Any]]] = {
         {"value": "gemini-3.1-flash-lite", "label": "Gemini 3.1 Flash Lite",
          "context_window": 1_000_000, "router_model_id": "gc/gemini-3.1-flash-lite-preview",
          "api": "gemini-cli", "subscription_only": True, "reasoning": True},
-        # gemini-3-pro removed 2026-03-09 and gemini-3-flash removed 2026-07-03: gemini-3-flash-preview aged out upstream (API-key route hangs with no fail-fast; only an Antigravity sub still masked it). 3.5-flash / 3.1-flash-lite cover the slots.
+        # gemini-3-pro removed 2026-03-09 and gemini-3-flash removed 2026-07-03 (both rows, independently on two branches): gemini-3-flash-preview aged out upstream (API-key lane hangs/429s with no fail-fast, measured 7-21s; only an Antigravity sub masked it). 3.5-flash / 3.1-flash-lite cover the slots; ag/gemini-3-flash lives on as an aux model, not a picker row.
         # API-key entries: bypass 9Router, call generativelanguage.googleapis.com.
         # Gemini 3.6 Flash + 3.5 Flash-Lite (both GA 2026-07-21, changelog-verified ids) are API-key
         # only for the same reason as 3.5 Flash: the pinned 0.3.60 gc/ registry predates them. No 3.5
@@ -287,7 +287,7 @@ def resolve_model_id_for_sdk(short_name: str, settings: AppSettings) -> str:
     # Gemini lane order: Antigravity OAuth (for the models it serves), then AI Studio apikey, then Gemini CLI. AG bypasses the thoughtSignature validator that breaks multi-step Gemini turns AND supports real reasoning, so a connected AG sub is preferred over the AI Studio key, which otherwise silently shadowed it. The map is AG's allowlist; pro variants 404/400 on AG and are deliberately absent, so they fall through to the key.
     P_ANTIGRAVITY_MAP = {
         # gemini-3-pro-preview disabled: AG returns 404 even with active conn. gemini-3.1-pro-preview disabled: AG's `gemini-3.1-pro-high` variant 400s every request with "invalid argument" (the `-high` thinking- budget alias on AG requires a thinking_config the CLI doesn't emit). Falls through to the AI Studio key / gc/ instead. gemini-3-flash-preview key dropped with its registry entry (aged out upstream).
-        "gemini-3.1-flash-lite-preview": "gemini-3-flash",
+        "gemini-3.1-flash-lite-preview": "gemini-3-flash",  # 3.1-flash-lite has no AG variant, so AG serves it via gemini-3-flash
     }
     if entry.get("api") == "gemini-cli":
         rid = entry.get("router_model_id", "")
@@ -426,7 +426,6 @@ COST_PER_1M_TOKENS: dict[tuple[str, str], tuple[float, float]] = {
     # Google; Gemini CLI subscription path, user pays nothing per token
     ("Google", "gemini-3.5-flash"): (0.0, 0.0),
     ("Google", "gemini-3.1-flash-lite"): (0.0, 0.0),
-    ("Google", "gemini-3-flash"): (0.0, 0.0),
     ("Google", "gemini-2.5-pro"): (0.0, 0.0),
     ("Google", "gemini-2.5-flash"): (0.0, 0.0),
     # OpenRouter-backed (approximate)

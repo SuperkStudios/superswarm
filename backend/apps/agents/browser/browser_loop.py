@@ -10,6 +10,8 @@ prevents the model from burning the entire turn budget on a failing approach.
 import json
 import re
 
+from backend.apps.agents.browser import browser_send_parse
+
 # Tools that are read-only / idempotent and should NOT count toward loop detection. Repeating these is normal (scrolling through a feed, taking successive screenshots, polling for an element to appear).
 LOOP_DETECTION_EXCLUDED_TOOLS = {
     "BrowserScreenshot",
@@ -219,7 +221,7 @@ def stagnation_exhausted(streak: int) -> bool:
 # State-changing tools: a task that needed to DO something must land one of these.
 P_PRODUCTIVE_TOOLS = {
     "BrowserClick", "BrowserClickIndex", "BrowserType", "BrowserNavigate",
-    "BrowserPressKey", "BrowserScroll", "BrowserBatch",
+    "BrowserPressKey", "BrowserScroll", "BrowserBatch", "BrowserActVerified",
 }
 # Read/extract tools: a look-only task's evidence is that a read returned content.
 P_READ_TOOLS = {
@@ -263,7 +265,7 @@ def recoverable_tool_error(err: str) -> bool:
 # Actions that DIRTY the page so replay-from-here is no longer equivalent to a clean dispatch. Navigation and reads don't dirty anything (they just get us to the page), so the deferred replay re-check is allowed after only those.
 P_REPLAY_DIRTYING_TOOLS = {
     "BrowserType", "BrowserClick", "BrowserClickIndex",
-    "BrowserPressKey", "BrowserScroll", "BrowserBatch",
+    "BrowserPressKey", "BrowserScroll", "BrowserBatch", "BrowserActVerified",
 }
 
 
@@ -286,6 +288,51 @@ P_ACTION_ASK_RE = re.compile(
     r"sign ?in|upload|download|book|order|buy|add|create|delete|message|dm|text)\b",
     re.I,
 )
+
+P_DELETE_INTENT_RE = re.compile(
+    r"\b(delete|remove|take ?down|unsend|retract|unpost|discard|trash)\b", re.I)
+
+
+def is_removal_task(task: str) -> bool:
+    """A delete/remove ask. The send-script must stand down on these: a removal task is also
+    task_is_send (the classifier keys on the verb), so without this the composer fill would
+    TYPE the target text and POST it (measured live: delete tasks re-posted the marker)."""
+    return bool(P_DELETE_INTENT_RE.search(task or ""))
+
+
+# Verbs that put something OUT into the world, as opposed to merely acting on a page. Deliberately
+# narrower than task_is_send, which only means "not an informational ask" and so counts a plain
+# "click the Search button": gating the skill store on THAT stopped the agent learning any click
+# task at all, which is the whole speed mechanism.
+P_PUBLISH_INTENT_RE = re.compile(
+    r"\b(post|submit|publish|send|tweet|comment|repl(?:y|ies)|dm|message)\b", re.I)
+
+
+def is_publish_task(task: str) -> bool:
+    """A task whose deliverable LEAVES the machine (a post, a reply, a message).
+
+    Keeps an unconfirmed write out of the skill store. Measured live on reddit: the composer filled,
+    `send_button_found=False`, the agent blind-tapped a coordinate, nothing posted, and a one-step
+    "skill" (click the body textbox) still got recorded for "create a text post and submit it".
+    Replaying that reports done in one turn while posting nothing, the same ghost the removal gate
+    already exists to stop.
+
+    The verbs are also ordinary NOUNS ("the top comment", "the first post", "the first reply"), so
+    an informational ask is excluded: without that, "read the top comment" scored as a publish and
+    the honesty gate told the user their send was never confirmed, on a task that never sent
+    anything. Failing safe here means at worst we skip a gate on a genuine write, never that we
+    call a perfectly good read a failure."""
+    if not P_PUBLISH_INTENT_RE.search(task or ""):
+        return False
+    # An explicit read-only directive settles it: the user said "do NOT submit anything", so nothing
+    # was ever supposed to leave, and demanding a send receipt turns a correct read into a reported
+    # failure. Measured live on reddit's own discovery probe ("Do NOT type or submit anything. Is
+    # the post title/body compose form present?"), which the informational heuristic below scored as
+    # a publish and this gate then failed. Reuses the SAME authority the send script declines on,
+    # rather than growing a second opinion that can drift away from it.
+    if browser_send_parse.is_readonly(task or ""):
+        return False
+    return not deliverable_is_informational("", task)
 
 
 def deliverable_is_informational(summary: str, task: str = "") -> bool:
@@ -315,7 +362,9 @@ def deliverable_is_informational(summary: str, task: str = "") -> bool:
     return False
 
 
-def completion_is_honest(action_log: list[dict]) -> tuple[bool, str]:
+def completion_is_honest(
+    action_log: list[dict], publish_task: bool = False, send_confirmed: bool = False,
+) -> tuple[bool, str]:
     """Reality-check a run the model declared done. Returns (honest, reason).
 
     Conservative by design (it can flip a 'completed' into an error, so it must
@@ -325,6 +374,17 @@ def completion_is_honest(action_log: list[dict]) -> tuple[bool, str]:
     task stays honest as long as some read came back with content; a partially
     erroring run that still landed a real action stays honest.
     """
+    # A publish task has exactly ONE deliverable: the thing leaving the machine. Clicks that
+    # "succeeded" are not evidence it went out. Measured live on reddit 2026-07-31: the composer
+    # filled, no send control was ever found (`send_button_found=False`), the agent blind-tapped a
+    # percentage coordinate, every action reported ok, and the user was told "Done, I sent it for
+    # you" while r/test never received a thing. Checked FIRST because it is the most serious lie we
+    # can tell. Note the direction of the residual risk: autosend sets send_confirmed the moment its
+    # click runs (a resend guard, not proof), so this can still let a bad send through, but it can
+    # never newly flag a run that had any send signal at all.
+    if publish_task and not send_confirmed:
+        return False, ("the send was never confirmed, so it may not have gone out; "
+                       "check the page before trusting this")
     if not action_log:
         return False, "declared done without taking a single action"
     actions = [a for a in action_log if a.get("tool") in P_PRODUCTIVE_TOOLS]

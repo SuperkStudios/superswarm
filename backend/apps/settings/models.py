@@ -61,6 +61,10 @@ class AppSettings(BaseModel):
     dictation_model: Optional[str] = None
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
+    # Opt-in: let a blocked browser agent borrow the sign-in you already have in your everyday
+    # browser instead of stopping to ask you to log in again. Default OFF because reading your real
+    # browser's session is your decision to make once, explicitly, not ours to assume.
+    browser_import_signins: bool = False
     openai_api_key: Optional[str] = None
     google_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None

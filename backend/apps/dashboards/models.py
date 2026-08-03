@@ -48,6 +48,8 @@ class BrowserCardPosition(BaseModel):
     dashboard_id: Optional[str] = None
     # Chat session this browser lives inside (renders over the chat's dock slot); None = free card.
     docked_to: Optional[str] = None
+    # When this card was spawned, so the idle-agent-card reaper can keep the newest and drop the rest. Cards saved before this field existed read as None and reap first, which is right: they are the oldest thing on the canvas.
+    created_at: Optional[datetime] = None
 
 
 class DashboardLayout(BaseModel):

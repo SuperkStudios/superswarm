@@ -330,6 +330,23 @@ def replay_settle_target(step: dict) -> str | None:
     return name if 0 < len(name) <= 60 else None
 
 
+P_COMPOSER_STEP_RE = re.compile(r"write a message|compose|message body|comment|reply|tweet|post text|type here|editor", re.I)
+
+
+def step_touches_composer(step: dict) -> bool:
+    """True if this step interacts with the compose box itself (focusing/typing),
+    as opposed to navigation or the opener click. The send-script owns the composer
+    (it polls for the lazy overlay), so the marriage replays only the nav+opener and
+    hands the composer->send tail to the script."""
+    tool = step.get("tool", "")
+    p = step.get("params", {}) or {}
+    if tool == "BrowserType":
+        return True
+    if tool in ("BrowserClickByName", "BrowserClick"):
+        return bool(P_COMPOSER_STEP_RE.search(str(p.get("name") or p.get("selector") or "")))
+    return False
+
+
 def first_unsafe_step(steps: list[dict]) -> tuple[int, str]:
     """Index of the first GENUINELY irreversible step (click Send/Submit/Pay, type
     into a composer), -1 if none. This is the prefix-replay/batch boundary, so a
@@ -779,6 +796,23 @@ def hint_step_adopted(step_key: tuple, action_log: list[dict]) -> bool:
         elif tool in ("BrowserPressKey", "BrowserScroll") and atool == tool:
             return True
     return False
+
+
+def replay_owns_nav(host: str, has_skill: bool, task_is_removal: bool, task_is_send: bool) -> bool:
+    """Should a learned skill's replay take over navigation, letting the caller skip prestage?
+
+    Yes for a READ: the replayed prefix does the same navigation prestage would aux-drive, faster.
+
+    No for a SEND, and this is the part that was wrong. Prestage is also what hands the send-script
+    its composer perception; skip it and the entire fill/click/receipt tail is unreachable, so the
+    model falls back to burning 4-5 turns. Measured live on x.com with a learned skill present:
+    5/5 writes went the slow way at 41-146s (median ~57s) with the receipt never speaking, against
+    19.4s with the script armed. Prestage on an already-loaded page costs ~2-5s.
+
+    No for a removal either: a delete is a destructive one-shot, not a replayable nav prefix, so a
+    stale delete-"skill" made of scrolls must never hijack it.
+    """
+    return bool(host and has_skill and not task_is_removal and not task_is_send)
 
 
 def mark_replay_succeeded(host: str, task: str) -> None:

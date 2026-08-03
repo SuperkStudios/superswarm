@@ -24,11 +24,23 @@ interface Props {
   browserHeight: number;
 }
 
-function summarizeMessage(msg: AgentMessage): { type: 'thought' | 'action' | 'result' | 'skip'; text: string } {
+// Same red as this card's own error icon, so a failed step and a failed run read as one thing.
+const P_FAILED_COLOR = '#f87171';
+
+interface LogEntry {
+  type: 'thought' | 'action' | 'result' | 'skip';
+  text: string;
+  /** Wall-clock of the message, so a stalled run shows WHERE it stalled. */
+  at?: string;
+  /** Only on a result: did the tool that just ran actually work? */
+  ok?: boolean;
+}
+
+function summarizeMessage(msg: AgentMessage): LogEntry {
   if (msg.role === 'assistant' && typeof msg.content === 'string') {
     const trimmed = msg.content.trim();
     if (!trimmed) return { type: 'skip', text: '' };
-    return { type: 'thought', text: trimmed };
+    return { type: 'thought', text: trimmed, at: msg.timestamp };
   }
 
   if (msg.role === 'tool_call') {
@@ -46,11 +58,14 @@ function summarizeMessage(msg: AgentMessage): { type: 'thought' | 'action' | 're
       case 'BrowserEvaluate': brief = `Evaluate JS`; break;
       default: brief = tool;
     }
-    return { type: 'action', text: brief };
+    return { type: 'action', text: brief, at: msg.timestamp };
   }
 
   if (msg.role === 'tool_result') {
-    return { type: 'result', text: '' };
+    const content = typeof msg.content === 'string' ? (() => { try { return JSON.parse(msg.content); } catch { return {}; } })() : msg.content;
+    // Older results predate the `ok` flag; absent means "no reason to think it failed", which keeps
+    // a resumed session from repainting its whole history red.
+    return { type: 'result', text: '', ok: content?.ok !== false };
   }
 
   return { type: 'skip', text: '' };
@@ -145,9 +160,24 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
 
   const accentColor = c.accent.primary;
 
-  const entries = session.messages
-    .map(summarizeMessage)
-    .filter((e) => e.type !== 'skip' && e.type !== 'result');
+  // A result carries no text of its own; its job is to say whether the action just above it
+  // worked. Fold it back onto that action so a failed click reads as failed instead of vanishing,
+  // which is what happened before: the overlay dropped results entirely and drew every action the
+  // same whether it succeeded or errored.
+  const entries: LogEntry[] = [];
+  for (const e of session.messages.map(summarizeMessage)) {
+    if (e.type === 'skip') continue;
+    if (e.type === 'result') {
+      for (let i = entries.length - 1; i >= 0; i--) {
+        if (entries[i].type === 'action') {
+          if (e.ok === false) entries[i] = { ...entries[i], ok: false };
+          break;
+        }
+      }
+      continue;
+    }
+    entries.push(e);
+  }
 
   if (streamingMessage && streamingMessage.role === 'assistant' && streamingMessage.content) {
     entries.push({ type: 'thought', text: streamingMessage.content });
@@ -293,17 +323,15 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
       {/* Body: intervention prompt OR scrollable action log */}
       {intervention ? (
         <Box sx={{ flex: 1, px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.8)', lineHeight: 1.5 }}>
+          {/* The run is stopped dead until somebody reads this, so it reads like a headline, not a footnote. The line that used to sit under it ("resolve it above, then click Done") was 10px at 30% opacity, the faintest thing on the card, and it only restated the amber button two rows down. */}
+          <Typography sx={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.92)', fontWeight: 500, lineHeight: 1.45 }}>
             {interventionProblem}
           </Typography>
           {interventionInstruction && (
-            <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.45)', fontStyle: 'italic', lineHeight: 1.4 }}>
+            <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.62)', lineHeight: 1.45 }}>
               {interventionInstruction}
             </Typography>
           )}
-          <Typography sx={{ fontSize: '0.625rem', color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>
-            Resolve the issue in the browser above, then click Done.
-          </Typography>
           {showSkipInput ? (
             <Box sx={{ display: 'flex', gap: 0.5, mt: 'auto', pt: 0.5, alignItems: 'center' }}>
               <InputBase
@@ -441,7 +469,7 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
                       width: 4,
                       height: 4,
                       borderRadius: '1px',
-                      bgcolor: accentColor,
+                      bgcolor: entry.ok === false ? P_FAILED_COLOR : accentColor,
                       flexShrink: 0,
                       mt: '5px',
                       transform: 'rotate(45deg)',
@@ -451,16 +479,34 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
                     sx={{
                       fontSize: '0.6875rem',
                       fontFamily: c.font.mono,
-                      color: accentColor,
+                      color: entry.ok === false ? P_FAILED_COLOR : accentColor,
                       lineHeight: 1.4,
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
+                      // Collapsed stays one tidy line; expanded is where you go to actually READ a
+                      // long selector or URL, so it wraps there instead of ellipsing forever.
+                      ...(expanded
+                        ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-all' }
+                        : { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
                     }}
                   >
-                    {entry.text}
+                    {entry.ok === false ? `${entry.text} — failed` : entry.text}
                   </Typography>
                 </>
+              )}
+              {expanded && entry.at && (
+                <Typography
+                  sx={{
+                    fontSize: '0.625rem',
+                    fontFamily: c.font.mono,
+                    color: 'rgba(255,255,255,0.28)',
+                    flexShrink: 0,
+                    ml: 'auto',
+                    pl: 0.5,
+                    mt: '4px',
+                  }}
+                >
+                  {new Date(entry.at).toLocaleTimeString([], { hour12: false })}
+                </Typography>
               )}
             </Box>
           ))}

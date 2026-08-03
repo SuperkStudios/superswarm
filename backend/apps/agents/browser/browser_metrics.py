@@ -144,7 +144,8 @@ def record_skill_event(kind, host, task_sig, rev=0, state="", extra=None) -> Non
 
 
 def record_task(session_id, browser_id, task, status, started_at, turns,
-                action_log, tokens, path="llm", task_sig="", playbook_seeded=False) -> dict:
+                action_log, tokens, path="llm", task_sig="", playbook_seeded=False,
+                llm_ms: int = 0, tools_ms: int = 0) -> dict:
     """One summary line per finished task: completion, total time, per-tier
     latency, token cost, and the recurring-error rollup. `path` records HOW the
     task finished (replay = no-LLM fast path, llm = full agent, llm_fallback =
@@ -176,6 +177,12 @@ def record_task(session_id, browser_id, task, status, started_at, turns,
         "status": status,
         "completed": status == "completed",
         "total_ms": total_ms,
+        # The wall clock alone cannot tell "our code got faster" from "the model took fewer turns",
+        # and on live sites the turn roulette is 5-12x, which buries every change we actually make.
+        # other_ms is the part we own, so a latency claim has something to stand on.
+        "llm_ms": llm_ms,
+        "tools_ms": tools_ms,
+        "other_ms": max(0, total_ms - llm_ms - tools_ms),
         "turns": turns,
         "tool_calls": len(action_log),
         "tokens_in": (tokens or {}).get("input", 0),
