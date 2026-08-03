@@ -60,12 +60,23 @@ def lent_connections_needing_a_pull() -> List[str]:
     return due
 
 
+# A pull rewrites db.json, which stops and restarts the router, so two of them racing the same
+# connection is not just wasteful: it is two writers on one file, and one edit loses.
+p_in_flight: set[str] = set()
+
+
 @typechecked
 async def refresh_lent_credentials() -> int:
     """Top up every lent connection that needs it. Returns how many are now good."""
     refreshed = 0
     for connection_id in lent_connections_needing_a_pull():
-        outcome = await credential_lease.pull_access_token(connection_id)
+        if connection_id in p_in_flight:
+            continue
+        p_in_flight.add(connection_id)
+        try:
+            outcome = await credential_lease.pull_access_token(connection_id)
+        finally:
+            p_in_flight.discard(connection_id)
         if outcome.status == "refreshed":
             refreshed += 1
             continue

@@ -342,3 +342,45 @@ async def test_an_unexpected_exception_never_kills_the_loop(p_connections, monke
         await lcr.lent_credential_loop()
 
     assert delays == [lcr.FAILURE_BACKOFF_S], "it survived and backed off"
+
+
+@pytest.mark.asyncio
+async def test_two_passes_overlapping_do_not_pull_the_same_connection_twice(p_connections, monkeypatch):
+    """The loop is one task, but a manual refresh and a scheduled pass can overlap. Each pull
+    rewrites db.json and bounces the router, so a duplicate is not merely wasteful: two writers
+    racing the same file is how an edit gets lost."""
+    import asyncio
+
+    install = p_connections
+    install([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+    inflight = 0
+    peak = 0
+
+    async def slow_pull(connection_id: str) -> LeaseOutcome:
+        nonlocal inflight, peak
+        inflight += 1
+        peak = max(peak, inflight)
+        await asyncio.sleep(0.05)
+        # A real pull ends with the device owning a fresh token, so the row stops being due.
+        install([{"id": "c", "refresh": None, "expires": p_iso(3 * 3600)}])
+        inflight -= 1
+        return LeaseOutcome(status="refreshed")
+
+    monkeypatch.setattr(lcr.credential_lease, "pull_access_token", slow_pull)
+
+    await asyncio.gather(lcr.refresh_lent_credentials(), lcr.refresh_lent_credentials())
+    assert peak <= 1, f"{peak} pulls were in flight at once for the same connection"
+
+
+@pytest.mark.asyncio
+async def test_a_second_pass_after_a_successful_pull_is_a_no_op(p_connections, p_pull):
+    """Idempotency in the shape it actually occurs: once a pull lands, the connection is no longer
+    due, so the next pass must not touch it again."""
+    install = p_connections
+    install([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+    calls = p_pull("refreshed")
+    assert await lcr.refresh_lent_credentials() == 1
+
+    install([{"id": "c", "refresh": None, "expires": p_iso(4 * 3600)}])
+    assert await lcr.refresh_lent_credentials() == 0
+    assert calls == ["c"], "a fresh token must not be pulled again"
