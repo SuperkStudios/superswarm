@@ -7,18 +7,9 @@ import { applyBrowserZoom } from '@/shared/browserZoom';
 import Box from '@mui/material/Box';
 import { VoiceDictationProvider } from '@/shared/voice/VoiceDictationContext';
 import Typography from '@mui/material/Typography';
-import IconButton from '@mui/material/IconButton';
 import Collapse from '@mui/material/Collapse';
-import Button from '@mui/material/Button';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
 import { Clock } from 'lucide-react';
 
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
-import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
-import CloseIcon from '@mui/icons-material/Close';
-import LinearProgress from '@mui/material/LinearProgress';
-import CircularProgress from '@mui/material/CircularProgress';
 // Settings modal lazy-loaded so its 2.3K LOC + Stripe/OAuth helpers don't ship on first paint.
 const Settings = React.lazy(() => import('@/app/pages/Settings/Settings'));
 import DynamicIsland from '@/app/components/overlays/DynamicIsland';
@@ -34,15 +25,13 @@ import { addBrowserCard, addBrowserTab, cycleBrowserTab, reopenLastClosed, addVi
 import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
-import { setInstalling } from '@/shared/state/updateSlice';
+import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
 import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
-
-const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
 const AppShell: React.FC = () => {
   const c = useClaudeTokens();
@@ -62,18 +51,6 @@ const AppShell: React.FC = () => {
   // Desktop shell: the wallpaper canvas IS the home surface, so the sidebar starts docked away
   // (left-edge hover peeks it; the pin toggle brings it back full-time).
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-
-  const updateStatus = useAppSelector((state) => state.update.status);
-  const availableVersion = useAppSelector((state) => state.update.availableVersion);
-  const downloadPercent = useAppSelector((state) => state.update.downloadPercent);
-  const installing = useAppSelector((state) => state.update.installing);
-  // Windows' Squirrel never reports a version, and a mid-download cache-clear reload wipes it, so render the name version-less instead of "OpenSwarm null".
-  const verSuffix = availableVersion ? ` ${availableVersion}` : '';
-
-  const [dismissedVersion, setDismissedVersion] = useState<string | null>(() => {
-    try { return localStorage.getItem(UPDATE_DISMISS_KEY); } catch { return null; }
-  });
-  const [snackbarDismissed, setSnackbarDismissed] = useState(false);
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
@@ -158,30 +135,6 @@ const AppShell: React.FC = () => {
   });
   // Spent nudge hides the moment they connect a real model; the post-wow nudge only shows on the trial lane (so it already implies no own model) and is dismissible.
   const showFreeTrialNudge = isOnline && settingsKnown && ((freeTrialSpent && !hasModelConnected) || (freeTrialUsed && !ftNudgeDismissed));
-
-  const bannerDismissedForVersion = availableVersion != null && dismissedVersion === availableVersion;
-  const isUpdateActionable = updateStatus === 'available' || updateStatus === 'downloaded' || updateStatus === 'downloading';
-
-  const showUpdateDot = (updateStatus === 'available' || updateStatus === 'downloaded') && !bannerDismissedForVersion;
-  const showUpdateBanner = isUpdateActionable && !bannerDismissedForVersion;
-  const showUpdateSnackbar = (updateStatus === 'available' || updateStatus === 'downloaded') && !bannerDismissedForVersion && !snackbarDismissed;
-
-  const handleDismissBanner = useCallback(() => {
-    if (availableVersion) {
-      try { localStorage.setItem(UPDATE_DISMISS_KEY, availableVersion); } catch {}
-      setDismissedVersion(availableVersion);
-    }
-  }, [availableVersion]);
-
-  const handleDownloadUpdate = useCallback(async () => {
-    try { await (window as any).openswarm?.downloadUpdate(); } catch {}
-  }, []);
-
-  const handleInstallUpdate = useCallback(() => {
-    if (installing) return;
-    dispatch(setInstalling());
-    (window as any).openswarm?.installUpdate();
-  }, [installing, dispatch]);
 
   // shallowEqual on top-level Immer dicts: nested mutations bump the dict reference, causing AppShell to re-render on every rename/output bump despite identical structure.
   const dashboardItems = useAppSelector(
@@ -575,100 +528,7 @@ const AppShell: React.FC = () => {
         </Box>
       </Collapse>
 
-      {showUpdateBanner && !fsHideChrome && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 2,
-            py: 0.5,
-            bgcolor: `${c.accent.primary}14`,
-            borderBottom: `1px solid ${c.accent.primary}30`,
-            flexShrink: 0,
-          }}
-        >
-          <SystemUpdateAltIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />
-          <Typography sx={{ fontSize: '0.8125rem', color: c.text.secondary, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {updateStatus === 'available' && `OpenSwarm${verSuffix} is available`}
-            {updateStatus === 'downloading' && `Downloading OpenSwarm${verSuffix}…`}
-            {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} is ready to install`}
-          </Typography>
-          {updateStatus === 'downloading' && (
-            <LinearProgress
-              variant="determinate"
-              value={downloadPercent}
-              sx={{
-                width: 120,
-                height: 3,
-                flexShrink: 0,
-                borderRadius: 2,
-                bgcolor: `${c.accent.primary}20`,
-                '& .MuiLinearProgress-bar': { bgcolor: c.accent.primary, borderRadius: 2 },
-              }}
-            />
-          )}
-          {updateStatus === 'downloading' && (
-            <Typography sx={{ fontSize: '0.75rem', color: c.text.tertiary, flexShrink: 0 }}>
-              {Math.round(downloadPercent)}%
-            </Typography>
-          )}
-          {updateStatus === 'available' && (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={handleDownloadUpdate}
-              sx={{
-                bgcolor: c.accent.primary,
-                '&:hover': { bgcolor: c.accent.pressed },
-                textTransform: 'none',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                borderRadius: 1.5,
-                minWidth: 'auto',
-                py: 0.25,
-                px: 1.5,
-                lineHeight: 1.5,
-                flexShrink: 0,
-              }}
-            >
-              Download
-            </Button>
-          )}
-          {updateStatus === 'downloaded' && (
-            <Button
-              size="small"
-              variant="contained"
-              onClick={handleInstallUpdate}
-              disabled={installing}
-              startIcon={installing ? <CircularProgress size={12} sx={{ color: '#fff' }} /> : undefined}
-              sx={{
-                bgcolor: c.accent.primary,
-                '&:hover': { bgcolor: c.accent.pressed },
-                '&.Mui-disabled': { bgcolor: c.accent.primary, color: '#fff', opacity: 0.7 },
-                textTransform: 'none',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                borderRadius: 1.5,
-                minWidth: 'auto',
-                py: 0.25,
-                px: 1.5,
-                lineHeight: 1.5,
-                flexShrink: 0,
-              }}
-            >
-              {installing ? 'Restarting…' : 'Restart & Update'}
-            </Button>
-          )}
-          <IconButton
-            size="small"
-            onClick={handleDismissBanner}
-            sx={{ color: c.text.tertiary, p: 0.25, flexShrink: 0, '&:hover': { color: c.text.secondary } }}
-          >
-            <CloseIcon sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Box>
-      )}
+      {!fsHideChrome && <UpdateReadyPill />}
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
       {/* Sidebar excised: dashboards live in the Spaces strip (hover the top edge; right-click a tile for rename/duplicate/delete). */}
@@ -713,80 +573,6 @@ const AppShell: React.FC = () => {
       <React.Suspense fallback={null}>
         <Settings />
       </React.Suspense>
-
-      <Snackbar
-        open={showUpdateSnackbar}
-        autoHideDuration={10000}
-        onClose={() => setSnackbarDismissed(true)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert
-          severity="info"
-          icon={updateStatus === 'downloaded'
-            ? <RestartAltIcon sx={{ fontSize: 18 }} />
-            : <SystemUpdateAltIcon sx={{ fontSize: 18 }} />
-          }
-          action={
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Button
-                size="small"
-                onClick={() => setSnackbarDismissed(true)}
-                sx={{ color: c.text.muted, textTransform: 'none', fontSize: '0.8125rem', minWidth: 'auto' }}
-              >
-                Dismiss
-              </Button>
-              {updateStatus === 'available' && (
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={handleDownloadUpdate}
-                  sx={{
-                    bgcolor: c.accent.primary,
-                    '&:hover': { bgcolor: c.accent.pressed },
-                    textTransform: 'none',
-                    fontSize: '0.8125rem',
-                    borderRadius: 1.5,
-                    minWidth: 'auto',
-                  }}
-                >
-                  Download
-                </Button>
-              )}
-              {updateStatus === 'downloaded' && (
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={handleInstallUpdate}
-                  disabled={installing}
-                  startIcon={installing ? <CircularProgress size={12} sx={{ color: '#fff' }} /> : undefined}
-                  sx={{
-                    bgcolor: c.accent.primary,
-                    '&:hover': { bgcolor: c.accent.pressed },
-                    '&.Mui-disabled': { bgcolor: c.accent.primary, color: '#fff', opacity: 0.7 },
-                    textTransform: 'none',
-                    fontSize: '0.8125rem',
-                    borderRadius: 1.5,
-                    minWidth: 'auto',
-                  }}
-                >
-                  {installing ? 'Restarting…' : 'Restart & Update'}
-                </Button>
-              )}
-            </Box>
-          }
-          sx={{
-            bgcolor: c.bg.surface,
-            color: c.text.primary,
-            border: `1px solid ${c.border.medium}`,
-            boxShadow: c.shadow.md,
-            '& .MuiAlert-icon': { color: c.accent.primary },
-          }}
-        >
-          {updateStatus === 'available' && `OpenSwarm${verSuffix} is available`}
-          {updateStatus === 'downloaded' && `OpenSwarm${verSuffix} downloaded; restart to update`}
-        </Alert>
-      </Snackbar>
-
 
     </Box>
   );
