@@ -103,3 +103,21 @@ def test_half_an_emoji_cannot_kill_the_whole_prestage():
     # A well-formed emoji is left alone; scrubbing real content would be its own bug.
     assert strip_lone_surrogates("done \U0001f9e0 ok") == "done \U0001f9e0 ok"
     assert strip_lone_surrogates("") == ""
+
+
+def test_ready_on_a_page_with_nowhere_to_write_gets_one_nudge():
+    """The instagram/tiktok shape, measured live 2026-08-02 at N=5: 0/4 each, every run declining
+    downstream with composer=0 textboxes=0.
+
+    Prestage took the aux model's word for "READY". On instagram it replied "I can see the Instagram
+    home page is loaded" and called READY from the feed; on tiktok it said "CLICK [1] READY" in one
+    breath, declaring done before the click it had just asked for could open anything. Both burned
+    the whole stage and handed the send script a page with no box in it.
+
+    A send task is not staged until something can be written into. The gate is the same shape as the
+    results-list overrule beside it: nudge once, accept a second READY, because some surfaces really
+    do hide their box behind an opener the fill tier clicks later.
+    """
+    from backend.apps.agents.browser.browser_send_parse import composer_index_in_state
+    assert composer_index_in_state(NO_COMPOSER) is None, "the feed shape must read as no composer"
+    assert composer_index_in_state(COMPOSER_PRESENT) is not None, "a staged page must read as one"

@@ -388,6 +388,7 @@ async def run_prestage(
         p_total_timeout = OPENER_TOTAL_TIMEOUT_S if opener_mode() else TOTAL_TIMEOUT_S
         p_system = P_SYSTEM_OPENER if opener_mode() else P_SYSTEM
         p_results_overruled = False
+        p_composer_overruled = False
         while (not staged_complete and steps < p_max_steps
                and (time.monotonic() - t0) < p_total_timeout):
             # Per-step cost, broken out. Prestage is the largest single phase of a LinkedIn write
@@ -422,6 +423,21 @@ async def run_prestage(
                         "\n\n[You replied READY on a search-results LIST. If the task is about "
                         "one specific person or thing, CLICK through to its own page first; "
                         "READY again only if the task really is about this list.]")
+                    continue
+                # A send task is not staged until there is somewhere to write. Measured live: on
+                # instagram the aux replies "I can see the Instagram home page is loaded" and calls
+                # READY from the feed, and on tiktok it says "CLICK [1] READY" in one breath, before
+                # the click it just asked for could open anything. Both then decline downstream with
+                # composer=0 textboxes=0, having spent the whole stage. Same overrule shape as the
+                # results-list rule above: nudge once, accept a second READY, because some surfaces
+                # really do hide their box until the fill tier clicks an opener.
+                if (task_is_send and not p_composer_overruled
+                        and not browser_send_parse.composer_index_in_state(li_text)):
+                    p_composer_overruled = True
+                    task = task + (
+                        "\n\n[You replied READY but no compose text box is listed in the elements. "
+                        "OPEN the specific item the task names, on its own page, or CLICK the "
+                        "control that reveals the box. READY again only once a textbox is listed.]")
                     continue
                 staged_complete = True
                 logger.info(f"[browser-prestage] READY after {steps} step(s): {arg[:80]}")
