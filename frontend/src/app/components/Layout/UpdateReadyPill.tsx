@@ -7,7 +7,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import CloseIcon from '@mui/icons-material/Close';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setInstalling } from '@/shared/state/updateSlice';
-import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens, useThemeMode } from '@/shared/styles/ThemeContext';
 
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
@@ -16,6 +16,7 @@ const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 // used to swallow the old banner button's clicks.
 const UpdateReadyPill: React.FC = () => {
   const c = useClaudeTokens();
+  const { mode } = useThemeMode();
   const dispatch = useAppDispatch();
   const updateStatus = useAppSelector((s) => s.update.status);
   const availableVersion = useAppSelector((s) => s.update.availableVersion);
@@ -68,18 +69,19 @@ const UpdateReadyPill: React.FC = () => {
           pl: 1.25,
           pr: 1,
           borderRadius: 999,
-          bgcolor: c.accent.primary,
-          color: '#fff',
-          boxShadow: '0 6px 20px rgba(0,0,0,0.3)',
+          // Success green, NOT the accent: every other pill on the shell is accent-colored, and an update call-to-action that matches New-dashboard reads as furniture (Chrome's update pill is green for the same reason). Dark mode's lighter green needs dark text.
+          bgcolor: c.status.success,
+          color: mode === 'dark' ? 'rgba(0,0,0,0.85)' : '#fff',
+          boxShadow: `0 0 0 3px ${c.status.success}40, 0 8px 24px rgba(0,0,0,0.35)`,
           cursor: installing ? 'default' : 'pointer',
           userSelect: 'none',
-          transition: 'background 0.2s ease, transform 0.15s ease',
-          '&:hover': { bgcolor: installing ? c.accent.primary : c.accent.pressed },
+          transition: 'filter 0.2s ease, transform 0.15s ease',
+          '&:hover': { filter: installing ? 'none' : 'brightness(1.12)' },
           '&:active': { transform: installing ? 'none' : 'scale(0.97)' },
         }}
       >
         {installing
-          ? <CircularProgress size={13} sx={{ color: '#fff', flexShrink: 0 }} />
+          ? <CircularProgress size={13} sx={{ color: 'inherit', flexShrink: 0 }} />
           : <RestartAltIcon sx={{ fontSize: 15, flexShrink: 0 }} />}
         <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, lineHeight: 1, whiteSpace: 'nowrap' }}>
           {installing ? 'Restarting…' : 'Restart to update'}
@@ -99,7 +101,7 @@ const UpdateReadyPill: React.FC = () => {
               borderRadius: '50%',
               opacity: hovered ? 0.8 : 0,
               transition: 'opacity 0.15s ease, background 0.15s ease',
-              '&:hover': { opacity: 1, bgcolor: 'rgba(255,255,255,0.2)' },
+              '&:hover': { opacity: 1, bgcolor: mode === 'dark' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' },
             }}
           >
             <CloseIcon sx={{ fontSize: 11 }} />
