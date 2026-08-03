@@ -69,8 +69,17 @@ jobs:
       - name: Install it the way a user does
         run: |
           $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
-          # NSIS silent install. /S is the switch electron-builder's installer honours.
-          $p = Start-Process -FilePath $exe -ArgumentList "/S" -PassThru -Wait
+          # This is a Squirrel installer, not NSIS. `/S` means nothing to Squirrel, so it opens a
+          # UI and waits for a click that never comes on a runner; the switch it honours is
+          # `--silent`. The bounded wait is here because that failure looks like a hang, and a
+          # 25-minute timeout tells you nothing about why.
+          $p = Start-Process -FilePath $exe -ArgumentList "--silent" -PassThru
+          if (-not $p.WaitForExit(600000)) {
+            $log = "$env:LOCALAPPDATA\SquirrelTemp\SquirrelSetup.log"
+            if (Test-Path $log) { "--- SquirrelSetup.log ---"; Get-Content $log -Tail 60 }
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            throw "FAIL: installer still running after 10 minutes"
+          }
           "installer exit: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { throw "FAIL: installer exited $($p.ExitCode)" }
           "PASS  installed"
@@ -78,9 +87,17 @@ jobs:
       - name: The app landed where it should
         id: locate
         run: |
-          $roots = @("$env:LOCALAPPDATA\Programs\OpenSwarm", "$env:ProgramFiles\OpenSwarm")
-          $app = $roots | ForEach-Object { Join-Path $_ "OpenSwarm.exe" } | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $app) { throw "FAIL: OpenSwarm.exe not found after install" }
+          # Squirrel installs per-user into %LOCALAPPDATA%\OpenSwarm as a stub launcher beside a
+          # versioned app-<ver> folder. The stub is what a shortcut points at; the versioned exe is
+          # the one that holds resources\ and is the only one worth inspecting or launching.
+          $root = "$env:LOCALAPPDATA\OpenSwarm"
+          if (-not (Test-Path $root)) { throw "FAIL: $root does not exist after install" }
+          Get-ChildItem $root | Select-Object -ExpandProperty Name
+          $app = Get-ChildItem -Path $root -Filter "app-*" -Directory |
+                 Sort-Object Name -Descending |
+                 ForEach-Object { Join-Path $_.FullName "OpenSwarm.exe" } |
+                 Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $app) { throw "FAIL: no app-*\OpenSwarm.exe under $root" }
           "app: $app"
           "PASS  binary present"
           "app=$app" >> $env:GITHUB_OUTPUT
@@ -118,6 +135,8 @@ jobs:
             } catch {
               if ($_.Exception.Response.StatusCode.value__ -eq 401) { $ok = $true; break }
             }
+            # Launched the versioned exe, not the stub, precisely so an exit here means the app
+            # died rather than a launcher handing off and returning.
             if ($proc.HasExited) { throw "FAIL: app exited early with $($proc.ExitCode)" }
           }
           Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
