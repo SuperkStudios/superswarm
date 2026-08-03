@@ -23,9 +23,12 @@ bad()  { FAIL=$((FAIL+1)); printf "  FAIL  %s%s\n" "$1" "${2:+ ($2)}"; }
 step() { printf "\n=== %s ===\n" "$1"; }
 
 cleanup() {
+  # Order matters and so does patience: the app holds the volume open, and rm-ing a still-mounted
+  # DMG spews hundreds of "Read-only file system" lines that bury the actual results.
   [ -n "${APP:-}" ] && pkill -f "$MNT/OpenSwarm.app" 2>/dev/null
-  hdiutil detach "$MNT" -quiet 2>/dev/null
-  rm -rf "$MNT"
+  sleep 2
+  hdiutil detach "$MNT" -force -quiet 2>/dev/null || hdiutil detach "$MNT" -quiet 2>/dev/null
+  mount | grep -q "$MNT" || rmdir "$MNT" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -41,8 +44,11 @@ APP="$MNT/OpenSwarm.app"
 
 step "2. Signing, notarization and DRM"
 codesign --verify --deep --strict "$APP" 2>/dev/null && ok "codesign valid" || bad "codesign INVALID"
-codesign -dv --requirements - "$APP" 2>&1 | grep -q "Developer ID Application" \
-  && ok "signed with a Developer ID" || bad "not a Developer ID signature"
+# -dvv prints the Authority chain; --requirements prints the requirement string, which does NOT
+# contain the authority name and made this read as unsigned on a correctly signed build.
+AUTH=$(codesign -dvv "$APP" 2>&1 | grep -m1 "^Authority=")
+grep -q "Developer ID Application" <<<"$AUTH" \
+  && ok "signed with a Developer ID" "${AUTH#Authority=}" || bad "not a Developer ID signature" "$AUTH"
 SPCTL=$(spctl -a -vvv -t install "$APP" 2>&1 | tr '\n' ' ')
 grep -q "Notarized Developer ID" <<<"$SPCTL" && ok "notarized" || bad "NOT notarized" "$SPCTL"
 xcrun stapler validate "$APP" >/dev/null 2>&1 && ok "notarization stapled" || bad "staple missing"
