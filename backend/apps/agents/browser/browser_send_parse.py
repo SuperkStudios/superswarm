@@ -60,6 +60,16 @@ P_LOGIN_WALL_STATE_RE = re.compile(
 P_OPENER_ROW_RE = re.compile(
     r"\[(\d+)\]\*?<\s*(?:link|button)\s+\"(Message|Reply|Compose|New message|"
     r"Direct message|DM|Send message|Write|New chat|Comment|Post)\"", re.I)
+# Any control whose row we might read, so a name can be tested as a whole rather than anchored.
+P_CONTROL_ROW_RE = re.compile(r"\[(\d+)\]\*?<\s*(?:link|button)\s+\"([^\"]*)\"", re.I)
+# Openers whose label is a SENTENCE, not a word. tiktok's is `Read or add comments 526 comments`,
+# and the exact-name rule above missed it, so a video page with its comment button in plain sight
+# scored 0/4 while the aux model clicked at it for 27s. Matched as VERB + NOUN on purpose: that is
+# what keeps the exactness the old rule was buying. A bare count ("526 comments") has no verb and a
+# paid upsell ("Send InMail") has the wrong noun, so neither can reach a click through here.
+P_OPENER_PHRASE_RE = re.compile(
+    r"\b(?:add|write|leave|post|start|send|new|create)\s+(?:a\s+|an\s+|your\s+)?"
+    r"(?:comment|reply|message|post|note|chat|thread|topic|paste)s?\b", re.I)
 
 # A verification probe quotes the very payload it's checking for, which is exactly the trap this gate exists for: quoted payload + composer = fire. Caught live (r243): the read-only send-probe delivered a REAL message. Read-only directives decline in code, fail-safe (a false match just means the model path).
 P_READONLY_RE = re.compile(
@@ -200,9 +210,17 @@ def quoted_payload(task: str) -> str:
 
 
 def opener_index_in_state(state_text: str):
-    """(index, name) of the single exact-named composer OPENER, or None. Exact
-    names only, so an upsell like 'Send InMail' can never match."""
+    """(index, name) of the single composer OPENER, or None.
+
+    An exact name, or a verb+noun compose phrase anywhere in a longer label. The second half is
+    what reaches the openers whose label is a whole sentence, and it keeps the exactness the first
+    half was buying: an upsell ('Send InMail') has the wrong noun and a count ('526 comments') has
+    no verb. Still a SINGLETON, so two candidates stay the model's problem, not a coin flip."""
     hits = [(int(m.group(1)), m.group(2)) for m in P_OPENER_ROW_RE.finditer(state_text or "")]
+    if not hits:
+        hits = [(int(m.group(1)), m.group(2))
+                for m in P_CONTROL_ROW_RE.finditer(state_text or "")
+                if P_OPENER_PHRASE_RE.search(m.group(2) or "")]
     return hits[0] if len(hits) == 1 else None
 
 
