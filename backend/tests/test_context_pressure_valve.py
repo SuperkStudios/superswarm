@@ -102,6 +102,54 @@ def test_no_valve_without_compaction_churn(monkeypatch) -> None:
     assert [m for m in session.messages if m.role == "system" and str(m.content).startswith("Error:")]
 
 
+def test_overflow_valve_retries_with_forced_compaction(monkeypatch) -> None:
+    from backend.apps.agents.core.models import Message
+    from backend.apps.agents.manager.streaming.handle_result_message import TurnResultError
+    session = p_seed_session()
+    # Enough history that the forced compact mark has something to cut (keeps last 6).
+    for i in range(10):
+        session.messages.append(Message(role="user" if i % 2 == 0 else "assistant", content=f"m{i}", branch_id=session.active_branch_id))
+    calls: list = []
+
+    async def fake_run_turn(sess, session_id, prompt_content, options, options_kwargs,
+                            turn, thinking, stderr, resolved_model, api_type,
+                            global_settings, force_respawn=False):
+        calls.append({"needs_fresh": sess.needs_fresh_session})
+        # Zero compact boundaries on purpose: an overflow can hit before autocompact ever fired.
+        if len(calls) == 1:
+            raise TurnResultError("Prompt is too long")
+
+    p_install_run_fakes(monkeypatch, fake_run_turn)
+    asyncio.run(agent_manager.run_agent_loop(session.id, "hello"))
+
+    assert len(calls) == 2
+    assert calls[1]["needs_fresh"] is True
+    assert session.compacted_through_msg_id is not None
+    assert session.status == "completed"
+    assert not [m for m in session.messages if m.role == "system" and str(m.content).startswith("Error:")]
+
+
+def test_overflow_on_retry_surfaces_the_card_not_a_fake_completed(monkeypatch) -> None:
+    session = p_seed_session()
+    calls: list = []
+
+    async def fake_run_turn(sess, session_id, prompt_content, options, options_kwargs,
+                            turn, thinking, stderr, resolved_model, api_type,
+                            global_settings, force_respawn=False):
+        calls.append(1)
+        # Fake mid-task streaming: the old handle_run_error early-return keyed on exactly this and marked the dead run "completed".
+        turn.stream_text_msg_id = "msg-1"
+        turn.current_turn_emitted = True
+        raise Exception("Error code: 429 - extra usage is required for long context")
+
+    p_install_run_fakes(monkeypatch, fake_run_turn)
+    asyncio.run(agent_manager.run_agent_loop(session.id, "hello"))
+
+    assert len(calls) == 2
+    assert session.status == "error"
+    assert [m for m in session.messages if m.role == "system" and "context window" in str(m.content)]
+
+
 def test_valve_never_loops(monkeypatch) -> None:
     session = p_seed_session()
     calls: list = []

@@ -181,14 +181,17 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
             turn.stream_text_msg_id = None
             turn.stream_text_accum = ""
         except Exception as e:
-            from backend.apps.agents.core.error_classify import is_context_pressure_death
+            from backend.apps.agents.core.error_classify import is_context_overflow_error, is_context_pressure_death
             p_stderr_tail = "\n".join(p_stderr_buffer[-50:])
-            if not context_valve_retry and is_context_pressure_death(e, turn.compact_boundaries, extra_text=p_stderr_tail):
-                # Pressure-release valve: the CLI compacted this turn and still died (its "autocompact is thrashing" giving-up class). Its resume transcript is beyond saving, but ours isn't: rebuild from the local mirror via the proven fresh-session recap path and transparently re-run the turn ONCE.
+            p_overflow = is_context_overflow_error(e, extra_text=p_stderr_tail)
+            if not context_valve_retry and (p_overflow or is_context_pressure_death(e, turn.compact_boundaries, extra_text=p_stderr_tail)):
+                # Pressure-release valve, two entry shapes: the CLI compacted this turn and still died (autocompact thrash), or the provider rejected the query outright as over the context window. Either way the CLI's resume transcript is beyond saving, but ours isn't: rebuild from the local mirror via the proven fresh-session recap path and transparently re-run the turn ONCE.
                 logger.warning(
-                    f"Agent {session_id}: context-pressure death after "
+                    f"Agent {session_id}: {'context overflow' if p_overflow else 'context-pressure death'} after "
                     f"{turn.compact_boundaries} compact boundaries; one fresh-session recap retry"
                 )
+                # The recap rebuild trims at compacted_through_msg_id; an overflow can hit before the proactive threshold ever fired, so force a cutoff or the rebuilt prompt is full history again.
+                self.maybe_compact(session, force=True)
                 session.needs_fresh_session = True
                 if turn.stream_text_msg_id:
                     await ws_manager.send_to_session(session_id, "agent:stream_end", {
@@ -210,9 +213,10 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
                     logger.debug("context_recovered broadcast failed", exc_info=True)
                 try:
                     from backend.apps.service.client import submit_diagnostic
-                    from backend.apps.agents.core.error_classify import redact_for_telemetry
+                    from backend.apps.agents.core.redact_for_telemetry import redact_for_telemetry
                     submit_diagnostic({
                         "kind": "context_pressure_valve",
+                        "trigger": "overflow" if p_overflow else "pressure_death",
                         "session_id": session_id,
                         "model": session.model,
                         "compact_boundaries": turn.compact_boundaries,
