@@ -24,8 +24,11 @@ on:
     branches:
       - win-smoke
 
+# write, not read: a DRAFT release is invisible to a read-scoped token, so the asset lookup finds
+# nothing and the smoke reports "no release tagged ..." for a release that is plainly there.
+# Nothing here writes; the scope is only what makes drafts listable.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   smoke:
