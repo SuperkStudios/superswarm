@@ -124,8 +124,18 @@ confident wrong answer, which is worse than no answer.
 ## Parity with a local run, and the one gap we accept
 
 A cloud run boots the same Electron shell, the same backend and the same browser code path as a
-laptop does, so browser steps behave the same in both places. One row of the parity matrix does not
-pass and is not going to, so it is refused at create time rather than failed at 3am:
+laptop does, so browser steps behave the same in both places.
+
+**How well, exactly, is not yet measured on Linux.** The 19-row matrix scores **19/19 on macOS** and
+the result file is kept. Nobody has scored the Linux-under-Xvfb side row by row; a code comment in
+`openswarm-cloud/src/workflows/runnerCapabilities.ts` used to claim 18/19 with no artifact behind it.
+Run `parity/stage.py` on a real runner machine before quoting any cloud number. It needs a native
+amd64 host: under qemu on an arm64 Mac, Electron never registers and the harness exits 7 without
+scoring anything.
+
+One row is expected to fail there and is not going to be fixed: `obstacle.bot_wall`, because the run
+comes from a datacenter IP. Separately, one whole capability is refused at create time rather than
+failed at 3am:
 
 **A workflow that needs an account you are already signed into.** Every run gets a fresh browser
 profile in a throwaway container. There is no keychain, no cookie jar, and nobody there to type a
