@@ -111,4 +111,5 @@ jobs:
           "PASS  app launched and its backend answered"
 
       - name: Verdict
-        run: '"Windows packaged smoke passed for ${{ inputs.tag || 'v1.7.0' }}"'
+        run: |
+          "Windows packaged smoke passed for ${{ inputs.tag || 'v1.7.0' }}"
