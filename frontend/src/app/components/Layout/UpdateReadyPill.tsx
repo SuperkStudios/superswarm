@@ -5,7 +5,7 @@ import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CloseIcon from '@mui/icons-material/Close';
-import OnboardingLogo from '@/app/components/OnboardingV3/OnboardingLogo';
+import { Sprout } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -77,8 +77,8 @@ const UpdateReadyPill: React.FC = () => {
           transform: hovered && !installing ? 'translateY(-1px)' : 'none',
         }}
       >
-        {/* The octopus is our leaf: the brand mark wears its own coral, everything else follows the theme. */}
-        <OnboardingLogo size={26} style={{ flexShrink: 0 }} />
+        {/* Sprout = fresh growth, our answer to Claude's leaf: a thin-stroke monochrome glyph, never a raster logo in a quiet card. */}
+        <Sprout size={22} strokeWidth={1.8} color={c.text.secondary} style={{ flexShrink: 0 }} />
         <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, lineHeight: 1.25, color: c.text.primary, whiteSpace: 'nowrap' }}>
             {installing ? 'Relaunching…' : 'Relaunch to update'}
