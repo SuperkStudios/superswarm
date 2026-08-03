@@ -14,7 +14,9 @@ interface UseCardDragArgs {
 }
 
 const EDGE_ZONE = 60;
-const EDGE_MAX_SPEED = 8;
+// Px per SECOND, not per frame: per-frame speed doubled on 120Hz displays, which is how edge-pan drags flew way past where users wanted.
+const EDGE_MAX_SPEED_PX_S = 360;
+const EDGE_MAX_FRAME_MS = 40;
 
 // Clamped: an infinite canvas lets the cursor sit arbitrarily far outside the viewport, where an unclamped ramp would scale pan speed with distance instead of saturating.
 function axisIntensity(pos: number, lo: number, hi: number): number {
@@ -38,12 +40,14 @@ export function useCardDrag({
   // ---- Edge panning during card drag ----
   const edgePanFrameRef = useRef<number | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const lastEdgeTickMsRef = useRef<number | null>(null);
 
   const stopEdgePan = useCallback(() => {
     if (edgePanFrameRef.current !== null) {
       cancelAnimationFrame(edgePanFrameRef.current);
       edgePanFrameRef.current = null;
     }
+    lastEdgeTickMsRef.current = null;
   }, []);
 
   const tickEdgePan = useCallback(() => {
@@ -52,10 +56,16 @@ export function useCardDrag({
     // Re-arm only while a card is still held, so a drag that ended without a pointerup can't leave the canvas panning forever.
     if (!vp || !activeDragCardRef.current) return;
 
+    const now = performance.now();
+    // Capped so a background-tab stall can't bank up into one giant jump on the next tick.
+    const frameMs = Math.min(now - (lastEdgeTickMsRef.current ?? now), EDGE_MAX_FRAME_MS);
+    lastEdgeTickMsRef.current = now;
+    const speed = EDGE_MAX_SPEED_PX_S * (frameMs / 1000);
+
     const rect = vp.getBoundingClientRect();
     const { x: mx, y: my } = lastMousePosRef.current;
-    const dx = EDGE_MAX_SPEED * axisIntensity(mx, rect.left, rect.right);
-    const dy = EDGE_MAX_SPEED * axisIntensity(my, rect.top, rect.bottom);
+    const dx = speed * axisIntensity(mx, rect.left, rect.right);
+    const dy = speed * axisIntensity(my, rect.top, rect.bottom);
 
     if (dx !== 0 || dy !== 0) {
       // Live-only write (no React commit per frame); clearDrag commits once when the drag ends.
