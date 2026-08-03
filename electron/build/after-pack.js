@@ -52,10 +52,10 @@ function signVmp(context) {
     return;
   }
 
-  // mac: sign the .app bundle; win: sign the unpacked dir holding the exe + framework.
-  const target = electronPlatformName === 'darwin'
-    ? path.join(appOutDir, `${packager.appInfo.productFilename}.app`)
-    : appOutDir;
+  // Both platforms: hand it the CONTAINING directory, never the .app itself. sign-pkg globs
+  // `<dir>/*.app`, so pointing at the bundle makes it search inside for a nested one and die with
+  // "No matching executable found" while the app sits right there.
+  const target = appOutDir;
   const py = resolveEvsPython();
 
   try {
