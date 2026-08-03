@@ -4,19 +4,19 @@ import Grow from '@mui/material/Grow';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CloseIcon from '@mui/icons-material/Close';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setInstalling } from '@/shared/state/updateSlice';
-import { useClaudeTokens, useThemeMode } from '@/shared/styles/ThemeContext';
+import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 
 const UPDATE_DISMISS_KEY = 'openswarm-update-dismissed';
 
-// Chrome/Claude-style: the download already ran silently (autoDownload in main.js), so the only
-// state worth pixels is "ready". One pill, top-right, above the frameless-window drag strip that
-// used to swallow the old banner button's clicks.
+// Claude-desktop-style quiet card, not a colored capsule: the download already ran silently
+// (autoDownload in main.js), so the only state worth pixels is "ready". Top-right, above the
+// frameless-window drag strip that used to swallow the old banner button's clicks.
 const UpdateReadyPill: React.FC = () => {
   const c = useClaudeTokens();
-  const { mode } = useThemeMode();
   const dispatch = useAppDispatch();
   const updateStatus = useAppSelector((s) => s.update.status);
   const availableVersion = useAppSelector((s) => s.update.availableVersion);
@@ -54,7 +54,6 @@ const UpdateReadyPill: React.FC = () => {
         onClick={handleInstall}
         role="button"
         aria-label={availableVersion ? `Restart to update to ${availableVersion}` : 'Restart to update'}
-        title={availableVersion ? `OpenSwarm ${availableVersion} downloaded` : 'Update downloaded'}
         sx={{
           position: 'fixed',
           top: 34,
@@ -64,44 +63,79 @@ const UpdateReadyPill: React.FC = () => {
           WebkitAppRegion: 'no-drag',
           display: 'flex',
           alignItems: 'center',
-          gap: 0.75,
-          height: 30,
+          gap: 1.25,
           pl: 1.25,
-          pr: 1,
-          borderRadius: 999,
-          // Success green, NOT the accent: every other pill on the shell is accent-colored, and an update call-to-action that matches New-dashboard reads as furniture (Chrome's update pill is green for the same reason). Dark mode's lighter green needs dark text.
-          bgcolor: c.status.success,
-          color: mode === 'dark' ? 'rgba(0,0,0,0.85)' : '#fff',
-          boxShadow: `0 0 0 3px ${c.status.success}40, 0 8px 24px rgba(0,0,0,0.35)`,
+          pr: 1.5,
+          py: 1,
+          borderRadius: '12px',
+          bgcolor: c.bg.surface,
+          border: `1px solid ${hovered ? c.border.strong : c.border.medium}`,
+          boxShadow: hovered ? c.shadow.lg : c.shadow.md,
           cursor: installing ? 'default' : 'pointer',
           userSelect: 'none',
-          transition: 'filter 0.2s ease, transform 0.15s ease',
-          '&:hover': { filter: installing ? 'none' : 'brightness(1.12)' },
-          '&:active': { transform: installing ? 'none' : 'scale(0.97)' },
+          transition: 'box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease',
+          transform: hovered && !installing ? 'translateY(-1px)' : 'none',
         }}
       >
+        <Box
+          sx={{
+            width: 30,
+            height: 30,
+            borderRadius: '9px',
+            bgcolor: `${c.accent.primary}1A`,
+            color: c.accent.primary,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <RestartAltIcon sx={{ fontSize: 18 }} />
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, lineHeight: 1.25, color: c.text.primary, whiteSpace: 'nowrap' }}>
+            {installing ? 'Restarting…' : 'Restart to update'}
+          </Typography>
+          <Typography sx={{ fontSize: '0.6875rem', lineHeight: 1.3, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
+            {availableVersion ? `v${availableVersion} ready` : 'New version ready'}
+          </Typography>
+        </Box>
         {installing
-          ? <CircularProgress size={13} sx={{ color: 'inherit', flexShrink: 0 }} />
-          : <RestartAltIcon sx={{ fontSize: 15, flexShrink: 0 }} />}
-        <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, lineHeight: 1, whiteSpace: 'nowrap' }}>
-          {installing ? 'Restarting…' : 'Restart to update'}
-        </Typography>
+          ? <CircularProgress size={14} sx={{ color: c.text.tertiary, ml: 0.5, flexShrink: 0 }} />
+          : (
+            <ArrowForwardIcon
+              sx={{
+                fontSize: 16,
+                color: c.text.tertiary,
+                ml: 0.5,
+                flexShrink: 0,
+                transition: 'transform 0.18s ease, color 0.18s ease',
+                transform: hovered ? 'translateX(2px)' : 'none',
+              }}
+            />
+          )}
         {!installing && (
           <Box
             role="button"
             aria-label="Dismiss update reminder"
             onClick={handleDismiss}
             sx={{
+              position: 'absolute',
+              top: -7,
+              right: -7,
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              bgcolor: c.bg.elevated,
+              border: `1px solid ${c.border.medium}`,
+              color: c.text.tertiary,
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: 16,
-              height: 16,
-              ml: 0.25,
-              borderRadius: '50%',
-              opacity: hovered ? 0.8 : 0,
-              transition: 'opacity 0.15s ease, background 0.15s ease',
-              '&:hover': { opacity: 1, bgcolor: mode === 'dark' ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' },
+              opacity: hovered ? 1 : 0,
+              pointerEvents: hovered ? 'auto' : 'none',
+              transition: 'opacity 0.15s ease',
+              '&:hover': { color: c.text.primary, borderColor: c.border.strong },
             }}
           >
             <CloseIcon sx={{ fontSize: 11 }} />
