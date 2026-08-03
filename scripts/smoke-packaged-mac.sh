@@ -25,12 +25,25 @@ step() { printf "\n=== %s ===\n" "$1"; }
 cleanup() {
   # Order matters and so does patience: the app holds the volume open, and rm-ing a still-mounted
   # DMG spews hundreds of "Read-only file system" lines that bury the actual results.
+  pkill -f "/tmp/osw-smoke-run-$$/OpenSwarm.app" 2>/dev/null
   [ -n "${APP:-}" ] && pkill -f "$MNT/OpenSwarm.app" 2>/dev/null
   sleep 2
   hdiutil detach "$MNT" -force -quiet 2>/dev/null || hdiutil detach "$MNT" -quiet 2>/dev/null
   mount | grep -q "$MNT" || rmdir "$MNT" 2>/dev/null
+  rm -rf "/tmp/osw-smoke-run-$$"
 }
 trap cleanup EXIT
+
+step "0. Nothing else is already pretending to be OpenSwarm"
+# An OpenSwarm that is already up owns the single-instance lock, so the copy under test quits the
+# instant it launches and step 5 reports "the backend never answered". It answered fine; you were
+# just talking to nobody. Refuse to run rather than hand back a scary lie.
+STRAY=$(pgrep -f "OpenSwarm.app/Contents/MacOS/OpenSwarm" | tr '\n' ' ')
+if [ -n "${STRAY// /}" ]; then
+  bad "another OpenSwarm is running" "pids: $STRAY -- kill it, then re-run"
+  exit 1
+fi
+ok "no other OpenSwarm running"
 
 step "1. Mount the DMG the way a download arrives"
 mkdir -p "$MNT"
@@ -85,7 +98,15 @@ grep -rq -- "--convert" "$RES/backend/apps" 2>/dev/null \
   || ok "no whisper --convert (the prod dictation killer)"
 
 step "5. Launch it with a Finder-like PATH and see the backend come up"
-PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$APP/Contents/MacOS/OpenSwarm" >/tmp/osw-smoke.log 2>&1 &
+# Copy it off the DMG first, because that is what a user does and because running from the
+# read-only volume makes the auto-updater throw and take the whole app down about a second in,
+# which reads as "the backend never started" and is nothing of the sort.
+RUNDIR="/tmp/osw-smoke-run-$$"
+rm -rf "$RUNDIR"; mkdir -p "$RUNDIR"
+cp -R "$APP" "$RUNDIR/" && ok "copied to a writable volume" || bad "could not copy the app off the DMG"
+RUNAPP="$RUNDIR/OpenSwarm.app"
+xattr -dr com.apple.quarantine "$RUNAPP" 2>/dev/null
+PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$RUNAPP/Contents/MacOS/OpenSwarm" >/tmp/osw-smoke.log 2>&1 &
 LAUNCHED=$!
 BOOTED=0
 for _ in $(seq 1 60); do
