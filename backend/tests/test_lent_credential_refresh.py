@@ -232,3 +232,113 @@ async def test_shutting_the_subsystem_down_stops_the_loop(monkeypatch):
         await asyncio.wait_for(running.wait(), timeout=2.0)
     await asyncio.sleep(0)
     assert cancelled.is_set(), "a leaked task would keep bouncing the router after shutdown"
+
+
+# Revocation, restart and network interruption. These are the states a long-lived lease actually
+# meets in the wild, and each has a distinct right answer: revocation must stop trying and say so,
+# a restart must resume without a second holder appearing, and a dropped network must back off
+# instead of bouncing the router every two minutes.
+
+@pytest.mark.asyncio
+async def test_a_revoked_credential_stops_the_pull_instead_of_hammering(p_connections, p_pull):
+    """Anthropic revokes the whole grant family on a replayed refresh token. Once that has happened
+    no amount of retrying helps, so the pull must fail cleanly rather than spin."""
+    p_connections([{"id": "revoked", "refresh": None, "expires": p_iso(-1)}])
+    calls = p_pull("cloud_rejected")
+    assert await lcr.refresh_lent_credentials() == 0
+    assert calls == ["revoked"], "one attempt per pass, not a retry storm inside one pass"
+
+
+@pytest.mark.asyncio
+async def test_a_revoked_credential_is_still_reported_every_pass(p_connections, p_pull):
+    # It stays due, so the next pass tries again. That is deliberate: the user may reconnect.
+    p_connections([{"id": "revoked", "refresh": None, "expires": p_iso(-1)}])
+    p_pull("cloud_rejected", "cloud_rejected")
+    await lcr.refresh_lent_credentials()
+    assert lcr.lent_connections_needing_a_pull() == ["revoked"], "still due, so recovery is possible"
+
+
+@pytest.mark.asyncio
+async def test_a_restart_re_reads_custody_from_disk_and_never_assumes(p_connections, p_pull):
+    """The loop keeps no state across a restart. Whether a connection is lent is re-derived from
+    db.json every pass, so a backend that restarts mid-lease cannot decide it owns something the
+    cloud is holding."""
+    install = p_connections
+    install([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+    calls = p_pull("refreshed")
+    assert await lcr.refresh_lent_credentials() == 1
+
+    # The release lands while we are down: the token is back on disk. Nothing cached may override it.
+    install([{"id": "c", "refresh": "restored-rt", "expires": p_iso(-1)}])
+    assert lcr.lent_connections_needing_a_pull() == [], "device owns it again, so hands off"
+    assert await lcr.refresh_lent_credentials() == 0
+    assert calls == ["c"], "no second pull after custody came home"
+
+
+@pytest.mark.asyncio
+async def test_a_dropped_network_backs_off_instead_of_bouncing_the_router(p_connections, monkeypatch):
+    """Every pull rewrites db.json, which stops and restarts 9Router. On a dead network the loop
+    must widen its interval, or an offline laptop restarts the router every two minutes forever."""
+    p_connections([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+
+    async def offline(connection_id: str) -> LeaseOutcome:
+        return LeaseOutcome(status="cloud_rejected", detail="ConnectError")
+
+    monkeypatch.setattr(lcr.credential_lease, "pull_access_token", offline)
+
+    import asyncio
+    delays: list[float] = []
+
+    async def capture(d):
+        delays.append(d)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", capture)
+    with pytest.raises(asyncio.CancelledError):
+        await lcr.lent_credential_loop()
+
+    assert delays == [lcr.FAILURE_BACKOFF_S], f"expected the long backoff, got {delays}"
+    assert lcr.FAILURE_BACKOFF_S > lcr.CHECK_INTERVAL_S * 4, "backoff has to be meaningfully longer"
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_pass_keeps_the_normal_cadence(p_connections, p_pull, monkeypatch):
+    p_connections([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+    p_pull("refreshed")
+
+    import asyncio
+    delays: list[float] = []
+
+    async def capture(d):
+        delays.append(d)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", capture)
+    with pytest.raises(asyncio.CancelledError):
+        await lcr.lent_credential_loop()
+
+    assert delays == [lcr.CHECK_INTERVAL_S], "a success must not punish the next check"
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_exception_never_kills_the_loop(p_connections, monkeypatch):
+    """A loop that dies on one bad pass leaves the device unable to renew, silently, forever."""
+    p_connections([{"id": "c", "refresh": None, "expires": p_iso(-1)}])
+
+    async def boom(connection_id: str) -> LeaseOutcome:
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(lcr.credential_lease, "pull_access_token", boom)
+
+    import asyncio
+    delays: list[float] = []
+
+    async def capture(d):
+        delays.append(d)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", capture)
+    with pytest.raises(asyncio.CancelledError):
+        await lcr.lent_credential_loop()
+
+    assert delays == [lcr.FAILURE_BACKOFF_S], "it survived and backed off"
