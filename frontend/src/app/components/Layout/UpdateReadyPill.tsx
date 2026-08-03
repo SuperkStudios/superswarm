@@ -3,9 +3,9 @@ import Box from '@mui/material/Box';
 import Grow from '@mui/material/Grow';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import CloseIcon from '@mui/icons-material/Close';
+import OnboardingLogo from '@/app/components/OnboardingV3/OnboardingLogo';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { setInstalling } from '@/shared/state/updateSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -77,28 +77,17 @@ const UpdateReadyPill: React.FC = () => {
           transform: hovered && !installing ? 'translateY(-1px)' : 'none',
         }}
       >
-        <Box
-          sx={{
-            width: 30,
-            height: 30,
-            borderRadius: '9px',
-            bgcolor: `${c.accent.primary}1A`,
-            color: c.accent.primary,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <RestartAltIcon sx={{ fontSize: 18 }} />
-        </Box>
+        {/* The octopus is our leaf: the brand mark wears its own coral, everything else follows the theme. */}
+        <OnboardingLogo size={26} style={{ flexShrink: 0 }} />
         <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Typography sx={{ fontSize: '0.8125rem', fontWeight: 600, lineHeight: 1.25, color: c.text.primary, whiteSpace: 'nowrap' }}>
-            {installing ? 'Restarting…' : 'Restart to update'}
+            {installing ? 'Relaunching…' : 'Relaunch to update'}
           </Typography>
-          <Typography sx={{ fontSize: '0.6875rem', lineHeight: 1.3, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
-            {availableVersion ? `v${availableVersion} ready` : 'New version ready'}
-          </Typography>
+          {availableVersion && (
+            <Typography sx={{ fontSize: '0.6875rem', lineHeight: 1.3, color: c.text.tertiary, whiteSpace: 'nowrap' }}>
+              v{availableVersion}
+            </Typography>
+          )}
         </Box>
         {installing
           ? <CircularProgress size={14} sx={{ color: c.text.tertiary, ml: 0.5, flexShrink: 0 }} />
