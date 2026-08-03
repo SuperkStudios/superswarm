@@ -191,5 +191,48 @@ and comparing; see the parity matrix in the cloud-browser work notes.
 
 ## Deploy
 
-Not deployed. `fly.toml` is written but never applied; read its header first, the app
-has to be created onto its own isolated private network by hand before any deploy.
+The app exists and is created onto its own isolated private network. Read `fly.toml`'s
+header before touching it; the network is fixed at create time and cannot be changed
+by a redeploy.
+
+```bash
+# from the REPO ROOT, the image needs backend/ in its build context
+fly deploy . --app openswarm-runner --config openswarm-runner/fly.toml \
+  --dockerfile openswarm-runner/Dockerfile --image-label latest --ha=false
+```
+
+`--image-label latest` is load-bearing: the control plane creates machines from the
+fixed tag `registry.fly.io/openswarm-runner:latest`, so a redeploy without it ships an
+image nothing will ever boot. Re-verify the isolation after any deploy, do not assume
+it survived:
+
+```bash
+fly machine run registry.fly.io/openswarm-runner:latest -a openswarm-runner \
+  --entrypoint /bin/sleep --restart no --vm-memory 512 --vm-cpus 1 600
+fly ssh console -a openswarm-runner --machine <id> -C "getent hosts openswarm-cloud.internal"
+# must print nothing and exit 2. Then destroy the probe machine.
+```
+
+The deploy leaves one stopped template machine with no run spec. That is expected; it
+exits 2 immediately and `[[restart]] policy = 'never'` stops it looping.
+
+## How a run gets here
+
+`openswarm-cloud` creates one machine per due workflow through the Fly Machines API
+(`workflows/dispatch.ts`). It never uses `fly deploy` for a run, so this app's env is
+whatever the IMAGE carries plus `OPENSWARM_RUN_SPEC_FILE`; `fly.toml`'s settings do not
+reach a per-run machine. Control-plane side that means:
+
+| env on openswarm-cloud | why |
+| --- | --- |
+| `FLY_API_TOKEN` | app-scoped deploy token for `openswarm-runner`, nothing wider |
+| `RUN_CALLBACK_BASE_URL` | where the runner reports; **no default**, so a staging control plane can never point its machines at prod |
+| `RUNNER_APP` / `RUNNER_IMAGE` / `RUNNER_REGION` | optional overrides of `openswarm-runner` / the `:latest` tag / `iad` |
+| `CLOUD_RUNS_GLOBAL_CAP` | machines this whole service will run at once, all accounts together (default 50) |
+| `CLOUD_RUNS_TICK_BUDGET` | machines one 60s tick will start (default 20); the rest keep their slot for the next tick |
+
+A run gets three walls on its wall clock, and only the third survives a wedged VM:
+the runner stops its own poll loop at `max_run_seconds`, an independent thread inside
+it kills the process 90s later, and the control plane destroys the machine outright
+5 minutes past that. Verified live: a machine with a sleeping entrypoint that never
+reported was destroyed by the control plane and its run row closed as failed.
