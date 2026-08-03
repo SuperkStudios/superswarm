@@ -121,6 +121,27 @@ If Electron starts but no window ever registers, the run **fails** (exit 7) rath
 proceeding without a browser. A browser workflow that silently ran blind produces a
 confident wrong answer, which is worse than no answer.
 
+## Parity with a local run, and the one gap we accept
+
+A cloud run boots the same Electron shell, the same backend and the same browser code path as a
+laptop does, so browser steps behave the same in both places. One row of the parity matrix does not
+pass and is not going to, so it is refused at create time rather than failed at 3am:
+
+**A workflow that needs an account you are already signed into.** Every run gets a fresh browser
+profile in a throwaway container. There is no keychain, no cookie jar, and nobody there to type a
+password or clear a 2FA prompt. Copying a logged-in session up would mean shipping the user's live
+cookies to a machine we destroy minutes later, which is a worse trade than refusing.
+
+This is declared, not implied: `signed_in_browser` is deliberately absent from
+`RUNNER_CAPABILITIES` in `openswarm-cloud/src/workflows/runnerCapabilities.ts`, and
+`checkRunnerCapabilities` turns it into a refusal that names the workaround ("run it on your own
+machine"). `tests/runner-capabilities.test.ts` asserts the flag stays off, so nobody can quietly
+flip it without reading this.
+
+Everything else in that matrix is a capability flag that can flip when the container learns the
+trick. `browser` already did: it was refused until Electron under Xvfb landed, and flipping the one
+flag unblocked every browser workflow with no other edit.
+
 ## The credential rule
 
 **A `providerConnections[]` entry this runner writes never contains a `refreshToken`.**
