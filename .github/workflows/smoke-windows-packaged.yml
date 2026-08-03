@@ -12,12 +12,17 @@ name: Windows packaged smoke
 #
 #   gh workflow run smoke-windows-packaged.yml -f tag=v1.7.0
 
+# A push trigger needs no default-branch registration, unlike workflow_dispatch, which 404s until
+# the file is on main. Pushing the throwaway `win-smoke` branch is how you run this before then.
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag to smoke (e.g. v1.7.0)
         required: true
+  push:
+    branches:
+      - win-smoke
 
 permissions:
   contents: read
@@ -33,9 +38,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${{ inputs.tag }}" --pattern "OpenSwarm-Setup-x64.exe" --dir "$env:RUNNER_TEMP" --clobber
+          gh release download "${{ inputs.tag || 'v1.7.0' }}" --pattern "OpenSwarm-Setup-x64.exe" --dir "$env:RUNNER_TEMP" --clobber
           $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
-          if (-not (Test-Path $exe)) { throw "installer not found in ${{ inputs.tag }}" }
+          if (-not (Test-Path $exe)) { throw "installer not found in ${{ inputs.tag || 'v1.7.0' }}" }
           "installer: $((Get-Item $exe).Length) bytes"
 
       - name: It is signed, and Windows agrees
@@ -106,4 +111,4 @@ jobs:
           "PASS  app launched and its backend answered"
 
       - name: Verdict
-        run: '"Windows packaged smoke passed for ${{ inputs.tag }}"'
+        run: '"Windows packaged smoke passed for ${{ inputs.tag || 'v1.7.0' }}"'
