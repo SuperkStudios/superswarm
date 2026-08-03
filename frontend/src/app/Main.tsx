@@ -23,7 +23,7 @@ import {
 } from '@/shared/state/updateSlice';
 import AppShell from './components/Layout/AppShell';
 import ImportEntryPoint from './components/share/ImportEntryPoint';
-import DashboardSelection from './pages/DashboardSelection/DashboardSelection';
+import DashboardAutoEnter from './pages/DashboardAutoEnter/DashboardAutoEnter';
 import ErrorBoundary from './components/feedback/ErrorBoundary';
 import { setPanelMode, disableOnboardingAfterCrash } from '@/shared/state/onboardingProgressSlice';
 
@@ -530,7 +530,7 @@ const ThemedApp: React.FC = () => {
                   <Suspense fallback={null}>
                     <Routes>
                       <Route element={<AppShell />}>
-                        <Route path="/" element={<DashboardSelection />} />
+                        <Route path="/" element={<DashboardAutoEnter />} />
                         {/* Dashboard renders persistently in AppShell so webviews survive nav. */}
                         <Route path="/dashboard/:id" element={null} />
                         <Route path="/analytics" element={<Analytics />} />
