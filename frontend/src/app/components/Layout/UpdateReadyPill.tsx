@@ -57,7 +57,8 @@ const UpdateReadyPill: React.FC = () => {
         sx={{
           position: 'fixed',
           top: 34,
-          right: 16,
+          // Clears the canvas Help pill, which owns the right:16 corner (banners above shift it vertically, so horizontal separation is the stable axis).
+          right: 84,
           zIndex: 1400,
           WebkitAppRegion: 'no-drag',
           display: 'flex',
