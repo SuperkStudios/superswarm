@@ -38,10 +38,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${{ inputs.tag || 'v1.7.0' }}" --pattern "OpenSwarm-Setup-x64.exe" --dir "$env:RUNNER_TEMP" --clobber
+          # A DRAFT release has no tag reference, so `gh release download <tag>` answers
+          # "release not found" even though the assets are right there. Resolve it out of the full
+          # list and pull the asset by id, which works for drafts and published releases alike.
+          $tag = "${{ inputs.tag || 'v1.7.0' }}"
+          $rel = gh api "repos/$env:GITHUB_REPOSITORY/releases?per_page=50" | ConvertFrom-Json |
+                 Where-Object { $_.tag_name -eq $tag } | Select-Object -First 1
+          if (-not $rel) { throw "no release (draft or published) tagged $tag" }
+          "release: $($rel.tag_name) draft=$($rel.draft)"
+          $asset = $rel.assets | Where-Object { $_.name -eq 'OpenSwarm-Setup-x64.exe' } | Select-Object -First 1
+          if (-not $asset) { throw "OpenSwarm-Setup-x64.exe is not attached to $tag" }
           $exe = Join-Path $env:RUNNER_TEMP "OpenSwarm-Setup-x64.exe"
-          if (-not (Test-Path $exe)) { throw "installer not found in ${{ inputs.tag || 'v1.7.0' }}" }
-          "installer: $((Get-Item $exe).Length) bytes"
+          gh api -H "Accept: application/octet-stream" "repos/$env:GITHUB_REPOSITORY/releases/assets/$($asset.id)" > $exe
+          $size = (Get-Item $exe).Length
+          "installer: $size bytes (release says $($asset.size))"
+          if ($size -ne $asset.size) { throw "FAIL: download is truncated" }
 
       - name: It is signed, and Windows agrees
         run: |
