@@ -486,7 +486,9 @@ const AgentCard: React.FC<Props> = ({
     const panDy = (cs.panY - ds.startPanY) / z;
     const dx = rawDx / z - panDx;
     const dy = rawDy / z - panDy;
-    setLocalDragPos({ x: ds.origX + dx, y: ds.origY + dy });
+    // Imperative compositor move, ZERO React work per frame: a setState here re-rendered the whole card (an expanded chat re-runs its full transcript) on every pointermove and every edge-pan tick, which is the drag lag. The motion.div stays parked at its start position; this transform carries the delta; React commits once, at drag end.
+    const el = cardBoxRef.current as HTMLElement | null;
+    if (el) el.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
     onDragMove?.(dx, dy, clientX, clientY);
   }, [onDragMove, getCanvasState]);
 
@@ -537,6 +539,9 @@ const AgentCard: React.FC<Props> = ({
       justDraggedRef.current = true;
       requestAnimationFrame(() => { justDraggedRef.current = false; });
     }
+    // Drop the imperative drag transform in the SAME frame the committed position lands, or the card paints double-offset for a beat.
+    const el = cardBoxRef.current as HTMLElement | null;
+    if (el) el.style.transform = '';
     onDragEnd?.(dx, dy, didDrag.current);
     dragState.current = null;
     didDrag.current = false;
@@ -727,7 +732,8 @@ const AgentCard: React.FC<Props> = ({
   // f7's collapsed state: a session's browser (spawned by it or docked into it) shows under the pill.
   const browserShot = useBrowserPillShot(session.id, pillMode && !pillArtifact);
 
-  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
+  // justDraggedRef: the motion.div parks at the START position for the whole imperative drag, so the end-of-drag commit must snap (not spring) to the final spot or the card visibly re-glides from where the drag began.
+  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta) || justDraggedRef.current;
 
   const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
   const mdDy = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;

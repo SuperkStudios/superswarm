@@ -122,4 +122,4 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   );
 }
 
-export default MinimizedStack;
+export default React.memo(MinimizedStack);

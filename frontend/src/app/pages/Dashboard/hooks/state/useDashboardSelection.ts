@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, RefObject } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, RefObject } from 'react';
 import type { CardPosition, ViewCardPosition, BrowserCardPosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
 import { viewCardKey } from '@/shared/state/dashboardLayoutSlice';
 
@@ -289,7 +289,8 @@ export function useDashboardSelection(
     document.head.appendChild(style);
   }, []);
 
-  return {
+  // Stable identity: consumers (the memoized card layer, the drag hook) receive this whole object as a prop, and a fresh literal per render re-rendered them all on every controller commit, including each frame of a card drag.
+  return useMemo(() => ({
     selectedIds,
     selectedArray,
     marquee,
@@ -300,5 +301,5 @@ export function useDashboardSelection(
     handleCanvasMouseDown,
     handleCanvasMouseMove,
     handleCanvasMouseUp,
-  };
+  }), [selectedIds, selectedArray, marquee, isSelected, selectCard, deselectAll, selectAll, handleCanvasMouseDown, handleCanvasMouseMove, handleCanvasMouseUp]);
 }

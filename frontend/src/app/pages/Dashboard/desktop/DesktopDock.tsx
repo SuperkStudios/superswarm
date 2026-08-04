@@ -261,4 +261,4 @@ function DesktopDock({
   );
 }
 
-export default DesktopDock;
+export default React.memo(DesktopDock);

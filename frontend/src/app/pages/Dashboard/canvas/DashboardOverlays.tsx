@@ -193,4 +193,4 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
   );
 };
 
-export default DashboardOverlays;
+export default React.memo(DashboardOverlays);

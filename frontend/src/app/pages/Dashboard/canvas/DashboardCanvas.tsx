@@ -221,6 +221,24 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
     return () => window.removeEventListener('mousemove', onMove);
   }, [fullscreenCardId]);
 
+  // Stable identities for the memoized shell children: an inline closure or Array.from() here would hand them a fresh prop every render, and a card drag re-renders this component per frame (liveDragInfo), which is exactly when they must bail.
+  const selectedIdList = React.useMemo(() => Array.from(selection.selectedIds.keys()) as string[], [selection.selectedIds]);
+  const handleRestoreCard = React.useCallback((cardId: string, rect: { x: number; y: number; width: number; height: number }) => {
+    canvas.actions.fitToCards([rect], 1.15, true);
+    onHighlightCard?.(cardId);
+  }, [canvas.actions, onHighlightCard]);
+  const handleFocusCard = React.useCallback((cardId: string, rect: { x: number; y: number; width: number; height: number }) => {
+    // A parked card sits off-canvas, so flying to its stored rect would land on empty space; unpark it first.
+    if (minimizedCards[cardId]) dispatch(toggleMinimizeCard({ cardId }));
+    canvas.actions.fitToCards([rect], 1.15, true);
+    onHighlightCard?.(cardId);
+  }, [minimizedCards, dispatch, canvas.actions, onHighlightCard]);
+  const handleToggleApps = React.useCallback(() => setAppsWindowOpen((v) => !v), []);
+  const handleDeleteSelected = React.useCallback(() => {
+    deleteSelectedCards(selection.selectedIds, dispatch);
+    selection.deselectAll();
+  }, [selection, dispatch]);
+
   // Gestures write the transform imperatively (no React commit per frame), so a foreign render mid-gesture would paint the stale committed transform for a frame. Re-applying live after EVERY render seals that; do not remove.
   React.useLayoutEffect(() => {
     canvas.actions.syncTransform();
@@ -278,11 +296,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           browserCards={browserCards}
           viewCards={viewCards}
           outputs={outputs}
-          selectedIds={Array.from(selection.selectedIds.keys())}
-          onRestore={(cardId, rect) => {
-            canvas.actions.fitToCards([rect], 1.15, true);
-            onHighlightCard?.(cardId);
-          }}
+          selectedIds={selectedIdList}
+          onRestore={handleRestoreCard}
         />
       )}
 
@@ -294,14 +309,9 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           browserCards={browserCards}
           workflowCards={workflowCards}
           outputs={outputs}
-          selectedIds={Array.from(selection.selectedIds.keys())}
-          onFocusCard={(cardId, rect) => {
-            // A parked card sits off-canvas, so flying to its stored rect would land on empty space; unpark it first.
-            if (minimizedCards[cardId]) dispatch(toggleMinimizeCard({ cardId }));
-            canvas.actions.fitToCards([rect], 1.15, true);
-            onHighlightCard?.(cardId);
-          }}
-          onApplications={() => setAppsWindowOpen((v) => !v)}
+          selectedIds={selectedIdList}
+          onFocusCard={handleFocusCard}
+          onApplications={handleToggleApps}
           onAddBrowser={onAddBrowser}
         />
       )}
@@ -466,10 +476,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onNewAgentBounceEnd={onNewAgentBounceEnd}
         onFitToView={onFitToView}
         onTidy={onTidy}
-        onDeleteSelected={() => {
-          deleteSelectedCards(selection.selectedIds, dispatch);
-          selection.deselectAll();
-        }}
+        onDeleteSelected={handleDeleteSelected}
         hasSelection={selection.selectedIds.size > 0}
         onSearchPaletteClose={onSearchPaletteClose}
         toolbarPrefill={toolbarPrefill}
