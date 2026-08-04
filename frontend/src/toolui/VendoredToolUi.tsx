@@ -20,8 +20,8 @@ class ComponentGuard extends React.Component<GuardProps, { failed: boolean }> {
   render(): React.ReactNode {
     if (this.state.failed) {
       return (
-        <div style={{ fontSize: '0.75rem', opacity: 0.55, padding: '4px 0' }}>
-          {this.props.name} failed to render
+        <div style={{ fontSize: '0.75rem', opacity: 0.45, padding: '4px 0', fontStyle: 'italic' }}>
+          Couldn't draw the {this.props.name.replace(/-/g, ' ')} view
         </div>
       );
     }
@@ -102,9 +102,11 @@ function VendoredToolUi({ name, props, extraProps }: VendoredToolUiProps): React
 
   if (!entry) return null;
   if (gate.state === 'bad') {
+    // Schema jargon is for the console; the transcript gets one quiet human line.
+    console.warn(`[tool-ui] ${name} payload didn't validate:`, gate.problem);
     return (
-      <div style={{ fontSize: '0.75rem', opacity: 0.55, padding: '4px 0' }}>
-        {name} payload didn't validate ({gate.problem})
+      <div style={{ fontSize: '0.75rem', opacity: 0.45, padding: '4px 0', fontStyle: 'italic' }}>
+        Couldn't draw the {name.replace(/-/g, ' ')} view
       </div>
     );
   }
