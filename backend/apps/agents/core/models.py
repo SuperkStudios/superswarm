@@ -133,6 +133,8 @@ class AgentSession(BaseModel):
     # Auto-continue: agent loop dispatches a hidden turn at end-of-loop using pending_continuation_prompt. Race-free vs background tasks.
     pending_continuation: bool = False
     pending_continuation_prompt: Optional[str] = None
+    # Silent-quit nudges spent since the user's last real message; capped at 1 so an agent that keeps ending empty can't loop.
+    empty_finish_nudges: int = 0
     # Sanitized server names model has explicitly activated this session; _build_mcp_servers intersects connected MCPs with this. Non-bypassable; dispatch-layer gate.
     active_mcps: list[str] = Field(default_factory=list)
     # Heuristic preamble tokens (preset + tool defs + MCP descs + composed prompt); subtracted from displayed input.

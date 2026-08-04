@@ -156,6 +156,13 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
                 )
             session.status = "completed"
 
+            # Silent-quit seal: a turn that ran tools and ended with no visible answer gets ONE hidden continue nudge (dispatched by the auto-continuation block below); a second silent quit in the same ask surfaces as-is rather than looping.
+            try:
+                from backend.apps.agents.manager.run.empty_finish import maybe_nudge_empty_finish
+                maybe_nudge_empty_finish(session, session_id)
+            except Exception:
+                logger.exception("empty-finish detection failed; continuing")
+
             # Auto-continuation hook (Phase 3). If MCPActivate (or any analogous flow) flagged pending_continuation during this turn, kick off a follow-up turn immediately with the captured prompt. We dispatch as a fire-and-forget task so the current run_agent_loop frame can unwind cleanly before the next turn's options + history rebuild kicks in. The follow-up is `hidden=True` so it doesn't add a user bubble to the visible chat; the model sees it as a synthetic prompt to keep working.
             try:
                 if getattr(session, "pending_continuation", False):

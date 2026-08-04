@@ -52,6 +52,7 @@ def maybe_break_midturn(session: AgentSession, turn: TurnState, msg_usage: Dict)
         return False
     # Keep the session's counter honest mid-turn: a broken turn never gets its ResultMessage accounting, and the next pre-send guard reads this.
     session.tokens["input"] = total
+    turn.last_step_input = total
     if total < compact_trigger_tokens(session):
         turn.saw_input_below_trigger = True
         return False
