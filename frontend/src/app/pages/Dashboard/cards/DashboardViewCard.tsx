@@ -892,7 +892,7 @@ const DashboardViewCard: React.FC<Props> = ({
           previewLive={previewLive}
           previewDeferred={previewDeferred}
           suspendSnapshot={suspendSnapshot}
-          onAppClicked={() => dispatch(setActiveViewCardId(cardKey))}
+          onAppClicked={() => { dispatch(setActiveViewCardId(cardKey)); onBringToFront?.(cardKey, 'view'); }}
           onRuntimeLog={handleRuntimeLog}
         />
         {/* Code/Terminal overlay the always-mounted preview instead of replacing it: unmounting the webview kills the app's live state and forces a reload on switch-back. */}

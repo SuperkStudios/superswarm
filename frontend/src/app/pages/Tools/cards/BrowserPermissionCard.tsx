@@ -70,6 +70,7 @@ const BrowserPermissionCard: React.FC<BrowserPermissionCardProps> = ({
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                 <Switch
+                  size="small"
                   checked={browserSectionEnabled}
                   onChange={(_, checked) => handleSectionEnabledChange(browserTools, checked)}
                   sx={{

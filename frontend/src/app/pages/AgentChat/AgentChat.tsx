@@ -1635,7 +1635,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             }}
           >
             {/* The welcome greeting is the FIRST thing and it's the agent talking, no user message above it, so give it real air under the header instead of sitting flush at the top. */}
-            <Box sx={{ pt: session.is_welcome_draft ? 4 : 0 }}>
+            {/* Non-welcome chats still need headroom: at pt 0 the first user bubble's top edge clipped under the header. */}
+            <Box sx={{ pt: session.is_welcome_draft ? 4 : 2 }}>
             {session.context_overflow && (() => {
               const reason = session.context_overflow.reason;
               const isAuth = reason === 'openswarm_pro_auth_expired' || reason === 'anthropic_auth_invalid' || reason === 'auth_error';

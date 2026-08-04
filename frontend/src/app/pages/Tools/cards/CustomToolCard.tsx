@@ -161,6 +161,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                           >
                             {!!integrationLoading[ig.id] && <CircularProgress size={16} sx={{ color: ig.color }} />}
                             <Switch
+                              size="small"
                               checked={tool.enabled !== false}
                               onChange={() => handleIntegrationToggle(ig)}
                               disabled={!!integrationLoading[ig.id]}

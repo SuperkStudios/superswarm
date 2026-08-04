@@ -222,7 +222,7 @@ function DataTableLayout({
         <div className="relative">
           <div
             className={cn(
-              "bg-card relative w-full overflow-clip overflow-y-auto rounded-lg border",
+              "bg-card relative w-full overflow-x-auto overflow-y-auto rounded-lg border",
               "touch-pan-x",
               maxHeight && "max-h-[--max-height]",
             )}

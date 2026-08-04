@@ -50,6 +50,7 @@ const IntegrationGalleryCard: React.FC<IntegrationGalleryCardProps> = ({ integra
                         >
                           {isLoading && <CircularProgress size={16} sx={{ color: ig.color }} />}
                           <Switch
+                            size="small"
                             checked={false}
                             onChange={() => handleIntegrationToggle(ig)}
                             disabled={isLoading}
