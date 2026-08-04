@@ -73,7 +73,6 @@ const SkeletonBlock: React.FC<{ name: string }> = ({ name }) => (
     style={{
       height: skeletonHeightFor(name),
       width: '100%',
-      maxWidth: 520,
       borderRadius: 12,
       background: 'rgba(127,127,127,0.12)',
       animation: 'toolui-skeleton-pulse 1.4s ease-in-out infinite',
