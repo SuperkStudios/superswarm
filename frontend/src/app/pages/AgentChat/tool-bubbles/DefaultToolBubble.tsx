@@ -87,33 +87,27 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
       <Box
         sx={{
           '--glow-rgb': accentRgb,
-          bgcolor: mcpCompact ? 'transparent' : c.bg.elevated,
-          border: mcpCompact ? 'none' : `1px solid ${
-            isPending || isStreaming
-              // Half-strength accent: still clearly "working", but a saturated user accent (greens
-              // especially) at full strength read as a loud alarm ring around a routine tool call.
-              ? c.accent.primary + '66'
-              : isDenied
-                ? c.status.error + '60'
-                : c.border.subtle
-          }`,
+          // A resting row is FLAT (Claude/ChatGPT transition language): the elevated card with a
+          // border only materializes when the row is expanded to show its output. The capsule-per-row
+          // look made every tool call shout.
+          bgcolor: mcpCompact || !showBody ? 'transparent' : c.bg.elevated,
+          border: mcpCompact || !showBody ? 'none' : `1px solid ${isDenied ? c.status.error + '60' : c.border.subtle}`,
           borderRadius: mcpCompact ? 0 : 2,
           overflow: 'hidden',
-          // Live state stays calm: the accent border + the ElapsedTimer's small pulsing dot carry
-          // "working"; the old whole-bubble box-shadow glow loop read as noise (animation-purge rule).
-          transition: 'border-color 0.3s, box-shadow 0.3s',
+          transition: 'border-color 0.3s, background-color 0.3s',
         } as any}
       >
         <Box
+          className="osw-tool-row"
           onClick={canToggleDetails ? toggle : undefined}
           sx={{
             display: 'flex',
             alignItems: 'center',
             gap: 0.75,
-            px: 1.5,
-            py: mcpCompact ? 0.6 : 0.75,
+            px: mcpCompact || showBody ? 1.5 : 0,
+            py: mcpCompact ? 0.6 : 0.5,
             cursor: canToggleDetails ? 'pointer' : 'default',
-            borderBottom: mcpCompact && showBody && canToggleDetails ? `1px solid ${c.border.subtle}` : 'none',
+            borderBottom: showBody && canToggleDetails ? `1px solid ${c.border.subtle}` : 'none',
             '&:hover': canToggleDetails ? { bgcolor: 'rgba(0,0,0,0.02)' } : {},
           }}
         >
@@ -154,7 +148,9 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
               {mcpInfo.serverSlug}
             </Typography>
           )}
-          {inputSummary && !isStreaming && (
+          {/* A Bash label is already input-derived ("Checked location"), so its raw command fragment
+              is noise at rest; it reappears with the expanded card where the full output lives. */}
+          {inputSummary && !isStreaming && (!/^bash$/i.test(toolName) || showBody || mcpCompact) ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
               {webDomain && <DomainIcon domain={webDomain} size={13} />}
               <Typography
@@ -169,8 +165,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                 {inputSummary}
               </Typography>
             </Box>
-          )}
-          {!inputSummary && <Box sx={{ flex: 1 }} />}
+          ) : !isStreaming ? <Box sx={{ flex: 1 }} /> : null}
           {isStreaming && <Box sx={{ flex: 1 }} />}
           {isDenied && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
@@ -192,12 +187,15 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                   )}
                 </>
               )}
+              {/* Timings are debug detail, not content: ghosted at rest, legible on row hover. */}
               {resultElapsedMs != null && (
                 <Typography
                   sx={{
                     fontSize: '0.625rem',
                     fontFamily: c.font.mono,
-                    color: c.text.tertiary,
+                    color: c.text.ghost,
+                    transition: 'color 120ms',
+                    '.osw-tool-row:hover &': { color: c.text.tertiary },
                   }}
                 >
                   {formatElapsed(resultElapsedMs)}
@@ -208,7 +206,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
           {showTimer && <ElapsedTimer startTime={call.timestamp} />}
 
           {canToggleDetails && (
-            <IconButton size="small" sx={{ color: c.text.tertiary, p: mcpCompact ? 0.15 : 0.25, flexShrink: 0 }}>
+            <IconButton size="small" sx={{ color: c.text.tertiary, p: mcpCompact ? 0.15 : 0.25, flexShrink: 0, opacity: showBody ? 1 : 0, transition: 'opacity 120ms', '.osw-tool-row:hover &': { opacity: 1 } }}>
               {showBody ? (
                 <ExpandLessIcon sx={{ fontSize: mcpCompact ? 16 : 18 }} />
               ) : (
