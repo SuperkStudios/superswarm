@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 
-# The pre-2026-08-04 default prompt, byte-exact: the default persists into settings.json, so upgrading the constant alone leaves every existing install on the old text. Verbatim match only; a user-customized prompt never equals this.
+# Every shipped default prompt revision, byte-exact: the default persists into settings.json, so upgrading the constant alone leaves existing installs on old text. Verbatim match only; a user-customized prompt never equals any of these. The bee3f48b-era revision differs from the 9e0b4706 one only inside Tool Priority (ToolSearch-discovery vs MCPSearch wording), so it is derived rather than duplicated.
 P_LEGACY_DEFAULT_SYSTEM_PROMPT = (
     "You are a personal AI assistant running inside OpenSwarm.\n\n"
     "## Core Behavior\n"
@@ -49,6 +49,15 @@ P_LEGACY_DEFAULT_SYSTEM_PROMPT = (
     "Keep responses brief and direct. Use plain language.\n"
     "If you genuinely need clarification on something ambiguous, use the "
     "AskUserQuestion tool. Never ask questions inline in plain text.\n"
+)
+P_LEGACY_DEFAULT_SYSTEM_PROMPTS = (
+    P_LEGACY_DEFAULT_SYSTEM_PROMPT,
+    P_LEGACY_DEFAULT_SYSTEM_PROMPT.replace(
+        "1. Connected MCP tools; fastest and most reliable. To reach an integration you "
+        "don't already see, use MCPSearch then MCPActivate; never ToolSearch for it.\n",
+        "1. Connected MCP tools; fastest and most reliable. Use ToolSearch to discover "
+        "what integrations are available if you're unsure.\n",
+    ),
 )
 
 
@@ -128,7 +137,7 @@ def load_settings() -> AppSettings:
             p_preserve_corrupt_settings()
             return AppSettings()
         settings = p_coerce_settings(migrate_legacy_fields(raw))
-        if settings.default_system_prompt is None or settings.default_system_prompt == P_LEGACY_DEFAULT_SYSTEM_PROMPT:
+        if settings.default_system_prompt is None or settings.default_system_prompt in P_LEGACY_DEFAULT_SYSTEM_PROMPTS:
             settings.default_system_prompt = DEFAULT_SYSTEM_PROMPT
         p_cached_settings = settings.model_copy(deep=True)
         p_cached_sig = sig
