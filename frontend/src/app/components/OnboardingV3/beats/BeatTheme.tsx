@@ -14,7 +14,7 @@ const BeatTheme: React.FC<{
 }> = ({ c, onNext, onBack }) => {
   const { accent, setAccent, gradient, setGradient } = useThemeAccent();
   const { mode, setMode } = useThemeMode();
-  const { washOpacity, grain, setWashOpacity, setGrain } = useThemeWash();
+  const { washOpacity, setWashOpacity } = useThemeWash();
   const stops = gradient ?? (accent ? [accent] : []);
   const onStops = (next: string[] | null) => {
     setAccent(next?.[0] ?? null);
@@ -87,7 +87,7 @@ const BeatTheme: React.FC<{
           stops={stops}
           onChange={onStops}
           height={210}
-          wash={{ opacity: washOpacity, grain, onOpacity: setWashOpacity, onGrain: setGrain }}
+          wash={{ opacity: washOpacity, onOpacity: setWashOpacity }}
         />
       </motion.div>
     </BeatShell>

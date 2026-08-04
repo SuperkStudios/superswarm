@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
 import { hexToHsl, hslToHex } from '@/shared/styles/claudeTokens';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
-import { Knob, SquiggleSlider } from './WashDials';
+import { Knob } from './WashDials';
 
 export const ACCENT_PRESETS = [
   '#ae5630', '#b0453c', '#8e5cb8', '#3a6fc4', '#2e8f6f', '#b08b2e', '#c2588f', '#5c6470',
@@ -19,9 +19,7 @@ function stopToXY(hex: string): { x: number; y: number } | null {
 
 export interface WashControls {
   opacity: number;
-  grain: number;
   onOpacity: (v: number) => void;
-  onGrain: (v: number) => void;
 }
 
 // Arc/Zen gradient engine, one control with two homes: 1-3 draggable stops on a hue/lightness field, + adds a color-theory-harmonized stop (analogous, then triadic), - removes the newest. The first stop is the accent the tokens derive from; 2+ stops become the canvas gradient wash, whose intensity + grain the optional sliders tune. The pad reports stops and never knows who is listening.
@@ -201,10 +199,9 @@ const AccentColorPad: React.FC<{
           Reset
         </button>
       </div>
-      {/* Arc's dials row: wavy line = grain, round knob = intensity. */}
+      {/* Intensity knob only; the grain squiggle is gone on purpose (Eric's call, one dial fewer). */}
       {wash && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, color: c.text.tertiary }}>
-          <SquiggleSlider value={wash.grain} onChange={wash.onGrain} width={190} />
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 14, color: c.text.tertiary }}>
           <Knob value={wash.opacity} onChange={wash.onOpacity} />
         </div>
       )}
