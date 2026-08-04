@@ -247,24 +247,44 @@ const BrowserCard: React.FC<Props> = ({
   const dockParentExpanded = useAppSelector((state) => (dockedTo ? state.agents.expandedSessionIds.includes(dockedTo) : false));
   const dockParentTiled = useAppSelector((state) => (dockedTo ? state.dashboardLayout.tiledCards[dockedTo] : undefined));
   const [dockRect, setDockRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // The slot now lives INSIDE the transcript scroller (inline like a tool output), and a live webview cannot be clipped by a scroll container, so the mini hides when its slot scrolls mostly out of view instead.
+  const [dockVisible, setDockVisible] = useState(true);
   const rootElRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (!dockedTo || !dockParentCard || !dockParentExpanded) { setDockRect(null); return undefined; }
+    if (!dockedTo || !dockParentCard || !dockParentExpanded) { setDockRect(null); setDockVisible(true); return undefined; }
+    let scrollHost: Element | null = null;
+    let hookedSlot: Element | null = null;
+    let scrollRaf = 0;
+    const onScroll = (): void => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; measure(); }); };
+    const ro = new ResizeObserver(() => measure());
     const measure = (): void => {
       const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
       const layer = rootElRef.current?.parentElement;
       if (!slot || !layer) { setDockRect(null); return; }
+      // The slot mounts a beat after docking (and remounts with chat re-renders), so observers hook the live node whenever it changes; a one-shot hookup at effect time reliably missed it and froze the rect.
+      if (slot !== hookedSlot) {
+        ro.disconnect();
+        ro.observe(slot);
+        if (slot.parentElement) ro.observe(slot.parentElement);
+        scrollHost?.removeEventListener('scroll', onScroll);
+        scrollHost = slot.closest('[data-chat-transcript]');
+        scrollHost?.addEventListener('scroll', onScroll, { passive: true });
+        hookedSlot = slot;
+      }
       const z = getCanvasState().zoom || 1;
       const lr = layer.getBoundingClientRect();
       const sr = slot.getBoundingClientRect();
       // Slot and card share the transformed layer, so layer-relative coords are camera-invariant.
       setDockRect({ x: (sr.left - lr.left) / z, y: (sr.top - lr.top) / z, w: sr.width / z, h: sr.height / z });
+      if (scrollHost) {
+        const cr = scrollHost.getBoundingClientRect();
+        const overlap = Math.min(sr.bottom, cr.bottom) - Math.max(sr.top, cr.top);
+        setDockVisible(overlap / Math.max(1, sr.height) >= 0.35);
+      } else {
+        setDockVisible(true);
+      }
     };
     measure();
-    const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
-    const ro = new ResizeObserver(measure);
-    if (slot) ro.observe(slot);
-    if (slot?.parentElement) ro.observe(slot.parentElement);
     window.addEventListener('resize', measure);
     // A RO only fires on slot RESIZE; the chat tiling/untiling MOVES the slot without resizing the
     // window, so re-measure on camera writes + settle timers or the docked card lags behind.
@@ -276,6 +296,8 @@ const BrowserCard: React.FC<Props> = ({
       window.removeEventListener('resize', measure);
       window.removeEventListener('openswarm:canvas-pan-changed', measure);
       document.removeEventListener('visibilitychange', measure);
+      scrollHost?.removeEventListener('scroll', onScroll);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
       timers.forEach((tm) => window.clearTimeout(tm));
     };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
@@ -1091,8 +1113,8 @@ const BrowserCard: React.FC<Props> = ({
       }}
       sx={{
         position: 'absolute',
-        // Kept-alive card from another dashboard: parked far off-screen so its webview surface can't bleed onto the dashboard you're viewing; click-through, webContents stays mounted.
-        pointerEvents: keepAliveHidden || isMinimized || dockParked ? 'none' : undefined,
+        // Kept-alive card from another dashboard: parked far off-screen so its webview surface can't bleed onto the dashboard you're viewing; click-through, webContents stays mounted. A dock-hidden mini (slot scrolled away) is click-through too.
+        pointerEvents: keepAliveHidden || isMinimized || dockParked || (dockActive && !dockVisible) ? 'none' : undefined,
         // contain: webview repaints don't shake neighbor cards.
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
@@ -1114,7 +1136,9 @@ const BrowserCard: React.FC<Props> = ({
         display: 'flex',
         flexDirection: 'column',
         zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
-        transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
+        // The inline slot scrolls with the transcript; a webview can't be clipped by the scroller, so the mini fades out when its slot is mostly out of view instead of floating over unrelated messages.
+        opacity: dockActive && !dockVisible ? 0 : 1,
+        transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease, opacity 0.14s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {
           animation: 'card-highlight-pulse 2s ease-out forwards',

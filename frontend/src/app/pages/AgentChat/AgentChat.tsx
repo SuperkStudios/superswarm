@@ -1987,6 +1987,13 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 </Box>
               </Box>
             )}
+            {/* Inline dock slot: the agent's browser rides HERE, in the transcript flow like a tool output (the real card overlays this rect geometrically, so the webview never remounts). It scrolls with the conversation; the mini hides itself when this scrolls mostly out of view, since a live webview can't be clipped by the scroller. */}
+            {hasDockedBrowser && (
+              <Box
+                data-browser-slot={id}
+                sx={{ height: 'min(360px, 38vh)', minHeight: 180, mt: 1, mb: 0.5 }}
+              />
+            )}
             </Box>
           </Box>
           {showScrollButton && (
@@ -2418,27 +2425,6 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   </Fade>
                 );
               })()}
-              {/* Dock slot: a browser this agent spawned lives HERE by default (the real card overlays
-                  this rect geometrically, so the webview never remounts). Pinned between transcript
-                  and composer, never inside the scroller, so it can't be clipped by chat scroll. */}
-              {hasDockedBrowser && (
-                <Box
-                  data-browser-slot={id}
-                  sx={{
-                    // Percentage heights resolve against a NESTED wrapper here, not the card, which
-                    // pushed the slot (and the docked browser riding it) clean out of the chat.
-                    // Viewport units are the only stable yardstick in this column; shrink allowed so
-                    // a short card squeezes the slot instead of overflowing.
-                    flex: '0 1 auto',
-                    height: 'min(360px, 38vh)',
-                    minHeight: 180,
-                    mx: 1.5,
-                    mb: 1,
-                    // Pure geometry: the docked mini overlays this rect, so any visible chrome here
-                    // (the old dashed outline) just framed the letterbox margins as an ugly gap.
-                  }}
-                />
-              )}
               {readOnly ? null : isStoppableSidecar ? (
                 <ForceStopAgentBar onStop={handleStop} onSaveWorkflow={onTestSaveWorkflow} onContinueEditing={onTestContinueEditing} testState={testState} />
               ) : (
