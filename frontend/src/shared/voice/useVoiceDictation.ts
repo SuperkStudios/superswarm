@@ -105,6 +105,9 @@ export function useVoiceDictation() {
     if (!window.openswarm?.voiceTranscribe) { setError('desktop-only'); return; } // no Electron bridge = web build
     setError(null);
     try {
+      // Fire the OS mic prompt through the main process first: a packaged hardened-runtime build denies renderer getUserMedia outright until TCC granted (the prod dictation-dead cause, ENG-103).
+      const micOk = await (window.openswarm as any)?.voiceRequestMicAccess?.() ?? true;
+      if (micOk === false) { setError('mic-denied'); return; }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
       const ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
       const source = ctx.createMediaStreamSource(stream);

@@ -198,6 +198,17 @@ function installVoiceHotkey(getMainWindow) {
     }
     return tapProven;
   });
+  // Fires the real TCC mic prompt BEFORE the first capture: with the entitlement present but no
+  // prior grant, getUserMedia would still fail once and burn the user's first dictation attempt.
+  ipcMain.handle('voice:request-mic-access', async () => {
+    if (process.platform !== 'darwin') return true;
+    try {
+      if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') return true;
+      return await systemPreferences.askForMediaAccess('microphone');
+    } catch (_) {
+      return false;
+    }
+  });
 }
 
 module.exports = { installVoiceHotkey };

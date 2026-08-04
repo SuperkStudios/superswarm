@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   setVoiceHotkey: (combo) => ipcRenderer.send('voice:set-hotkey', combo),
   voiceHoldCapable: () => ipcRenderer.invoke('voice:hold-capable'),
   voiceRequestHoldPermission: () => ipcRenderer.invoke('voice:request-hold-permission'),
+  voiceRequestMicAccess: () => ipcRenderer.invoke('voice:request-mic-access'),
   haptic: (pattern) => ipcRenderer.invoke('haptic:perform', pattern),
   // Native-tap hold relay: real global key-down/key-up for the voice combo, focus-independent.
   onVoiceHold: (onDown, onUp) => {

@@ -62,7 +62,8 @@
       "hardenedRuntime": true,
       "notarize": false,
       "extendInfo": {
-        "NSFaceIDUsageDescription": "OpenSwarm uses Touch ID to sign you in to websites with passkeys."
+        "NSFaceIDUsageDescription": "OpenSwarm uses Touch ID to sign you in to websites with passkeys.",
+        "NSMicrophoneUsageDescription": "OpenSwarm uses the microphone for voice dictation."
       },
       "provisioningProfile": "build/embedded.provisionprofile",
       "entitlements": "build/entitlements.mac.plist",
