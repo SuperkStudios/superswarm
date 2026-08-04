@@ -1,8 +1,8 @@
-import React, { useCallback, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react';
-import { hexToHsl, hslToHex } from '@/shared/styles/claudeTokens';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Minus, Plus, RefreshCw } from 'lucide-react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { Knob } from './WashDials';
+import { HARMONY_BY_COUNT, clampToPad, harmonyPositions, hexToPos, posToHex, type PadGeom, type PadPoint } from './zenColorMath';
 
 export const ACCENT_PRESETS = [
   '#ae5630', '#b0453c', '#8e5cb8', '#3a6fc4', '#2e8f6f', '#b08b2e', '#c2588f', '#5c6470',
@@ -11,18 +11,15 @@ export const ACCENT_PRESETS = [
 const PRESETS_PER_PAGE = 8;
 const MAX_STOPS = 3;
 
-function stopToXY(hex: string): { x: number; y: number } | null {
-  const hsl = hexToHsl(hex);
-  if (!hsl) return null;
-  return { x: hsl.h, y: Math.min(1, Math.max(0, (0.62 - hsl.l) / 0.34)) };
-}
-
 export interface WashControls {
   opacity: number;
   onOpacity: (v: number) => void;
 }
 
-// Arc/Zen gradient engine, one control with two homes: 1-3 draggable stops on a hue/lightness field, + adds a color-theory-harmonized stop (analogous, then triadic), - removes the newest. The first stop is the accent the tokens derive from; 2+ stops become the canvas gradient wash, whose intensity + grain the optional sliders tune. The pad reports stops and never knows who is listening.
+// Zen Browser's picker model, ported one-for-one (minus their texture dial): a circular pad where
+// only the PRIMARY dot is draggable, secondaries ride the color harmony at the same radius, + and -
+// promote/demote the harmony, the cycle button rotates same-count harmonies, and a right-click on
+// the pad removes the newest dot. The pad still just reports hex stops; nobody downstream changed.
 const AccentColorPad: React.FC<{
   c: ClaudeTokens;
   stops: string[];
@@ -31,75 +28,102 @@ const AccentColorPad: React.FC<{
   wash?: WashControls;
 }> = ({ c, stops, onChange, height = 240, wash }) => {
   const padRef = useRef<HTMLDivElement | null>(null);
-  const grabbedRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
   const lastApplyRef = useRef(0);
   const [presetPage, setPresetPage] = useState(0);
+  // Which harmony within the current count family; Zen's cycle button rotates this.
+  const [harmonyIdx, setHarmonyIdx] = useState(0);
   const presetPages = Math.ceil(ACCENT_PRESETS.length / PRESETS_PER_PAGE);
+  const harmony = (HARMONY_BY_COUNT[stops.length] ?? ['floating'])[harmonyIdx % (HARMONY_BY_COUNT[stops.length]?.length ?? 1)];
 
-  const pointToHex = useCallback((clientX: number, clientY: number): string | null => {
+  const geometry = useCallback((): { rect: DOMRect; g: PadGeom } | null => {
     const pad = padRef.current;
     if (!pad) return null;
     const rect = pad.getBoundingClientRect();
-    const fx = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    const fy = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
-    return hslToHex({ h: fx, s: 0.72, l: 0.62 - fy * 0.34 });
+    const g: PadGeom = { cx: rect.width / 2, cy: rect.height / 2, rx: rect.width / 2 - 18, ry: rect.height / 2 - 18 };
+    return { rect, g };
   }, []);
 
-  const nearestStop = useCallback((clientX: number, clientY: number): number => {
-    const pad = padRef.current;
-    if (!pad || stops.length === 0) return 0;
-    const rect = pad.getBoundingClientRect();
-    let best = 0;
-    let bestDist = Infinity;
-    stops.forEach((hex, i) => {
-      const xy = stopToXY(hex);
-      if (!xy) return;
-      const dx = rect.left + xy.x * rect.width - clientX;
-      const dy = rect.top + xy.y * rect.height - clientY;
-      const d = dx * dx + dy * dy;
-      if (d < bestDist) { bestDist = d; best = i; }
-    });
-    return best;
-  }, [stops]);
+  // The primary drives everything: secondaries are regenerated from its position + the harmony.
+  const emitFromPrimary = useCallback((px: number, py: number, count: number, harm: string) => {
+    const g = geometry();
+    if (!g) return;
+    const primary = clampToPad(px, py, g.g);
+    const secondaries = harmonyPositions(primary, g.g, harm).slice(0, count - 1);
+    onChange([primary, ...secondaries].map((p: PadPoint) => posToHex(p.x, p.y, g.g)));
+  }, [geometry, onChange]);
 
   const applyAt = useCallback((clientX: number, clientY: number) => {
     // ~30ms throttle: a live listener re-derives tokens and re-renders the tree per apply.
     const now = performance.now();
     if (now - lastApplyRef.current < 30) return;
     lastApplyRef.current = now;
-    const hex = pointToHex(clientX, clientY);
-    if (!hex) return;
-    const idx = grabbedRef.current ?? 0;
-    const next = stops.length === 0 ? [hex] : stops.map((s, i) => (i === idx ? hex : s));
-    onChange(next);
-  }, [pointToHex, stops, onChange]);
+    const g = geometry();
+    if (!g) return;
+    emitFromPrimary(clientX - g.rect.left, clientY - g.rect.top, Math.max(1, stops.length), harmony);
+  }, [geometry, emitFromPrimary, stops.length, harmony]);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    grabbedRef.current = nearestStop(e.clientX, e.clientY);
+    if (e.button === 2) return;
+    draggingRef.current = true;
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     lastApplyRef.current = 0;
     applyAt(e.clientX, e.clientY);
-  }, [nearestStop, applyAt]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (grabbedRef.current !== null) applyAt(e.clientX, e.clientY);
   }, [applyAt]);
 
-  const onPointerUp = useCallback(() => { grabbedRef.current = null; }, []);
+  const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (draggingRef.current) applyAt(e.clientX, e.clientY);
+  }, [applyAt]);
 
-  const addStop = useCallback(() => {
-    if (stops.length >= MAX_STOPS) return;
-    // Color-theory harmony off the FIRST stop: 2nd = analogous (+30deg), 3rd = triadic (+120deg).
-    const anchor = hexToHsl(stops[0] ?? ACCENT_PRESETS[0]);
-    const h0 = anchor?.h ?? 0.08;
-    const hue = (h0 + (stops.length === 1 ? 0.083 : 0.333)) % 1;
-    onChange([...stops, hslToHex({ h: hue, s: anchor?.s ?? 0.72, l: anchor?.l ?? 0.5 })]);
-  }, [stops, onChange]);
+  const onPointerUp = useCallback(() => { draggingRef.current = false; }, []);
 
-  const removeStop = useCallback(() => {
+  // Zen: right-click removes the newest dot (demoting the harmony).
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
     if (stops.length <= 1) return;
-    onChange(stops.slice(0, -1));
-  }, [stops, onChange]);
+    setHarmonyIdx(0);
+    const g = geometry();
+    if (!g) { onChange(stops.slice(0, -1)); return; }
+    const p = hexToPos(stops[0], g.g);
+    emitFromPrimary(p.x, p.y, stops.length - 1, (HARMONY_BY_COUNT[stops.length - 1] ?? ['floating'])[0]);
+  }, [stops, geometry, emitFromPrimary, onChange]);
+
+  const changeCount = useCallback((delta: number) => {
+    const count = Math.min(MAX_STOPS, Math.max(1, stops.length + delta));
+    if (count === stops.length) return;
+    setHarmonyIdx(0);
+    const g = geometry();
+    const harm = (HARMONY_BY_COUNT[count] ?? ['floating'])[0];
+    if (!g || stops.length === 0) { onChange(stops.length === 0 ? [ACCENT_PRESETS[0]] : stops.slice(0, count)); return; }
+    const p = hexToPos(stops[0], g.g);
+    emitFromPrimary(p.x, p.y, count, harm);
+  }, [stops, geometry, emitFromPrimary, onChange]);
+
+  const cycleHarmony = useCallback(() => {
+    const family = HARMONY_BY_COUNT[stops.length] ?? ['floating'];
+    if (family.length < 2) return;
+    const nextIdx = (harmonyIdx + 1) % family.length;
+    setHarmonyIdx(nextIdx);
+    const g = geometry();
+    if (!g) return;
+    const p = hexToPos(stops[0], g.g);
+    emitFromPrimary(p.x, p.y, stops.length, family[nextIdx]);
+  }, [stops, harmonyIdx, geometry, emitFromPrimary]);
+
+  // Dot render positions: primary from its stored color, secondaries re-derived from the harmony.
+  const dotPositions = useMemo((): PadPoint[] => {
+    const g = geometry();
+    if (!g || stops.length === 0) return [];
+    const primary = hexToPos(stops[0], g.g);
+    return [primary, ...harmonyPositions(primary, g.g, harmony).slice(0, stops.length - 1)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops, harmony, geometry, padRef.current]);
+
+  const btn = (disabled: boolean): React.CSSProperties => ({
+    width: 26, height: 22, borderRadius: 7, border: 'none', cursor: disabled ? 'default' : 'pointer',
+    background: 'rgba(20,20,19,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    opacity: disabled ? 0.4 : 1,
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
@@ -108,58 +132,44 @@ const AccentColorPad: React.FC<{
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onContextMenu={onContextMenu}
         style={{
-          // Arc's pad: dark dot-grid field with the spectrum only ghosting through, the picked dots carry the color.
+          // Zen's pad: a dark dotted-grid field; position IS the color, so no painted spectrum.
           position: 'relative', height, borderRadius: c.radius.lg, cursor: 'crosshair',
           border: `1px solid ${c.border.medium}`, touchAction: 'none',
           background: [
-            'radial-gradient(rgba(255,255,255,0.13) 1px, transparent 1.4px)',
-            'linear-gradient(rgba(30,29,27,0.84), rgba(30,29,27,0.84))',
-            'linear-gradient(to bottom, rgba(255,255,255,0.55), rgba(0,0,0,0.45))',
-            'linear-gradient(to right, hsl(0,72%,55%), hsl(60,72%,55%), hsl(120,72%,55%), hsl(180,72%,55%), hsl(240,72%,55%), hsl(300,72%,55%), hsl(360,72%,55%))',
+            'radial-gradient(rgba(255,255,255,0.16) 1px, transparent 1.4px)',
+            'linear-gradient(rgba(24,23,22,0.97), rgba(24,23,22,0.97))',
           ].join(', '),
-          backgroundSize: '14px 14px, auto, auto, auto',
+          backgroundSize: '12px 12px, auto',
         }}
       >
-        {stops.map((hex, i) => {
-          const xy = stopToXY(hex);
-          if (!xy) return null;
-          return (
-            <span key={i} style={{
-              position: 'absolute', left: `${xy.x * 100}%`, top: `${xy.y * 100}%`,
-              transform: 'translate(-50%, -50%)',
-              width: i === 0 ? 28 : 22, height: i === 0 ? 28 : 22,
-              borderRadius: 999, background: hex,
-              border: '3px solid #fff', boxShadow: '0 2px 8px rgba(0,0,0,0.35)', pointerEvents: 'none',
-            }} />
-          );
-        })}
+        {dotPositions.map((p, i) => (
+          <span key={i} style={{
+            position: 'absolute', left: p.x, top: p.y,
+            transform: 'translate(-50%, -50%)',
+            width: i === 0 ? 28 : 20, height: i === 0 ? 28 : 20,
+            borderRadius: 999, background: stops[i],
+            border: i === 0 ? '3px solid #fff' : '2px solid rgba(255,255,255,0.75)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.35)', pointerEvents: 'none',
+            transition: draggingRef.current ? 'none' : 'left 300ms cubic-bezier(0.34,1.4,0.64,1), top 300ms cubic-bezier(0.34,1.4,0.64,1)',
+          }} />
+        ))}
         <div
           onPointerDown={(e) => e.stopPropagation()}
           style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6 }}
         >
-          <button
-            onClick={removeStop}
-            disabled={stops.length <= 1}
-            style={{
-              width: 26, height: 22, borderRadius: 7, border: 'none', cursor: stops.length > 1 ? 'pointer' : 'default',
-              background: 'rgba(20,20,19,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: stops.length > 1 ? 1 : 0.4,
-            }}
-          >
+          <button onClick={() => changeCount(-1)} disabled={stops.length <= 1} style={btn(stops.length <= 1)}>
             <Minus size={13} />
           </button>
-          <button
-            onClick={addStop}
-            disabled={stops.length >= MAX_STOPS}
-            style={{
-              width: 26, height: 22, borderRadius: 7, border: 'none', cursor: stops.length < MAX_STOPS ? 'pointer' : 'default',
-              background: 'rgba(20,20,19,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              opacity: stops.length < MAX_STOPS ? 1 : 0.4,
-            }}
-          >
+          <button onClick={() => changeCount(1)} disabled={stops.length >= MAX_STOPS} style={btn(stops.length >= MAX_STOPS)}>
             <Plus size={13} />
           </button>
+          {(HARMONY_BY_COUNT[stops.length]?.length ?? 0) > 1 && (
+            <button onClick={cycleHarmony} title="Cycle color harmony" style={btn(false)}>
+              <RefreshCw size={12} />
+            </button>
+          )}
         </div>
       </div>
       {/* Arc's preset carousel: a page of dots between chevrons. */}
@@ -174,7 +184,7 @@ const AccentColorPad: React.FC<{
         {ACCENT_PRESETS.slice(presetPage * PRESETS_PER_PAGE, (presetPage + 1) * PRESETS_PER_PAGE).map((hex) => (
           <button
             key={hex}
-            onClick={() => onChange([hex])}
+            onClick={() => { setHarmonyIdx(0); onChange([hex]); }}
             style={{
               width: 26, height: 26, borderRadius: 999, background: hex, cursor: 'pointer',
               border: stops[0] === hex && stops.length === 1 ? '2.5px solid #fff' : '2.5px solid transparent',
@@ -190,7 +200,7 @@ const AccentColorPad: React.FC<{
           <ChevronRight size={15} />
         </button>
         <button
-          onClick={() => onChange(null)}
+          onClick={() => { setHarmonyIdx(0); onChange(null); }}
           style={{
             marginLeft: 'auto', border: 'none', background: 'transparent', padding: 0,
             color: '#8a8a86', fontSize: '0.8125rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
