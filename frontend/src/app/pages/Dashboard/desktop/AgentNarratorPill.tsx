@@ -40,10 +40,14 @@ function AgentNarratorPill({ label, running, todos, liveSteps, artifact, askPair
   // Live tool steps window to the most recent, since earlier ones are history, not plan.
   const visibleSteps = running && !visibleTodos.length ? (liveSteps || []).slice(-MAX_VISIBLE_TODOS) : [];
   const earlierSteps = running && !visibleTodos.length ? Math.max(0, (liveSteps?.length || 0) - visibleSteps.length) : 0;
+  // A plan/progress widget the agent posted once goes STALE while work continues; live steps outrank
+  // it until the turn ends. Answer-shaped widgets (weather, tables) still win the ladder.
+  const staleplan = running && artifact && /plan|progress/i.test(artifactName(artifact)) && visibleSteps.length > 0;
+  const shownArtifact = staleplan ? null : artifact;
   const ring = selected || highlighted ? { outline: '2px solid #3b82f6', outlineOffset: '2px' } : undefined;
   const liveAsk = askPair && sessionId ? askPair : null;
   // One key per ladder state so a state CHANGE remounts the artifact and replays the one-shot entrance; nothing loops.
-  const artifactKey = liveAsk ? `ask-${liveAsk.id}` : artifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : visibleSteps.length > 0 ? 'steps' : running ? 'thinking' : finalText ? 'final' : 'none';
+  const artifactKey = liveAsk ? `ask-${liveAsk.id}` : shownArtifact ? 'widget' : browserShot ? 'shot' : visibleTodos.length > 0 ? 'todos' : visibleSteps.length > 0 ? 'steps' : running ? 'thinking' : finalText ? 'final' : 'none';
 
   return (
     <Box
@@ -91,9 +95,9 @@ function AgentNarratorPill({ label, running, todos, liveSteps, artifact, askPair
         <PillArtifactFrame key={artifactKey} name="question">
           <AskUiBubble pair={liveAsk} sessionId={sessionId!} isPending suppressReveal />
         </PillArtifactFrame>
-      ) : artifact ? (
-        <PillArtifactFrame key={artifactKey} name={artifactName(artifact)}>
-          <ShowUiWidgetView payload={artifact} ambient />
+      ) : shownArtifact ? (
+        <PillArtifactFrame key={artifactKey} name={artifactName(shownArtifact)}>
+          <ShowUiWidgetView payload={shownArtifact} ambient />
         </PillArtifactFrame>
       ) : browserShot ? (
         <Box

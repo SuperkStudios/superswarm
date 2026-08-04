@@ -23,7 +23,9 @@ export function extractLiveSteps(messages: Array<{ role: string; content: unknow
     const tool = String(body.tool || '');
     if (!tool || HIDDEN_TOOLS.test(tool)) continue;
     const done = messages[i + 1]?.role === 'tool_result';
-    const lbl = getToolLabelWithInput(tool, body.input, (m as { id?: string }).id);
+    // MCP names arrive prefixed ("web__WebSearch"); the checklist speaks the bare action's language.
+    const bare = tool.replace(/^.*__/, '');
+    const lbl = getToolLabelWithInput(bare, body.input, (m as { id?: string }).id);
     const label = done ? lbl.past : lbl.present;
     // Consecutive same-verb steps merge so "Read a file" x8 doesn't fill the card.
     const prev = steps[steps.length - 1];
