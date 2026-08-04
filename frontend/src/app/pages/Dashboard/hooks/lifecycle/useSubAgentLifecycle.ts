@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useAppDispatch } from '@/shared/hooks';
-import { collapseSession, expandSession, type AgentSession } from '@/shared/state/agentsSlice';
+import { collapseSession, type AgentSession } from '@/shared/state/agentsSlice';
 import {
   placeCard,
   removeCard,
