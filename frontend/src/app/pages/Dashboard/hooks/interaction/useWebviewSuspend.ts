@@ -23,6 +23,10 @@ const SNAPSHOT_MAX_W = 1024;
 const RESUME_MIN_CARD_PX = 220;
 // Hard ceiling on simultaneous live webviews; past it the farthest-from-center non-agent card gets parked, so heavy pages degrade gracefully instead of OOMing.
 const MAX_LIVE_WEBVIEWS = 8;
+// App hidden this long = the user left; park every idle renderer (working agents keep theirs) so an
+// all-day-open OpenSwarm stops holding gigabytes it isn't showing. Arc's tab-archiving tradeoff:
+// coming back after a long absence pays a page reload, coming back quickly pays nothing.
+const APP_HIDDEN_SUSPEND_MS = 10 * 60 * 1000;
 
 interface Viewport {
   panX: number;
@@ -128,6 +132,20 @@ export function useWebviewSuspend(
   const prevMinimizedRef = useRef<Record<string, boolean>>({});
   const vpRef = useRef<Viewport>({ panX, panY, zoom, vpW: 1200, vpH: 800 });
 
+  const [appHidden, setAppHidden] = useState(false);
+  useEffect(() => {
+    if (!isElectron) return;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const onVis = (): void => {
+      if (t) { clearTimeout(t); t = null; }
+      if (document.hidden) t = setTimeout(() => setAppHidden(true), APP_HIDDEN_SUSPEND_MS);
+      else setAppHidden(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    onVis();
+    return () => { document.removeEventListener('visibilitychange', onVis); if (t) clearTimeout(t); };
+  }, []);
+
   // Window resize changes the viewport without touching pan/zoom/cards; tick so the evaluation below reruns, or a shrunken window never suspends anything.
   const [resizeTick, setResizeTick] = useState(0);
   useEffect(() => {
@@ -168,7 +186,8 @@ export function useWebviewSuspend(
         budget--;
         continue;
       }
-      if (budget <= 0 || minimized[id]) continue;
+      // While the app is hidden nothing idle resumes; the same loop wakes in-view cards on return.
+      if (appHidden || budget <= 0 || minimized[id]) continue;
       // Un-minimizing is an explicit "give it back", so it wakes the card wherever the camera happens to be pointing.
       if (wasMinimized[id]) {
         restoredAt.set(id, Date.now());
@@ -187,7 +206,8 @@ export function useWebviewSuspend(
       const isSuspended = (id: string) => !!store.getState().dashboardLayout.suspendedBrowserCards[id];
       // Read live, not off the effect's closure: this re-runs after an await, and the user can restore a card mid-capture.
       const wantsPark = (id: string, card: BrowserCardPosition): boolean =>
-        isMinimized(id)
+        appHidden
+        || isMinimized(id)
         || (!withinRestoreGrace(id) && !cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX));
       await refreshVisibleFrames(browserCards, isSuspended, vpRef.current);
       for (const [id, card] of Object.entries(browserCards)) {
@@ -216,7 +236,7 @@ export function useWebviewSuspend(
     }, SETTLE_MS);
 
     return () => clearTimeout(timer);
-  }, [browserCards, suspended, minimized, panX, panY, zoom, viewportRef, dispatch, resizeTick]);
+  }, [browserCards, suspended, minimized, panX, panY, zoom, viewportRef, dispatch, resizeTick, appHidden]);
 }
 
 function distFromCenter(card: BrowserCardPosition, vp: Viewport): number {
