@@ -4,6 +4,7 @@ import { useAppDispatch } from '@/shared/hooks';
 import { moveCards } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
 import type { CanvasActions } from './useCanvasControls';
+import { publishLiveDrag } from './liveDragChannel';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
 
@@ -33,7 +34,6 @@ export function useCardDrag({
   const dispatch = useAppDispatch();
 
   const [multiDragDelta, setMultiDragDelta] = useState<{ dx: number; dy: number } | null>(null);
-  const [liveDragInfo, setLiveDragInfo] = useState<{ cardId: string; dx: number; dy: number } | null>(null);
   const activeDragCardRef = useRef<string | null>(null);
   const isMultiDragRef = useRef(false);
 
@@ -100,7 +100,7 @@ export function useCardDrag({
       setMultiDragDelta({ dx, dy });
     }
     if (activeDragCardRef.current) {
-      setLiveDragInfo({ cardId: activeDragCardRef.current, dx, dy });
+      publishLiveDrag({ cardId: activeDragCardRef.current, dx, dy });
     }
   }, [tickEdgePan]);
 
@@ -112,7 +112,7 @@ export function useCardDrag({
     document.body.classList.remove('dashboard-marquee-active');
     isMultiDragRef.current = false;
     setMultiDragDelta(null);
-    setLiveDragInfo(null);
+    publishLiveDrag(null);
   }, [stopEdgePan, canvasActions]);
 
   const handleCardDragEnd = useCallback((dx: number, dy: number, didDrag: boolean) => {
@@ -143,7 +143,6 @@ export function useCardDrag({
 
   return {
     multiDragDelta,
-    liveDragInfo,
     handleCardDragStart,
     handleCardDragMove,
     handleCardDragEnd,

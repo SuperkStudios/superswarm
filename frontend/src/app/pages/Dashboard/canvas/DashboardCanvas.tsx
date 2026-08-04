@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { addViewCard, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
-import TetherLayer from './TetherLayer';
+import TetherLayerHost from './TetherLayerHost';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
 import CardContextMenu from '../desktop/CardContextMenu';
@@ -30,7 +30,7 @@ import type { CardType, useDashboardSelection } from '../hooks/state/useDashboar
 import type { useCanvasControls } from '../hooks/interaction/useCanvasControls';
 import { useWebviewSuspend } from '../hooks/interaction/useWebviewSuspend';
 import { deleteSelectedCards } from '../hooks/interaction/deleteSelectedCards';
-import type { Tether } from '../geometry/dashboardTethers';
+import type { TetherInputs } from '../geometry/dashboardTethers';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
 type Canvas = ReturnType<typeof useCanvasControls>;
@@ -56,7 +56,7 @@ interface DashboardCanvasProps {
   outputs: Record<string, Output>;
   glowingAgentCards: Record<string, GlowingAgentCard>;
   expandedSessionIds: string[];
-  tethers: Tether[];
+  tetherInputs: TetherInputs;
   highlightedCardId: string | null;
   autoFocusSessionId: string | null;
   focusedCardId: string | null;
@@ -118,7 +118,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   outputs,
   glowingAgentCards,
   expandedSessionIds,
-  tethers,
+  tetherInputs,
   highlightedCardId,
   autoFocusSessionId,
   focusedCardId,
@@ -407,8 +407,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               position: 'relative',
             }}
           >
-            {/* Tether lines between branched cards */}
-            <TetherLayer tethers={tethers} c={c} />
+            {/* Tether lines between branched cards; the host alone re-renders on drag frames */}
+            <TetherLayerHost inputs={tetherInputs} c={c} />
             <DashboardCardLayer
               dashboardId={dashboardId}
               cards={cards}

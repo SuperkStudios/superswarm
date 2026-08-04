@@ -9,7 +9,7 @@ import { getCardRect } from '../../geometry/getCardRect';
 import { computeContentBounds } from '../../geometry/contentBounds';
 import { useDashboardUiState } from './useDashboardUiState';
 import { useLayoutSave } from './useLayoutSave';
-import { useTethers } from '../../geometry/dashboardTethers';
+import type { TetherInputs } from '../../geometry/dashboardTethers';
 import { useArrowNav } from '../interaction/useArrowNav';
 import { useDashboardShortcuts } from '../interaction/useDashboardShortcuts';
 import { useDashboardClipboard } from '../interaction/useDashboardClipboard';
@@ -105,7 +105,6 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
 
   const {
     multiDragDelta,
-    liveDragInfo,
     handleCardDragStart,
     handleCardDragMove,
     handleCardDragEnd,
@@ -305,7 +304,9 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     measuredHeightsTick,
   });
 
-  const tethers = useTethers({
+  // Bundled for the canvas's TetherLayerHost, which re-renders ALONE on drag frames; holding drag
+  // state here re-rendered the whole page per pointer move (the ENG-88 input delay).
+  const tetherInputs = useMemo<TetherInputs>(() => ({
     glowingAgentCards,
     glowingBrowserCards,
     cards,
@@ -316,7 +317,6 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     viewCards,
     outputs,
     expandedSessionIds,
-    liveDragInfo,
     measuredHeightsRef,
     measuredHeightsTick,
     sessionList,
@@ -324,13 +324,13 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     workflowsMonitorCard,
     workflowsMonitorLabel,
     monitorRunSessionId,
-  });
+  }), [glowingAgentCards, glowingBrowserCards, cards, browserCards, workflowCards, workflowItems, workflowOpenCards, viewCards, outputs, expandedSessionIds, measuredHeightsRef, measuredHeightsTick, sessionList, workflowsHub, workflowsMonitorCard, workflowsMonitorLabel, monitorRunSessionId]);
 
   return {
     c, dashboardId, dashboardName, canvas, selection, sessions, sessionList,
     cards, viewCards, browserCards, keepAliveBrowserCards, outputs, glowingAgentCards,
     workflowCards, workflowsHub,
-    expandedSessionIds, tethers, highlightedCardId, autoFocusSessionId,
+    expandedSessionIds, tetherInputs, highlightedCardId, autoFocusSessionId,
     focusedCardId, multiDragDelta, shakeDirection,
     neighborDirections, toolbarOpen, searchPaletteOpen, newAgentBounce, canvasEmpty,
     toolbarRef, spawnOriginsRef, revealSpawnedRef, measuredHeightsRef, getCanvasState,
