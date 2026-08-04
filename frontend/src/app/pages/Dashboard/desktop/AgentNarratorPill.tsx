@@ -40,10 +40,7 @@ function AgentNarratorPill({ label, running, todos, liveSteps, artifact, askPair
   // Live tool steps window to the most recent, since earlier ones are history, not plan.
   const visibleSteps = running && !visibleTodos.length ? (liveSteps || []).slice(-MAX_VISIBLE_TODOS) : [];
   const earlierSteps = running && !visibleTodos.length ? Math.max(0, (liveSteps?.length || 0) - visibleSteps.length) : 0;
-  // A plan/progress widget the agent posted once goes STALE while work continues; live steps outrank
-  // it until the turn ends. Answer-shaped widgets (weather, tables) still win the ladder.
-  const staleplan = running && artifact && /plan|progress/i.test(artifactName(artifact)) && visibleSteps.length > 0;
-  const shownArtifact = staleplan ? null : artifact;
+  const shownArtifact = artifact;
   const ring = selected || highlighted ? { outline: '2px solid #3b82f6', outlineOffset: '2px' } : undefined;
   const liveAsk = askPair && sessionId ? askPair : null;
   // One key per ladder state so a state CHANGE remounts the artifact and replays the one-shot entrance; nothing loops.
@@ -93,7 +90,10 @@ function AgentNarratorPill({ label, running, todos, liveSteps, artifact, askPair
 
       {liveAsk ? (
         <PillArtifactFrame key={artifactKey} name="question">
-          <AskUiBubble pair={liveAsk} sessionId={sessionId!} isPending suppressReveal />
+          {/* One glass surface holds the whole ask (options + Confirm + the type-your-own field); without it the widget's footer floated bare on the canvas. */}
+          <Box sx={{ borderRadius: '16px', background: GLASS, backdropFilter: GLASS_BLUR, WebkitBackdropFilter: GLASS_BLUR, boxShadow: '0 8px 24px rgba(0,0,0,0.32)', px: 1.25, py: 1.25 }}>
+            <AskUiBubble pair={liveAsk} sessionId={sessionId!} isPending suppressReveal />
+          </Box>
         </PillArtifactFrame>
       ) : shownArtifact ? (
         <PillArtifactFrame key={artifactKey} name={artifactName(shownArtifact)}>

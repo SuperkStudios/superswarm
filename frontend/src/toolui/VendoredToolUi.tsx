@@ -2,7 +2,7 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { useThemeMode } from '@/shared/styles/ThemeContext';
 import { TOOL_UI_REGISTRY } from './registry';
 
-interface GuardProps { name: string; children: React.ReactNode }
+interface GuardProps { name: string; quiet?: boolean; children: React.ReactNode }
 
 // A component render throwing must cost exactly one quiet line, never the app: the top-level
 // ErrorBoundary unmounts the whole shell for any uncaught child throw (the linkedin-post {post}
@@ -19,6 +19,7 @@ class ComponentGuard extends React.Component<GuardProps, { failed: boolean }> {
 
   render(): React.ReactNode {
     if (this.state.failed) {
+      if (this.props.quiet) return null;
       return (
         <div style={{ fontSize: '0.75rem', opacity: 0.45, padding: '4px 0', fontStyle: 'italic' }}>
           Couldn't draw the {this.props.name.replace(/-/g, ' ')} view
@@ -34,6 +35,8 @@ interface VendoredToolUiProps {
   props: Record<string, unknown>;
   /** Non-serializable React props (callbacks, live overrides) merged AFTER validation of the wire props. */
   extraProps?: Record<string, unknown>;
+  /** Ambient surfaces (the collapsed pill) show NOTHING on failure; a floating error line on the canvas is worse than absence. */
+  quietFail?: boolean;
 }
 
 type Gate =
@@ -83,7 +86,7 @@ const SkeletonBlock: React.FC<{ name: string }> = ({ name }) => (
 );
 
 /** Validates against the upstream zod contract, then renders the vendored component inside the scoped theme. */
-function VendoredToolUi({ name, props, extraProps }: VendoredToolUiProps): React.ReactElement | null {
+function VendoredToolUi({ name, props, extraProps, quietFail = false }: VendoredToolUiProps): React.ReactElement | null {
   const { mode } = useThemeMode();
   const entry = TOOL_UI_REGISTRY[name];
   const [gate, setGate] = useState<Gate>({ state: 'pending' });
@@ -104,6 +107,7 @@ function VendoredToolUi({ name, props, extraProps }: VendoredToolUiProps): React
   if (gate.state === 'bad') {
     // Schema jargon is for the console; the transcript gets one quiet human line.
     console.warn(`[tool-ui] ${name} payload didn't validate:`, gate.problem);
+    if (quietFail) return null;
     return (
       <div style={{ fontSize: '0.75rem', opacity: 0.45, padding: '4px 0', fontStyle: 'italic' }}>
         Couldn't draw the {name.replace(/-/g, ' ')} view
@@ -111,12 +115,12 @@ function VendoredToolUi({ name, props, extraProps }: VendoredToolUiProps): React
     );
   }
   if (gate.state === 'pending') {
-    return <SkeletonBlock name={name} />;
+    return quietFail ? null : <SkeletonBlock name={name} />;
   }
   const Component = entry.Component;
   return (
     <div className={`tool-ui-scope${mode === 'dark' ? ' dark' : ''}`}>
-      <ComponentGuard name={name}>
+      <ComponentGuard name={name} quiet={quietFail}>
         <Suspense fallback={<SkeletonBlock name={name} />}>
           <Component {...gate.parsed} {...(extraProps || {})} />
         </Suspense>
