@@ -1097,10 +1097,13 @@ const BrowserCard: React.FC<Props> = ({
         willChange: 'transform',
         left: keepAliveHidden || isMinimized || dockParked ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
         top: dockActive ? dockRect!.y : (dragging ? cardY : displayY),
-        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : undefined),
-        transformOrigin: tiledSize ? '0 0' : undefined,
-        width: tiledSize ? tiledSize.width : dockActive ? dockRect!.w : displayW,
-        height: tiledSize ? tiledSize.height : dockActive ? dockRect!.h : displayH,
+        // Docked = a TRUE miniature: the card keeps its full-size layout and shrinks by uniform
+        // transform, so the page never reflows and the agent's position-based clicks stay valid.
+        // Resizing the webview to the slot re-rendered the page as a narrow window, which is wrong.
+        transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : dockActive ? `scale(${Math.min(dockRect!.w / displayW, dockRect!.h / displayH)})` : undefined),
+        transformOrigin: tiledSize || dockActive ? '0 0' : undefined,
+        width: tiledSize ? tiledSize.width : displayW,
+        height: tiledSize ? tiledSize.height : displayH,
         borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
         border: agentBorder,
         bgcolor: c.bg.surface,
