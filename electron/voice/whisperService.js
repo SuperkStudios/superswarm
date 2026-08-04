@@ -36,6 +36,8 @@ function resolveModel(resourceDir, userDataDir) {
 }
 
 let proc = null;
+// Tracked from SPAWN, not from ready: a quit during the 15-38s model load used to see proc=null, kill nothing, and orphan the child (and leaked servers wedge every later boot's Metal init).
+let bootingChild = null;
 let port = 0;
 let readyPromise = null;
 let idleTimer = null;
@@ -78,6 +80,28 @@ function p_touchIdle() {
   if (idleTimer.unref) idleTimer.unref(); // an idle countdown must never be the reason the app won't quit
 }
 
+// NEVER os.tmpdir(): ggml readdirs the cwd hunting for backend dylibs before printing a byte, and a real user temp dir can hold hundreds of thousands of entries (measured 237k+, 25s to enumerate), stalling the server past its ready budget with zero output.
+function p_privateCwd(userDataDir) {
+  const dir = path.join(userDataDir, 'whisper-tmp');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { return os.tmpdir(); }
+  return dir;
+}
+
+// A leaked server from a dead session wedges every NEW server's Metal init (machine-wide dead dictation), so before booting, kill any instance of OUR binary that is not one of our live children.
+function p_sweepStrays(bin) {
+  if (process.platform === 'win32' || !bin.startsWith('/')) return;
+  try {
+    const out = require('child_process').execSync('ps -axo pid=,command=', { encoding: 'utf8', timeout: 3000 });
+    for (const line of out.split('\n')) {
+      const m = line.match(/^\s*(\d+)\s+(.*)$/);
+      if (!m || !(m[2] === bin || m[2].startsWith(bin + ' '))) continue;
+      const pid = Number(m[1]);
+      if ((proc && pid === proc.pid) || (bootingChild && pid === bootingChild.pid)) continue;
+      try { process.kill(pid, 'SIGKILL'); console.log(`[voice] swept stray whisper-server pid=${pid}`); } catch (_) {}
+    }
+  } catch (_) { /* sweep is best-effort */ }
+}
+
 // 44-byte RIFF header + silence, 16kHz mono, matching what the renderer sends.
 function p_silentWav(seconds) {
   const samples = Math.round(16000 * seconds);
@@ -118,15 +142,17 @@ async function p_bootServer(resourceDir, userDataDir) {
     throw new Error(whisperModels.downloadStatus().downloading ? 'model-downloading' : 'no-model');
   }
   loadedModelFile = model;
+  p_sweepStrays(bin);
   const p = await freePort();
   // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
   const child = spawn(bin, ['-m', model, '--port', String(p), '-nt'], {
-    cwd: os.tmpdir(), // whisper writes per-request temp files beside cwd, and a Finder launch starts at the unwritable /
+    cwd: p_privateCwd(userDataDir), // a writable, EMPTY dir: whisper writes temp files beside cwd, and ggml scans cwd at boot (see p_privateCwd)
     // BOTH pipes: whisper writes its fatal reasons to STDOUT and then exits 0, so an ignored stdout
     // turns "ffmpeg is missing" into an unexplained failure. Draining also stops the pipe buffer
     // filling and blocking the child.
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  bootingChild = child;
   // Keep a rolling tail rather than the last chunk: whisper prints its real reason and THEN keeps
   // banner-dumping, so "the most recent bytes" is reliably the least useful line it wrote.
   let tail = '';
@@ -138,12 +164,13 @@ async function p_bootServer(resourceDir, userDataDir) {
   };
   child.stdout.on('data', drain);
   child.stderr.on('data', drain);
-  child.on('error', () => { proc = null; port = 0; });
-  child.on('exit', (code) => { if (code) console.log(`[voice] whisper-server exited code=${code}`); proc = null; port = 0; readyPromise = null; });
+  child.on('error', () => { if (bootingChild === child) bootingChild = null; proc = null; port = 0; });
+  child.on('exit', (code) => { if (code) console.log(`[voice] whisper-server exited code=${code}`); if (bootingChild === child) bootingChild = null; proc = null; port = 0; readyPromise = null; });
   // Cold model load measured 15-38s on an M2; the old 20s budget timed out real first uses.
   const ok = await waitForReady(child, p, 60000);
   if (!ok) {
-    try { child.kill(); } catch (_) {}
+    bootingChild = null;
+    try { child.kill('SIGKILL'); } catch (_) {}
     // A dead child is not a slow one. Whisper can die in ~0.1s with exit code 0 (a missing ffmpeg on
     // a Finder-launched PATH does exactly that), so report ITS reason instantly instead of making the
     // user sit through the full ready budget for a process that was never coming back.
@@ -153,6 +180,7 @@ async function p_bootServer(resourceDir, userDataDir) {
     throw new Error('server-timeout');
   }
   proc = child;
+  bootingChild = null;
   port = p;
   await p_primeGraph(p);
   p_touchIdle();
@@ -207,10 +235,15 @@ function warmInBackground(resourceDir, userDataDir) {
 
 function stopServer() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  // SIGKILL both: the server is stateless, and a mid-boot child left alive poisons the machine.
   if (proc) {
-    try { proc.kill(); } catch (_) {}
+    try { proc.kill('SIGKILL'); } catch (_) {}
+  }
+  if (bootingChild) {
+    try { bootingChild.kill('SIGKILL'); } catch (_) {}
   }
   proc = null;
+  bootingChild = null;
   port = 0;
   readyPromise = null;
   loadedModelFile = null;
