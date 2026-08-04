@@ -24,6 +24,7 @@ import { McpResultCard } from '../mcp-cards/McpResultCard';
 import { domainFromUrl } from './SourceFavicons';
 import { DomainIcon } from './DomainIcon';
 import VendoredToolUi from '@toolui/VendoredToolUi';
+import WidgetCopyChip from '../tool-ui/WidgetCopyChip';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -59,6 +60,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
 }) => {
   const c = useClaudeTokens();
   const tc = useTermColors();
+  const richWidgetRef = React.useRef<HTMLDivElement>(null);
   // Auto-elevated rendering: builtin coding tools map onto the vendored terminal/code components by schema, no ShowUI involved; null keeps the classic colorized <pre>. Streaming stays on the classic path (partial args are unparseable).
   const richRender = React.useMemo(
     () => (!isStreaming && result ? resolveRichRender(toolName, input ?? {}, parsedResult, resultElapsedMs, getToolData(call).toolId || call.id) : null),
@@ -218,8 +220,11 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
 
         <Collapse in={showBody && canToggleDetails}>
           {richRender ? (
-            <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderTop: `1px solid ${tc.TERM_BORDER}` }}>
-              <VendoredToolUi name={richRender.name} props={richRender.props} />
+            <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderTop: `1px solid ${tc.TERM_BORDER}`, position: 'relative', '&:hover .osw-widget-copy': { opacity: 1 } }}>
+              <WidgetCopyChip component={richRender.name} props={richRender.props} containerRef={richWidgetRef} />
+              <Box ref={richWidgetRef}>
+                <VendoredToolUi name={richRender.name} props={richRender.props} />
+              </Box>
               {parsedResult?.platformNote && (
                 <Typography sx={{ mt: 0.5, px: 0.5, fontSize: '0.6875rem', color: c.text.tertiary }}>
                   {parsedResult.platformNote}
