@@ -167,3 +167,34 @@ def test_valve_never_loops(monkeypatch) -> None:
     assert len(calls) == 2
     assert session.status == "error"
     assert [m for m in session.messages if m.role == "system" and str(m.content).startswith("Error:")]
+
+
+def test_midturn_break_completes_and_fires_the_hidden_continuation(monkeypatch) -> None:
+    from backend.apps.agents.manager.context_budget import CONTINUATION_PROMPT
+    session = p_seed_session()
+    continues: list = []
+
+    async def fake_run_turn(sess, session_id, prompt_content, options, options_kwargs,
+                            turn, thinking, stderr, resolved_model, api_type,
+                            global_settings, force_respawn=False):
+        # Simulate maybe_break_midturn firing inside the stream loop: flags set, turn returns at the boundary.
+        turn.context_break_fired = True
+        sess.needs_fresh_session = True
+        sess.pending_continuation = True
+        sess.pending_continuation_prompt = CONTINUATION_PROMPT
+
+    async def fake_send_message(session_id, prompt, hidden=False, **kwargs):
+        continues.append({"prompt": prompt, "hidden": hidden})
+
+    p_install_run_fakes(monkeypatch, fake_run_turn)
+    monkeypatch.setattr(agent_manager, "send_message", fake_send_message)
+
+    async def main():
+        await agent_manager.run_agent_loop(session.id, "audit everything")
+        await asyncio.sleep(0)
+
+    asyncio.run(main())
+    assert session.status == "completed"
+    assert session.needs_fresh_session is True
+    assert session.pending_continuation is False
+    assert continues == [{"prompt": CONTINUATION_PROMPT, "hidden": True}]

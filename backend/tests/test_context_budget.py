@@ -180,3 +180,55 @@ def test_recap_leaves_normal_messages_verbatim():
     assert clamp_recap_text(text) == text
     recap = build_history_prefix([Message(role="user", content=text)])
     assert text in recap and "elided" not in recap
+
+# ---- mid-turn breaker: one giant turn can't blow past every wall ------------
+
+from backend.apps.agents.manager.streaming.state import TurnState
+
+def p_usage(total: int) -> dict:
+    return {"input_tokens": total - 200, "cache_creation_input_tokens": 100, "cache_read_input_tokens": 100, "output_tokens": 5}
+
+
+def test_midturn_break_fires_on_crossing_and_arms_the_continuation():
+    s = p_session_with(messages=10, input_tokens=0, context_window=1_000_000)
+    t = TurnState()
+    assert cb.maybe_break_midturn(s, t, p_usage(50_000)) is False
+    assert t.saw_input_below_trigger is True
+    assert cb.maybe_break_midturn(s, t, p_usage(200_000)) is True
+    assert t.context_break_fired is True
+    assert s.needs_fresh_session is True
+    assert s.pending_continuation is True
+    assert s.compacted_through_msg_id is not None
+    assert s.tokens["input"] == 200_000
+
+
+def test_midturn_break_fires_once_per_turn():
+    s = p_session_with(messages=10, input_tokens=0, context_window=1_000_000)
+    t = TurnState()
+    cb.maybe_break_midturn(s, t, p_usage(50_000))
+    assert cb.maybe_break_midturn(s, t, p_usage(200_000)) is True
+    assert cb.maybe_break_midturn(s, t, p_usage(300_000)) is False
+
+
+def test_turn_already_over_trigger_at_start_never_breaks():
+    # A rebuild that failed to shrink must RUN, not break-loop forever.
+    s = p_session_with(messages=10, input_tokens=0, context_window=1_000_000)
+    t = TurnState()
+    assert cb.maybe_break_midturn(s, t, p_usage(500_000)) is False
+    assert cb.maybe_break_midturn(s, t, p_usage(600_000)) is False
+    assert t.context_break_fired is False
+
+
+def test_midturn_break_zero_or_garbage_usage_is_inert():
+    s = p_session_with(messages=10, input_tokens=7, context_window=1_000_000)
+    t = TurnState()
+    assert cb.maybe_break_midturn(s, t, {}) is False
+    assert cb.maybe_break_midturn(s, t, {"input_tokens": "nope"}) is False
+    assert s.tokens["input"] == 7
+
+
+def test_trigger_formula_matches_maybe_compact():
+    s = p_session_with(messages=10, input_tokens=0, context_window=1_000_000)
+    assert cb.compact_trigger_tokens(s) == 180_000
+    s2 = p_session_with(messages=10, input_tokens=0, context_window=200_000)
+    assert cb.compact_trigger_tokens(s2) == 130_000
