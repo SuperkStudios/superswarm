@@ -4,7 +4,7 @@ import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx } from './toolRowMotion';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import SearchIcon from '@mui/icons-material/Search';
@@ -101,6 +101,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
                 fontWeight: isPending ? 600 : 500,
                 flexShrink: 0,
                 transition: 'color 0.25s ease',
+                ...(isPending ? shimmerTextSx(c.accent.primary) : {}),
               }}
             >
               {serviceLabel}
@@ -155,7 +156,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           )}
           {canToggleDetails && (
             <IconButton size="small" sx={{ color: c.text.tertiary, p: 0.15, flexShrink: 0, opacity: 0, transition: 'opacity 120ms', '.osw-mcp-row:hover &': { opacity: 1 }, ...(showBody ? { opacity: 1 } : {}) }}>
-              {showBody ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+              <ExpandMoreIcon sx={{ fontSize: 16, ...chevronSx(showBody) }} />
             </IconButton>
           )}
         </Box>
@@ -177,10 +178,11 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
         )}
       </Box>
 
-      <Collapse in={showBody && canToggleDetails}>
+      <Collapse in={showBody && canToggleDetails} timeout={COLLAPSE_MS} easing={COLLAPSE_EASE}>
         <Box
           sx={{
             bgcolor: tc.TERM_BG,
+            borderRadius: 1.5,
             maxHeight: '60vh',
             overflowY: 'auto',
             overflowX: 'hidden',

@@ -4,7 +4,6 @@ import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
@@ -25,6 +24,7 @@ import { domainFromUrl } from './SourceFavicons';
 import { DomainIcon } from './DomainIcon';
 import VendoredToolUi from '@toolui/VendoredToolUi';
 import WidgetCopyChip from '../tool-ui/WidgetCopyChip';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx } from './toolRowMotion';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -119,6 +119,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
               fontWeight: isPending ? 600 : 500,
               flexShrink: 0,
               transition: 'color 0.25s ease',
+              ...(isPending ? shimmerTextSx(c.accent.primary) : {}),
             }}
           >
             {(() => {
@@ -197,18 +198,14 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
 
           {canToggleDetails && (
             <IconButton size="small" sx={{ color: c.text.tertiary, p: mcpCompact ? 0.15 : 0.25, flexShrink: 0, opacity: showBody ? 1 : 0, transition: 'opacity 120ms', '.osw-tool-row:hover &': { opacity: 1 } }}>
-              {showBody ? (
-                <ExpandLessIcon sx={{ fontSize: mcpCompact ? 16 : 18 }} />
-              ) : (
-                <ExpandMoreIcon sx={{ fontSize: mcpCompact ? 16 : 18 }} />
-              )}
+              <ExpandMoreIcon sx={{ fontSize: mcpCompact ? 16 : 18, ...chevronSx(showBody) }} />
             </IconButton>
           )}
         </Box>
 
-        <Collapse in={showBody && canToggleDetails}>
+        <Collapse in={showBody && canToggleDetails} timeout={COLLAPSE_MS} easing={COLLAPSE_EASE}>
         {/* Standalone rows hang their output off the indent rail; compact rows already sit inside the group's rail. */}
-        <Box sx={mcpCompact ? {} : { borderLeft: `2px solid ${c.border.medium}`, ml: 0.8, pl: 0.75, my: 0.25 }}>
+        <Box sx={mcpCompact ? { ...railEnterSx(showBody) } : { borderLeft: `2px solid ${c.border.medium}`, ml: 0.8, pl: 0.75, my: 0.25, ...railEnterSx(showBody) }}>
           {richRender ? (
             <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderRadius: 1.5, position: 'relative', '&:hover .osw-widget-copy': { opacity: 1 } }}>
               <WidgetCopyChip component={richRender.name} props={richRender.props} containerRef={richWidgetRef} />

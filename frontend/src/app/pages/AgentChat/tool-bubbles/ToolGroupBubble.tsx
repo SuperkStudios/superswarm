@@ -4,11 +4,11 @@ import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import CheckIcon from '@mui/icons-material/Check';
 import CircularProgress from '@mui/material/CircularProgress';
 import { summarizeToolGroup } from './summarizeToolGroup';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx, pressSx } from './toolRowMotion';
 import { AgentMessage, ToolGroupMeta } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useMountReveal } from './useMountReveal';
@@ -159,11 +159,12 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
               cursor: 'pointer',
               color: c.text.tertiary,
               '&:hover': { color: c.text.secondary },
+              ...pressSx,
             }}
           >
             {!allDone && <CircularProgress size={12} thickness={5} sx={{ color: c.accent.primary, flexShrink: 0 }} />}
             {webDomains && webDomains.length > 0 && <SourceFavicons domains={webDomains} size={16} />}
-            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'inherit' }}>
+            <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'inherit', ...(allDone ? {} : shimmerTextSx(c.accent.primary)) }}>
               {allDone ? (restingLabel ?? summarizeToolGroup(toolNames) ?? `Ran ${group.callCount} step${group.callCount === 1 ? '' : 's'}`) : (restingLabel ?? 'Working')}
             </Typography>
             {!allDone && group.callCount > 1 && (
@@ -181,7 +182,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
                 {deniedCount} denied
               </Typography>
             )}
-            <ExpandMoreIcon sx={{ fontSize: 15, transform: 'rotate(-90deg)' }} />
+            <ExpandMoreIcon sx={{ fontSize: 15, ...chevronSx(false) }} />
           </Box>
         ) : (
         <Box
@@ -193,6 +194,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
             py: 0.4,
             cursor: 'pointer',
             '&:hover': { opacity: 0.85 },
+            ...pressSx,
           }}
         >
           {!allDone ? (
@@ -219,6 +221,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
                 fontWeight: 600,
                 flex: 1,
                 transition: 'color 200ms ease',
+                ...(allDone ? {} : shimmerTextSx(c.accent.primary)),
               }}
             >
               {displayName}
@@ -237,12 +240,12 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
             </Typography>
           )}
           <IconButton size="small" sx={{ color: c.text.tertiary, p: 0.15 }}>
-            <ExpandLessIcon sx={{ fontSize: 16 }} />
+            <ExpandMoreIcon sx={{ fontSize: 16, ...chevronSx(true) }} />
           </IconButton>
         </Box>
         )}
 
-        <Collapse in={expanded}>
+        <Collapse in={expanded} timeout={COLLAPSE_MS} easing={COLLAPSE_EASE}>
           <Box
             sx={{
               // ChatGPT's indent rail: detail hangs off a thin rule under the row, no enclosing box.
@@ -250,8 +253,9 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
               ml: 0.8,
               pl: 0.75,
               my: 0.25,
+              ...railEnterSx(expanded),
               '& > *': {
-                animation: 'toolRowFadeIn 140ms ease-out backwards',
+                animation: `toolRowFadeIn ${COLLAPSE_MS}ms ${COLLAPSE_EASE} backwards`,
               },
               // Staggered entrance (assistant-ui's tool-group treatment): rows cascade instead of popping at once.
               '& > *:nth-of-type(2)': { animationDelay: '40ms' },
