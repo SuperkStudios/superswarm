@@ -121,12 +121,14 @@ export function useVoiceDictation() {
     void window.openswarm?.voiceWarmup?.();
     setPartial(null);
     partialSeqRef.current = 0;
+    let stream: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
     try {
       // Fire the OS mic prompt through the main process first: a packaged hardened-runtime build denies renderer getUserMedia outright until TCC granted (the prod dictation-dead cause, ENG-103).
       const micOk = await (window.openswarm as any)?.voiceRequestMicAccess?.() ?? true;
       if (micOk === false) { setError('mic-denied'); return; }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-      const ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
       const source = ctx.createMediaStreamSource(stream);
       const chunks: Float32Array[] = [];
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
@@ -151,6 +153,9 @@ export function useVoiceDictation() {
       playVoiceCue('start');
       void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
     } catch (err) {
+      // Release whatever was acquired before the failure, or the OS mic indicator stays lit forever on a half-started session.
+      try { stream?.getTracks().forEach((t) => t.stop()); } catch { /* already dead */ }
+      try { void ctx?.close(); } catch { /* already closed */ }
       const msg = err instanceof Error ? err.message : 'mic-unavailable';
       setError(msg);
       const denied = /NotAllowed|Permission|denied/i.test(msg);
