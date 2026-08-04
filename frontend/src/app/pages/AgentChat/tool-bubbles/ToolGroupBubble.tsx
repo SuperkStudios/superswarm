@@ -145,17 +145,9 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
         ...reveal,
       }}
     >
-      <Box
-        sx={{
-          ...(expanded && {
-            bgcolor: c.bg.elevated,
-            border: `1px solid ${c.border.subtle}`,
-            borderRadius: 2,
-            overflow: 'hidden',
-          }),
-        }}
-      >
-        {/* Collapsed = the quiet "N tool calls ›" line; the detail card only materializes on expand. */}
+      <Box>
+        {/* Both states stay FLAT (the Claude/ChatGPT transition language): expanding never draws a
+            box around the group, the detail hangs off a thin indent rail under the same quiet row. */}
         {!expanded ? (
           <Box
             onClick={() => { userToggledRef.current = true; setExpanded(true); }}
@@ -198,10 +190,9 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
             display: 'flex',
             alignItems: 'center',
             gap: 0.75,
-            px: 1.5,
-            py: 0.7,
+            py: 0.4,
             cursor: 'pointer',
-            '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' },
+            '&:hover': { opacity: 0.85 },
           }}
         >
           {!allDone ? (
@@ -254,7 +245,11 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
         <Collapse in={expanded}>
           <Box
             sx={{
-              borderTop: `0.5px solid ${c.border.medium}`,
+              // ChatGPT's indent rail: detail hangs off a thin rule under the row, no enclosing box.
+              borderLeft: `2px solid ${c.border.medium}`,
+              ml: 0.8,
+              pl: 0.75,
+              my: 0.25,
               '& > *': {
                 animation: 'toolRowFadeIn 140ms ease-out backwards',
               },

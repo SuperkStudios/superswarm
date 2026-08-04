@@ -84,31 +84,21 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
         ...enterStyle,
       }}
     >
-      <Box
-        sx={{
-          '--glow-rgb': accentRgb,
-          // A resting row is FLAT (Claude/ChatGPT transition language): the elevated card with a
-          // border only materializes when the row is expanded to show its output. The capsule-per-row
-          // look made every tool call shout.
-          bgcolor: mcpCompact || !showBody ? 'transparent' : c.bg.elevated,
-          border: mcpCompact || !showBody ? 'none' : `1px solid ${isDenied ? c.status.error + '60' : c.border.subtle}`,
-          borderRadius: mcpCompact ? 0 : 2,
-          overflow: 'hidden',
-          transition: 'border-color 0.3s, background-color 0.3s',
-        } as any}
-      >
+      <Box sx={{ '--glow-rgb': accentRgb } as any}>
         <Box
           className="osw-tool-row"
           onClick={canToggleDetails ? toggle : undefined}
           sx={{
+            // Rows are FLAT in every state (Claude/ChatGPT transition language): no capsule at rest,
+            // no box on expand; the output hangs off the indent rail below.
             display: 'flex',
             alignItems: 'center',
             gap: 0.75,
-            px: mcpCompact || showBody ? 1.5 : 0,
+            px: mcpCompact ? 1.5 : 0,
             py: mcpCompact ? 0.6 : 0.5,
             cursor: canToggleDetails ? 'pointer' : 'default',
-            borderBottom: showBody && canToggleDetails ? `1px solid ${c.border.subtle}` : 'none',
-            '&:hover': canToggleDetails ? { bgcolor: 'rgba(0,0,0,0.02)' } : {},
+            borderBottom: mcpCompact && showBody && canToggleDetails ? `1px solid ${c.border.subtle}` : 'none',
+            '&:hover': canToggleDetails ? { opacity: 0.9 } : {},
           }}
         >
           {/* Accent is a LIVE signal only: a finished row goes neutral so a 20-row group reads as calm history, not a wall of orange (open-webui's state language). */}
@@ -149,8 +139,8 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             </Typography>
           )}
           {/* A Bash label is already input-derived ("Checked location"), so its raw command fragment
-              is noise at rest; it reappears with the expanded card where the full output lives. */}
-          {inputSummary && !isStreaming && (!/^bash$/i.test(toolName) || showBody || mcpCompact) ? (
+              is noise; the expanded terminal block shows the full command anyway. */}
+          {inputSummary && !isStreaming && (!/^bash$/i.test(toolName) || mcpCompact) ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
               {webDomain && <DomainIcon domain={webDomain} size={13} />}
               <Typography
@@ -217,8 +207,10 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
         </Box>
 
         <Collapse in={showBody && canToggleDetails}>
+        {/* Standalone rows hang their output off the indent rail; compact rows already sit inside the group's rail. */}
+        <Box sx={mcpCompact ? {} : { borderLeft: `2px solid ${c.border.medium}`, ml: 0.8, pl: 0.75, my: 0.25 }}>
           {richRender ? (
-            <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderTop: `1px solid ${tc.TERM_BORDER}`, position: 'relative', '&:hover .osw-widget-copy': { opacity: 1 } }}>
+            <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderRadius: 1.5, position: 'relative', '&:hover .osw-widget-copy': { opacity: 1 } }}>
               <WidgetCopyChip component={richRender.name} props={richRender.props} containerRef={richWidgetRef} />
               <Box ref={richWidgetRef}>
                 <VendoredToolUi name={richRender.name} props={richRender.props} />
@@ -233,7 +225,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
           <Box
             sx={{
               bgcolor: tc.TERM_BG,
-              borderTop: `1px solid ${tc.TERM_BORDER}`,
+              borderRadius: 1.5,
               maxHeight: 500,
               overflow: 'auto',
               '&::-webkit-scrollbar': { width: 5 },
@@ -368,6 +360,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             )}
           </Box>
           )}
+        </Box>
         </Collapse>
       </Box>
     </Box>
