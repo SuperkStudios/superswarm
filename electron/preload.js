@@ -69,6 +69,16 @@ contextBridge.exposeInMainWorld('openswarm', {
   voiceSetModel: (id) => ipcRenderer.invoke('voice:set-model', id),
   voiceTranscribe: (wavArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wavArrayBuffer),
   voiceInject: (text) => ipcRenderer.invoke('voice:inject', text),
+  // Streaming dictation: chunks flow up fire-and-forget, live partials flow back down.
+  voiceStreamStart: () => ipcRenderer.invoke('voice:stream-start'),
+  voiceStreamChunk: (pcmArrayBuffer) => ipcRenderer.send('voice:stream-chunk', pcmArrayBuffer),
+  voiceStreamStop: () => ipcRenderer.invoke('voice:stream-stop'),
+  voiceStreamCancel: () => ipcRenderer.send('voice:stream-cancel'),
+  onVoicePartial: (cb) => {
+    const listener = (_event, payload) => cb(payload);
+    ipcRenderer.on('voice:partial', listener);
+    return () => ipcRenderer.removeListener('voice:partial', listener);
+  },
   onVoiceToggle: (cb) => {
     const listener = () => cb();
     ipcRenderer.on('voice:toggle', listener);

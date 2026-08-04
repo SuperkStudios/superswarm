@@ -1,5 +1,6 @@
 const { app, components, BrowserWindow, ipcMain, shell, session, dialog, crashReporter, powerMonitor, Menu, clipboard, globalShortcut } = require('electron');
 const whisperService = require('./voice/whisperService');
+const { createStreamingSession } = require('./voice/streamingSession');
 const whisperModels = require('./voice/whisperModels');
 const { injectText } = require('./voice/textInjector');
 
@@ -3053,6 +3054,31 @@ ipcMain.handle('voice:set-model', (_e, id) => {
 // Paste the text into the frontmost app (dictate-anywhere). Returns whether the OS paste actually fired.
 ipcMain.handle('voice:inject', async (_e, text) => {
   try { const pasted = await injectText(String(text || '')); return { ok: true, pasted }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
+});
+// Streaming dictation: renderer streams worklet PCM here; the session re-decodes the open phrase on
+// the warm server and pushes live partials back. One session at a time; a new start evicts the old.
+let voiceStream = null;
+ipcMain.handle('voice:stream-start', () => {
+  if (voiceStream) voiceStream.cancel();
+  voiceStream = createStreamingSession({
+    resourceDir: voiceResourceDir(),
+    userDataDir: voiceUserDataDir(),
+    onPartial: (p) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('voice:partial', p); },
+  });
+  return { ok: true };
+});
+ipcMain.on('voice:stream-chunk', (_e, chunk) => {
+  try { if (voiceStream) voiceStream.pushChunk(Buffer.from(chunk)); } catch (_) { /* a bad chunk never kills the session */ }
+});
+ipcMain.handle('voice:stream-stop', async () => {
+  const s = voiceStream;
+  voiceStream = null;
+  if (!s) return { ok: false, error: 'no-session' };
+  try { return await s.stop(); } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }
+});
+ipcMain.on('voice:stream-cancel', () => {
+  if (voiceStream) voiceStream.cancel();
+  voiceStream = null;
 });
 // Sync mirrors so preload.js can expose window.openswarm synchronously (no await), closing the race where React renders before the async exposure resolves and window.openswarm is briefly undefined. backendPort is assigned in app.whenReady before any BrowserWindow is created, so it is always set by the time preload runs.
 ipcMain.on('get-backend-port-sync', (event) => { event.returnValue = backendPort; });
