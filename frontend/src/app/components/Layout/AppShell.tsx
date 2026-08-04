@@ -26,6 +26,7 @@ import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
+import ShareRequestHost from '@/app/components/share/ShareRequestHost';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
@@ -573,6 +574,8 @@ const AppShell: React.FC = () => {
       <React.Suspense fallback={null}>
         <Settings />
       </React.Suspense>
+
+      <ShareRequestHost />
 
     </Box>
   );
