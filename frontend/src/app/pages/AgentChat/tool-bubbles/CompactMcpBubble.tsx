@@ -183,7 +183,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           sx={{
             bgcolor: tc.TERM_BG,
             borderRadius: 1.5,
-            maxHeight: '60vh',
+            maxHeight: 'min(40vh, 320px)',
             overflowY: 'auto',
             overflowX: 'hidden',
             '&::-webkit-scrollbar': { width: 5 },

@@ -223,7 +223,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             sx={{
               bgcolor: tc.TERM_BG,
               borderRadius: 1.5,
-              maxHeight: 500,
+              maxHeight: 'min(40vh, 320px)',
               overflow: 'auto',
               '&::-webkit-scrollbar': { width: 5 },
               '&::-webkit-scrollbar-track': { background: 'transparent' },
