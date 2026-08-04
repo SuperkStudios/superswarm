@@ -8,7 +8,7 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import CheckIcon from '@mui/icons-material/Check';
 import CircularProgress from '@mui/material/CircularProgress';
 import { summarizeToolGroup } from './summarizeToolGroup';
-import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx, pressSx } from './toolRowMotion';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx, pressSx, keepRowAnchored } from './toolRowMotion';
 import { AgentMessage, ToolGroupMeta } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useMountReveal } from './useMountReveal';
@@ -150,7 +150,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
             box around the group, the detail hangs off a thin indent rail under the same quiet row. */}
         {!expanded ? (
           <Box
-            onClick={() => { userToggledRef.current = true; setExpanded(true); }}
+            onClick={(e: React.MouseEvent) => { keepRowAnchored(e.currentTarget as HTMLElement); userToggledRef.current = true; setExpanded(true); }}
             sx={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -186,7 +186,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
           </Box>
         ) : (
         <Box
-          onClick={() => { userToggledRef.current = true; setExpanded(false); }}
+          onClick={(e: React.MouseEvent) => { keepRowAnchored(e.currentTarget as HTMLElement); userToggledRef.current = true; setExpanded(false); }}
           sx={{
             display: 'flex',
             alignItems: 'center',

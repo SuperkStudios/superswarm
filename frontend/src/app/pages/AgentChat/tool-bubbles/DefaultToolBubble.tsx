@@ -24,7 +24,7 @@ import { domainFromUrl } from './SourceFavicons';
 import { DomainIcon } from './DomainIcon';
 import VendoredToolUi from '@toolui/VendoredToolUi';
 import WidgetCopyChip from '../tool-ui/WidgetCopyChip';
-import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx } from './toolRowMotion';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, railEnterSx, keepRowAnchored } from './toolRowMotion';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -87,7 +87,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
       <Box sx={{ '--glow-rgb': accentRgb } as any}>
         <Box
           className="osw-tool-row"
-          onClick={canToggleDetails ? toggle : undefined}
+          onClick={canToggleDetails ? (e: React.MouseEvent) => { keepRowAnchored(e.currentTarget as HTMLElement); toggle(); } : undefined}
           sx={{
             // Rows are FLAT in every state (Claude/ChatGPT transition language): no capsule at rest,
             // no box on expand; the output hangs off the indent rail below.

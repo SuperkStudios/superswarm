@@ -11,7 +11,7 @@ import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
 import { AgentResponseBody } from './AgentResponseBody';
-import { chevronSx, shimmerTextSx, railEnterSx, pressSx } from './toolRowMotion';
+import { chevronSx, shimmerTextSx, railEnterSx, pressSx, keepRowAnchored } from './toolRowMotion';
 
 interface CreateAgentBubbleProps {
   call: AgentMessage;
@@ -47,7 +47,7 @@ export const CreateAgentBubble: React.FC<CreateAgentBubbleProps> = ({
       {/* Flat row like every other tool disclosure: no capsule, accent + shimmer only while live. */}
       <Box
         className="osw-tool-row"
-        onClick={toggle}
+        onClick={(e: React.MouseEvent) => { keepRowAnchored(e.currentTarget as HTMLElement); toggle(); }}
         sx={{
           display: 'flex',
           alignItems: 'center',

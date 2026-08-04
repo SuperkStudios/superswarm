@@ -49,3 +49,25 @@ export const pressSx: Record<string, unknown> = {
   transition: 'transform 100ms ease',
   '&:active': { transform: 'scale(0.98)' },
 };
+
+// assistant-ui's scroll lock, anchored: while a disclosure animates, the clicked row keeps its exact
+// viewport Y (the scroller compensates per frame), so collapsing a tall block never jumps the page.
+export function keepRowAnchored(rowEl: HTMLElement | null): void {
+  if (!rowEl) return;
+  let scroller: HTMLElement | null = rowEl.parentElement;
+  while (scroller) {
+    const style = getComputedStyle(scroller);
+    if (/(auto|scroll)/.test(style.overflowY) && scroller.scrollHeight > scroller.clientHeight) break;
+    scroller = scroller.parentElement;
+  }
+  if (!scroller) return;
+  const anchorY = rowEl.getBoundingClientRect().top;
+  let raf = 0;
+  const step = (): void => {
+    const dy = rowEl.getBoundingClientRect().top - anchorY;
+    if (dy !== 0) scroller!.scrollTop += dy;
+    raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+  window.setTimeout(() => cancelAnimationFrame(raf), COLLAPSE_MS + 80);
+}

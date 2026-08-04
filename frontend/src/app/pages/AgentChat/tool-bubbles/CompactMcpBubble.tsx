@@ -4,7 +4,7 @@ import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx } from './toolRowMotion';
+import { COLLAPSE_MS, COLLAPSE_EASE, chevronSx, shimmerTextSx, keepRowAnchored } from './toolRowMotion';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import SearchIcon from '@mui/icons-material/Search';
@@ -79,7 +79,7 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
   return (
     <Box {...selectAttrs} sx={{ my: 0 }}>
       <Box
-        onClick={canToggleDetails ? toggle : undefined}
+        onClick={canToggleDetails ? (e: React.MouseEvent) => { keepRowAnchored(e.currentTarget as HTMLElement); toggle(); } : undefined}
         sx={{
           cursor: canToggleDetails ? 'pointer' : 'default',
           borderBottom: showBody && canToggleDetails ? `1px solid ${c.border.subtle}` : 'none',
