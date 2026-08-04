@@ -9,7 +9,7 @@ import VoiceOverlay from './VoiceOverlay';
 // out-of-sync state. Mounted once near the app root.
 
 export function VoiceDictationProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const { state, lastText, error, pct, feedback, toggle, start, stop, volumeRef } = useVoiceDictation();
+  const { state, lastText, error, pct, feedback, partial, toggle, start, stop, volumeRef } = useVoiceDictation();
   const holdMode = useAppSelector((s) => s.settings.data.voice_hold_to_talk ?? true);
   const dictationShortcut = useAppSelector((s) => s.settings.data.dictation_shortcut ?? null);
   const dictationModel = useAppSelector((s) => s.settings.data.dictation_model ?? null);
@@ -62,7 +62,7 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   }, [pressStart, pressEnd]);
 
   return (
-    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, toggle, pressStart, pressEnd, holdMode, volumeRef }}>
+    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, partial, toggle, pressStart, pressEnd, holdMode, volumeRef }}>
       {children}
       <VoiceOverlay />
     </VoiceContext.Provider>

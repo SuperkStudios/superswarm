@@ -180,8 +180,26 @@ function feedbackIcon(icon: string): React.ReactElement {
   return <InfoOutlinedIcon sx={{ fontSize: 15, color: 'rgba(255,255,255,0.8)' }} />;
 }
 
+// Live transcript preview: committed phrases solid, the in-flight hypothesis dimmed. Tail-clamped
+// so the newest words are always the visible ones (openwhispr's preview overlay behavior).
+const PREVIEW_TAIL_CHARS = 220;
+
+const LiveTranscript: React.FC<{ committed: string; tentative: string }> = ({ committed, tentative }) => {
+  const total = committed.length + tentative.length;
+  const over = total - PREVIEW_TAIL_CHARS;
+  const shownCommitted = over > 0 ? `…${committed.slice(Math.min(over, committed.length))}` : committed;
+  return (
+    <Box component="span" sx={{ maxWidth: 560, lineHeight: 1.45, whiteSpace: 'normal' }}>
+      <Box component="span">{shownCommitted}</Box>
+      {tentative && (
+        <Box component="span" sx={{ opacity: 0.55 }}>{shownCommitted ? ' ' : ''}{tentative}</Box>
+      )}
+    </Box>
+  );
+};
+
 const VoiceOverlay: React.FC = () => {
-  const { state, pct, feedback, volumeRef } = useVoice();
+  const { state, pct, feedback, partial, volumeRef } = useVoice();
   const [showFeedback, setShowFeedback] = useState(false);
 
   useEffect(() => {
@@ -201,12 +219,18 @@ const VoiceOverlay: React.FC = () => {
     </>
   ) : null;
 
+  const hasPartial = !!partial && !!(partial.committed || partial.tentative);
   let content: React.ReactElement | null;
   if (state === 'recording') {
-    // The aurora IS the listening indicator; a pill on top of it read as clutter.
-    content = null;
+    // The aurora says "listening"; the card appears only once there are live words to show.
+    content = hasPartial ? <LiveTranscript committed={partial.committed} tentative={partial.tentative} /> : null;
   } else if (state === 'transcribing') {
-    content = (<><CircularProgress size={13} thickness={5} sx={{ color: 'rgba(255,255,255,0.7)' }} /><span>Transcribing</span></>);
+    content = (
+      <>
+        <CircularProgress size={13} thickness={5} sx={{ color: 'rgba(255,255,255,0.7)' }} />
+        {hasPartial ? <LiveTranscript committed={partial.committed} tentative={partial.tentative} /> : <span>Transcribing</span>}
+      </>
+    );
   } else if (state === 'preparing') {
     content = (<><CircularProgress size={13} thickness={5} sx={{ color: 'rgba(255,255,255,0.7)' }} /><span>Downloading voice model {pct}%</span></>);
   } else if (feedback) {

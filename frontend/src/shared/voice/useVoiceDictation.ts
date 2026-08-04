@@ -4,19 +4,30 @@ import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
 import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 import { createSilenceDetector } from './createSilenceDetector';
+import { getPcmWorkletUrl } from './getPcmWorkletUrl';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
 
+// Live transcript preview: committed phrases are decoded once and never rewritten; the tentative
+// tail is the latest hypothesis for the phrase still being spoken.
+export interface VoicePartial {
+  committed: string;
+  tentative: string;
+}
+
 // WhisperFlow-style push-to-dictate: toggle recording (global hotkey or a mic), speak, and the
-// transcribed text is pasted into whatever field has focus. Capture is 16kHz mono PCM so it feeds
-// whisper.cpp with no server-side resample. The recording path can only be proven with a real mic;
+// transcribed text is pasted into whatever field has focus. Capture is 16kHz mono PCM off the audio
+// thread (AudioWorklet) so it feeds whisper.cpp with no server-side resample, and the same chunks
+// stream to main for live partials. The recording path can only be proven with a real mic;
 // the encode -> transcribe -> inject half is exercised by the encoder round-trip test.
 interface Recorder {
   ctx: AudioContext;
   stream: MediaStream;
-  node: ScriptProcessorNode;
+  node: AudioWorkletNode;
   source: MediaStreamAudioSourceNode;
   chunks: Float32Array[];
+  flushed: Promise<void>;
+  streaming: boolean;
 }
 
 // One object per terminal outcome so the overlay's effect always re-fires (new identity every time).
@@ -60,6 +71,8 @@ export function useVoiceDictation() {
   const [error, setError] = useState<string | null>(null);
   const [pct, setPct] = useState<number>(0);
   const [feedback, setFeedback] = useState<VoiceFeedback | null>(null);
+  const [partial, setPartial] = useState<VoicePartial | null>(null);
+  const partialSeqRef = useRef<number>(0);
   const recRef = useRef<Recorder | null>(null);
   const stateRef = useRef<VoiceState>('idle');
   // Live mic level (0..1) for the aurora; a ref, not state, so 60Hz visuals never re-render React.
@@ -104,19 +117,33 @@ export function useVoiceDictation() {
     if (stateRef.current !== 'idle') return;
     if (!window.openswarm?.voiceTranscribe) { setError('desktop-only'); return; } // no Electron bridge = web build
     setError(null);
+    // Warm on the DOWN edge, before the mic prompt, so the model load overlaps the user starting to speak.
+    void window.openswarm?.voiceWarmup?.();
+    setPartial(null);
+    partialSeqRef.current = 0;
     try {
       // Fire the OS mic prompt through the main process first: a packaged hardened-runtime build denies renderer getUserMedia outright until TCC granted (the prod dictation-dead cause, ENG-103).
       const micOk = await (window.openswarm as any)?.voiceRequestMicAccess?.() ?? true;
       if (micOk === false) { setError('mic-denied'); return; }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
       const ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+      await ctx.audioWorklet.addModule(getPcmWorkletUrl());
       const source = ctx.createMediaStreamSource(stream);
-      const node = ctx.createScriptProcessor(4096, 1, 1);
+      const node = new AudioWorkletNode(ctx, 'pcm-streaming-processor');
       const chunks: Float32Array[] = [];
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
-      node.onaudioprocess = (e): void => {
-        const data = e.inputBuffer.getChannelData(0);
-        chunks.push(new Float32Array(data));
+      const streamRes = await window.openswarm?.voiceStreamStart?.();
+      const streaming = streamRes?.ok === true;
+      let flushResolve: () => void = () => {};
+      const flushed = new Promise<void>((resolve) => { flushResolve = resolve; });
+      node.port.onmessage = (e: MessageEvent): void => {
+        if (e.data === 'flushed') { flushResolve(); return; }
+        const ab = e.data as ArrayBuffer;
+        if (streaming) window.openswarm?.voiceStreamChunk?.(ab);
+        const i16 = new Int16Array(ab);
+        const data = new Float32Array(i16.length);
+        for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
+        chunks.push(data);
         // RMS per chunk drives the aurora; smoothed so it breathes instead of flickering.
         let sum = 0;
         for (let i = 0; i < data.length; i += 8) sum += data[i] * data[i];
@@ -126,12 +153,10 @@ export function useVoiceDictation() {
       };
       source.connect(node);
       node.connect(ctx.destination);
-      recRef.current = { ctx, stream, node, source, chunks };
+      recRef.current = { ctx, stream, node, source, chunks, flushed, streaming };
       setState('recording');
       playVoiceCue('start');
       void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
-      // Warm the model the moment recording begins so transcription is instant on stop.
-      void window.openswarm?.voiceWarmup?.();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'mic-unavailable';
       setError(msg);
@@ -143,14 +168,35 @@ export function useVoiceDictation() {
 
   const stop = useCallback(async (): Promise<void> => {
     if (stateRef.current !== 'recording') return;
+    const rec = recRef.current;
+    const streaming = rec?.streaming === true;
+    // Drain the worklet's last partial buffer before teardown (1s watchdog: a wedged worklet costs 50ms of tail, not a hang).
+    if (rec) {
+      try { rec.node.port.postMessage('stop'); } catch (_) { /* node already gone */ }
+      await Promise.race([rec.flushed, new Promise<void>((resolve) => window.setTimeout(resolve, 1000))]);
+    }
     const samples = teardown();
     playVoiceCue('stop');
     void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('alignment');
     setState('transcribing');
     try {
-      if (!samples || samples.length < VOICE_SAMPLE_RATE * 0.2) { setState('idle'); return; } // < 0.2s = a misfire
-      const wav = encodeWav(samples);
-      const res = await window.openswarm?.voiceTranscribe?.(wav);
+      if (!samples || samples.length < VOICE_SAMPLE_RATE * 0.2) { // < 0.2s = a misfire
+        if (streaming) window.openswarm?.voiceStreamCancel?.();
+        setPartial(null);
+        setState('idle');
+        return;
+      }
+      // The streamed assembly (each phrase decoded once at its boundary) is the fast path: stop only
+      // pays for the final open phrase. Any doubt (degraded, empty) falls back to one full-clip decode.
+      let res: { ok: boolean; text?: string; error?: string } | undefined;
+      if (streaming) {
+        const sres = await window.openswarm?.voiceStreamStop?.();
+        if (sres?.ok && sres.text && !sres.degraded) res = { ok: true, text: sres.text };
+      }
+      if (!res) {
+        const wav = encodeWav(samples);
+        res = await window.openswarm?.voiceTranscribe?.(wav);
+      }
       if (res?.ok && res.text) {
         // WhisperFlow-style cleanup: punctuation + filler words via the cheap aux tier, fail-open to
         // the raw transcript on any error/timeout so dictation never breaks with the aux down.
@@ -203,8 +249,26 @@ export function useVoiceDictation() {
     return () => { off?.(); };
   }, [toggle]);
 
+  // Live partials from the main-process streaming session; the seq guard drops anything a stale
+  // session (previous recording's in-flight decode) manages to emit after a new one started.
+  useEffect(() => {
+    const off = window.openswarm?.onVoicePartial?.((p) => {
+      if (p.seq <= partialSeqRef.current) return;
+      partialSeqRef.current = p.seq;
+      if (stateRef.current === 'recording' || stateRef.current === 'transcribing') {
+        setPartial({ committed: p.committed, tentative: p.tentative });
+      }
+    });
+    return () => { off?.(); };
+  }, []);
+
+  // The preview belongs to a live session only; any terminal state clears it in one place.
+  useEffect(() => {
+    if (state === 'idle' || state === 'preparing') setPartial(null);
+  }, [state]);
+
   // A dangling recorder (unmount mid-capture) must release the mic.
   useEffect(() => () => { teardown(); }, [teardown]);
 
-  return { state, lastText, error, pct, feedback, toggle, start, stop, volumeRef };
+  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, volumeRef };
 }

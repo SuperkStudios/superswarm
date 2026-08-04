@@ -86,6 +86,11 @@ declare global {
     voiceSetModel?: (id: string) => Promise<{ ok: boolean; ready: boolean }>;
     voiceTranscribe?: (wav: ArrayBuffer) => Promise<{ ok: boolean; text?: string; error?: string }>;
     voiceInject?: (text: string) => Promise<{ ok: boolean; pasted?: boolean; error?: string }>;
+    voiceStreamStart?: () => Promise<{ ok: boolean; error?: string }>;
+    voiceStreamChunk?: (pcm: ArrayBuffer) => void;
+    voiceStreamStop?: () => Promise<{ ok: boolean; text?: string; degraded?: boolean; error?: string }>;
+    voiceStreamCancel?: () => void;
+    onVoicePartial?: (cb: (p: { committed: string; tentative: string; seq: number }) => void) => () => void;
     onVoiceToggle?: (cb: () => void) => () => void;
     voiceHoldCapable?: () => Promise<boolean>;
     voiceRequestHoldPermission?: () => Promise<boolean>;
