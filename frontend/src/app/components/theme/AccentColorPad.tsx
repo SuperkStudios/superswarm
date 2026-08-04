@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Minus, Plus, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Minus, Monitor, Moon, Plus, Sparkles, Sun } from 'lucide-react';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
-import { Knob } from './WashDials';
+import { Knob, SquiggleSlider } from './WashDials';
 import { HARMONY_BY_COUNT, clampToPad, harmonyPositions, hexToPos, posToHex, type PadGeom, type PadPoint } from './zenColorMath';
 
 export const ACCENT_PRESETS = [
@@ -13,25 +13,34 @@ const MAX_STOPS = 3;
 
 export interface WashControls {
   opacity: number;
+  grain: number;
   onOpacity: (v: number) => void;
+  onGrain: (v: number) => void;
 }
 
-// Zen Browser's picker model, ported one-for-one (minus their texture dial): a circular pad where
-// only the PRIMARY dot is draggable, secondaries ride the color harmony at the same radius, + and -
-// promote/demote the harmony, the cycle button rotates same-count harmonies, and a right-click on
-// the pad removes the newest dot. The pad still just reports hex stops; nobody downstream changed.
+export interface SchemeControls {
+  value: 'light' | 'dark' | 'system';
+  onPick: (v: 'light' | 'dark' | 'system') => void;
+}
+
+// Zen's picker, both temperaments: every dot drags FREELY (grab any dot, place it anywhere), and the
+// sparkle button harmonizes: secondaries snap to color-theory offsets around the primary and follow
+// it until a secondary is grabbed again. + adds a harmonized color without disturbing placed dots,
+// right-click removes the newest. Scheme trio (light/dark/system) rides the pad like Zen's.
 const AccentColorPad: React.FC<{
   c: ClaudeTokens;
   stops: string[];
   onChange: (stops: string[] | null) => void;
   height?: number;
   wash?: WashControls;
-}> = ({ c, stops, onChange, height = 240, wash }) => {
+  scheme?: SchemeControls;
+}> = ({ c, stops, onChange, height = 240, wash, scheme }) => {
   const padRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
+  const grabbedRef = useRef<number | null>(null);
   const lastApplyRef = useRef(0);
   const [presetPage, setPresetPage] = useState(0);
-  // Which harmony within the current count family; Zen's cycle button rotates this.
+  // Freeform = dots are independent (the old behavior); harmony mode makes secondaries follow the primary.
+  const [freeform, setFreeform] = useState(true);
   const [harmonyIdx, setHarmonyIdx] = useState(0);
   const presetPages = Math.ceil(ACCENT_PRESETS.length / PRESETS_PER_PAGE);
   const harmony = (HARMONY_BY_COUNT[stops.length] ?? ['floating'])[harmonyIdx % (HARMONY_BY_COUNT[stops.length]?.length ?? 1)];
@@ -44,14 +53,14 @@ const AccentColorPad: React.FC<{
     return { rect, g };
   }, []);
 
-  // The primary drives everything: secondaries are regenerated from its position + the harmony.
-  const emitFromPrimary = useCallback((px: number, py: number, count: number, harm: string) => {
+  const dotPositions = useMemo((): PadPoint[] => {
     const g = geometry();
-    if (!g) return;
-    const primary = clampToPad(px, py, g.g);
-    const secondaries = harmonyPositions(primary, g.g, harm).slice(0, count - 1);
-    onChange([primary, ...secondaries].map((p: PadPoint) => posToHex(p.x, p.y, g.g)));
-  }, [geometry, onChange]);
+    if (!g || stops.length === 0) return [];
+    if (freeform) return stops.map((hex) => hexToPos(hex, g.g));
+    const primary = hexToPos(stops[0], g.g);
+    return [primary, ...harmonyPositions(primary, g.g, harmony).slice(0, stops.length - 1)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops, harmony, freeform, geometry, padRef.current]);
 
   const applyAt = useCallback((clientX: number, clientY: number) => {
     // ~30ms throttle: a live listener re-derives tokens and re-renders the tree per apply.
@@ -60,70 +69,92 @@ const AccentColorPad: React.FC<{
     lastApplyRef.current = now;
     const g = geometry();
     if (!g) return;
-    emitFromPrimary(clientX - g.rect.left, clientY - g.rect.top, Math.max(1, stops.length), harmony);
-  }, [geometry, emitFromPrimary, stops.length, harmony]);
+    const p = clampToPad(clientX - g.rect.left, clientY - g.rect.top, g.g);
+    const hex = posToHex(p.x, p.y, g.g);
+    const idx = grabbedRef.current ?? 0;
+    if (stops.length === 0) { onChange([hex]); return; }
+    if (!freeform && idx === 0) {
+      // Harmony mode: the primary drags, the family follows.
+      const secondaries = harmonyPositions(p, g.g, harmony).slice(0, stops.length - 1);
+      onChange([hex, ...secondaries.map((sp) => posToHex(sp.x, sp.y, g.g))]);
+      return;
+    }
+    onChange(stops.map((s, i) => (i === idx ? hex : s)));
+  }, [geometry, stops, freeform, harmony, onChange]);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button === 2) return;
-    draggingRef.current = true;
+    const g = geometry();
+    if (!g) return;
+    // Grab the nearest dot; grabbing a SECONDARY breaks harmony into freeform (your dot, your spot).
+    let best = 0;
+    let bestDist = Infinity;
+    dotPositions.forEach((p, i) => {
+      const dx = g.rect.left + p.x - e.clientX;
+      const dy = g.rect.top + p.y - e.clientY;
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    grabbedRef.current = best;
+    if (best > 0 && !freeform) setFreeform(true);
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     lastApplyRef.current = 0;
     applyAt(e.clientX, e.clientY);
-  }, [applyAt]);
+  }, [geometry, dotPositions, freeform, applyAt]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (draggingRef.current) applyAt(e.clientX, e.clientY);
+    if (grabbedRef.current !== null) applyAt(e.clientX, e.clientY);
   }, [applyAt]);
 
-  const onPointerUp = useCallback(() => { draggingRef.current = false; }, []);
+  const onPointerUp = useCallback(() => { grabbedRef.current = null; }, []);
 
-  // Zen: right-click removes the newest dot (demoting the harmony).
+  // Zen: right-click removes the newest dot.
   const onContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     if (stops.length <= 1) return;
-    setHarmonyIdx(0);
-    const g = geometry();
-    if (!g) { onChange(stops.slice(0, -1)); return; }
-    const p = hexToPos(stops[0], g.g);
-    emitFromPrimary(p.x, p.y, stops.length - 1, (HARMONY_BY_COUNT[stops.length - 1] ?? ['floating'])[0]);
-  }, [stops, geometry, emitFromPrimary, onChange]);
+    onChange(stops.slice(0, -1));
+  }, [stops, onChange]);
 
-  const changeCount = useCallback((delta: number) => {
-    const count = Math.min(MAX_STOPS, Math.max(1, stops.length + delta));
-    if (count === stops.length) return;
-    setHarmonyIdx(0);
+  const addStop = useCallback(() => {
+    if (stops.length >= MAX_STOPS) return;
     const g = geometry();
-    const harm = (HARMONY_BY_COUNT[count] ?? ['floating'])[0];
-    if (!g || stops.length === 0) { onChange(stops.length === 0 ? [ACCENT_PRESETS[0]] : stops.slice(0, count)); return; }
-    const p = hexToPos(stops[0], g.g);
-    emitFromPrimary(p.x, p.y, count, harm);
-  }, [stops, geometry, emitFromPrimary, onChange]);
+    if (!g || stops.length === 0) { onChange([...(stops.length ? stops : [ACCENT_PRESETS[0]])]); return; }
+    // New color comes from the harmony family of the primary; existing dots stay where they are.
+    const primary = hexToPos(stops[0], g.g);
+    const family = (HARMONY_BY_COUNT[stops.length + 1] ?? ['floating'])[0];
+    const positions = harmonyPositions(primary, g.g, family);
+    const next = positions[stops.length - 1] ?? positions[0];
+    onChange([...stops, next ? posToHex(next.x, next.y, g.g) : stops[0]]);
+  }, [stops, geometry, onChange]);
 
-  const cycleHarmony = useCallback(() => {
+  const removeStop = useCallback(() => {
+    if (stops.length <= 1) return;
+    onChange(stops.slice(0, -1));
+  }, [stops, onChange]);
+
+  // The sparkle: snap into (or rotate) the color-theory harmony for this dot count.
+  const harmonize = useCallback(() => {
     const family = HARMONY_BY_COUNT[stops.length] ?? ['floating'];
-    if (family.length < 2) return;
-    const nextIdx = (harmonyIdx + 1) % family.length;
+    const nextIdx = freeform ? harmonyIdx : (harmonyIdx + 1) % family.length;
+    setFreeform(false);
     setHarmonyIdx(nextIdx);
     const g = geometry();
-    if (!g) return;
-    const p = hexToPos(stops[0], g.g);
-    emitFromPrimary(p.x, p.y, stops.length, family[nextIdx]);
-  }, [stops, harmonyIdx, geometry, emitFromPrimary]);
-
-  // Dot render positions: primary from its stored color, secondaries re-derived from the harmony.
-  const dotPositions = useMemo((): PadPoint[] => {
-    const g = geometry();
-    if (!g || stops.length === 0) return [];
+    if (!g || stops.length === 0) return;
     const primary = hexToPos(stops[0], g.g);
-    return [primary, ...harmonyPositions(primary, g.g, harmony).slice(0, stops.length - 1)];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops, harmony, geometry, padRef.current]);
+    const secondaries = harmonyPositions(primary, g.g, family[nextIdx]).slice(0, stops.length - 1);
+    onChange([stops[0], ...secondaries.map((sp) => posToHex(sp.x, sp.y, g.g))]);
+  }, [stops, freeform, harmonyIdx, geometry, onChange]);
 
-  const btn = (disabled: boolean): React.CSSProperties => ({
-    width: 26, height: 22, borderRadius: 7, border: 'none', cursor: disabled ? 'default' : 'pointer',
-    background: 'rgba(20,20,19,0.55)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    opacity: disabled ? 0.4 : 1,
-  });
+  const padBtn: React.CSSProperties = {
+    width: 30, height: 26, borderRadius: 8, border: 'none',
+    background: 'rgba(255,255,255,0.09)', color: 'rgba(255,255,255,0.85)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+    transition: 'background 120ms ease',
+  };
+
+  const SCHEMES: Array<{ key: 'light' | 'dark' | 'system'; Icon: typeof Sun }> = [
+    { key: 'light', Icon: Sun }, { key: 'dark', Icon: Moon }, { key: 'system', Icon: Monitor },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, width: '100%' }}>
@@ -144,30 +175,53 @@ const AccentColorPad: React.FC<{
           backgroundSize: '12px 12px, auto',
         }}
       >
+        {scheme && (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 9, padding: 3 }}
+          >
+            {SCHEMES.map(({ key, Icon }) => (
+              <button
+                key={key}
+                onClick={() => scheme.onPick(key)}
+                title={key.charAt(0).toUpperCase() + key.slice(1)}
+                style={{
+                  width: 26, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: scheme.value === key ? c.accent.primary : 'transparent',
+                  color: scheme.value === key ? '#fff' : 'rgba(255,255,255,0.55)',
+                  transition: 'background 140ms ease, color 140ms ease',
+                }}
+              >
+                <Icon size={13} />
+              </button>
+            ))}
+          </div>
+        )}
         {dotPositions.map((p, i) => (
           <span key={i} style={{
             position: 'absolute', left: p.x, top: p.y,
             transform: 'translate(-50%, -50%)',
-            width: i === 0 ? 28 : 20, height: i === 0 ? 28 : 20,
+            width: i === 0 ? 28 : 22, height: i === 0 ? 28 : 22,
             borderRadius: 999, background: stops[i],
             border: i === 0 ? '3px solid #fff' : '2px solid rgba(255,255,255,0.75)',
             boxShadow: '0 2px 8px rgba(0,0,0,0.35)', pointerEvents: 'none',
-            transition: draggingRef.current ? 'none' : 'left 300ms cubic-bezier(0.34,1.4,0.64,1), top 300ms cubic-bezier(0.34,1.4,0.64,1)',
+            transition: grabbedRef.current !== null ? 'none' : 'left 300ms cubic-bezier(0.34,1.4,0.64,1), top 300ms cubic-bezier(0.34,1.4,0.64,1)',
           }} />
         ))}
         <div
           onPointerDown={(e) => e.stopPropagation()}
-          style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 6 }}
+          style={{ position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 9, padding: 3 }}
         >
-          <button onClick={() => changeCount(-1)} disabled={stops.length <= 1} style={btn(stops.length <= 1)}>
+          <button onClick={removeStop} disabled={stops.length <= 1} title="Remove a color" style={{ ...padBtn, opacity: stops.length <= 1 ? 0.35 : 1, cursor: stops.length <= 1 ? 'default' : 'pointer' }}>
             <Minus size={13} />
           </button>
-          <button onClick={() => changeCount(1)} disabled={stops.length >= MAX_STOPS} style={btn(stops.length >= MAX_STOPS)}>
+          <button onClick={addStop} disabled={stops.length >= MAX_STOPS} title="Add a color" style={{ ...padBtn, opacity: stops.length >= MAX_STOPS ? 0.35 : 1, cursor: stops.length >= MAX_STOPS ? 'default' : 'pointer' }}>
             <Plus size={13} />
           </button>
-          {(HARMONY_BY_COUNT[stops.length]?.length ?? 0) > 1 && (
-            <button onClick={cycleHarmony} title="Cycle color harmony" style={btn(false)}>
-              <RefreshCw size={12} />
+          {stops.length > 1 && (
+            <button onClick={harmonize} title="Harmonize: snap the other dots to color theory around your first color" style={{ ...padBtn, ...(freeform ? {} : { background: c.accent.primary, color: '#fff' }) }}>
+              <Sparkles size={13} />
             </button>
           )}
         </div>
@@ -184,7 +238,7 @@ const AccentColorPad: React.FC<{
         {ACCENT_PRESETS.slice(presetPage * PRESETS_PER_PAGE, (presetPage + 1) * PRESETS_PER_PAGE).map((hex) => (
           <button
             key={hex}
-            onClick={() => { setHarmonyIdx(0); onChange([hex]); }}
+            onClick={() => { setFreeform(true); onChange([hex]); }}
             style={{
               width: 26, height: 26, borderRadius: 999, background: hex, cursor: 'pointer',
               border: stops[0] === hex && stops.length === 1 ? '2.5px solid #fff' : '2.5px solid transparent',
@@ -200,7 +254,7 @@ const AccentColorPad: React.FC<{
           <ChevronRight size={15} />
         </button>
         <button
-          onClick={() => { setHarmonyIdx(0); onChange(null); }}
+          onClick={() => { setFreeform(true); onChange(null); }}
           style={{
             marginLeft: 'auto', border: 'none', background: 'transparent', padding: 0,
             color: '#8a8a86', fontSize: '0.8125rem', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
@@ -209,9 +263,10 @@ const AccentColorPad: React.FC<{
           Reset
         </button>
       </div>
-      {/* Intensity knob only; the grain squiggle is gone on purpose (Eric's call, one dial fewer). */}
+      {/* Arc's dials row: wavy line = grain, round knob = intensity. */}
       {wash && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 14, color: c.text.tertiary }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, color: c.text.tertiary }}>
+          <SquiggleSlider value={wash.grain} onChange={wash.onGrain} width={190} />
           <Knob value={wash.opacity} onChange={wash.onOpacity} />
         </div>
       )}

@@ -23,7 +23,7 @@ const GeneralInterface: React.FC<{
   styles: SettingsStyles;
 }> = ({ form, setForm, styles }) => {
   const c = useClaudeTokens();
-  const { washOpacity, setWashOpacity } = useThemeWash();
+  const { washOpacity, grain, setWashOpacity, setGrain } = useThemeWash();
   const { fieldSx, sectionSx, rowSx, rowLastSx, inlineRowSx, inlineRowLastSx, labelSx, descSx, toggleGroupSx, switchSx } = styles;
 
   return (
@@ -131,7 +131,11 @@ const GeneralInterface: React.FC<{
           stops={form.accent_gradient ?? (form.accent_color ? [form.accent_color] : [])}
           onChange={(next) => setForm({ ...form, accent_color: next?.[0] ?? null, accent_gradient: next && next.length > 1 ? next : null })}
           height={120}
-          wash={{ opacity: washOpacity, onOpacity: setWashOpacity }}
+          wash={{ opacity: washOpacity, grain, onOpacity: setWashOpacity, onGrain: setGrain }}
+          scheme={{
+            value: form.theme === 'dark' ? 'dark' : 'light',
+            onPick: (v) => setForm({ ...form, theme: v === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : v }),
+          }}
         />
       </Box>
 
