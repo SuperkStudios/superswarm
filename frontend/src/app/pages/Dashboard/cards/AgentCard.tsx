@@ -703,6 +703,14 @@ const AgentCard: React.FC<Props> = ({
   );
   // Drafts collapse to the pill like everything else; only a pending approval keeps the full card, since you have to see what you are approving.
   const pillMode = !expanded && !hasPending && !tileZone;
+
+  // Two-phase expand: mounting a long transcript synchronously inside the expand click blocked its paint for ~630ms (the measured INP worst case), so the click paints the expanded shell first and the chat mounts on the next frame.
+  const [chatMounted, setChatMounted] = useState(false);
+  useEffect(() => {
+    if (!expanded) { setChatMounted(false); return undefined; }
+    const raf = requestAnimationFrame(() => setChatMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, [expanded]);
   // Glass bubble + fullscreen scrim are both dark in either theme, so the title goes light on them.
   const titleColor = expanded ? GLASS_SURFACE_TEXT : c.text.primary;
   // The answer a finished turn actually spoke, for pills with no widget/plan to show. Only the last assistant say, never a tool line.
@@ -1240,17 +1248,21 @@ const AgentCard: React.FC<Props> = ({
           }}
         >
           <DarkTokensScope>
-            <AgentChat
-              key={session.id}
-              sessionId={session.id}
-              onClose={() => dispatch(collapseSession(session.id))}
-              embedded
-              fullscreenChat={isFullscreen}
-              autoFocus={autoFocusInput}
-              isGlowing={isGlowingRedux && !glowFading}
-              onDismissGlow={dismissGlow}
-              onBranch={onBranch ? (newId: string) => onBranch(session.id, newId) : undefined}
-            />
+            {chatMounted ? (
+              <AgentChat
+                key={session.id}
+                sessionId={session.id}
+                onClose={() => dispatch(collapseSession(session.id))}
+                embedded
+                fullscreenChat={isFullscreen}
+                autoFocus={autoFocusInput}
+                isGlowing={isGlowingRedux && !glowFading}
+                onDismissGlow={dismissGlow}
+                onBranch={onBranch ? (newId: string) => onBranch(session.id, newId) : undefined}
+              />
+            ) : (
+              <Box sx={{ flex: 1 }} />
+            )}
           </DarkTokensScope>
         </Box>
       )}
