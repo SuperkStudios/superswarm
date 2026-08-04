@@ -24,6 +24,11 @@ function isCardTarget(target: EventTarget | null, boundary: EventTarget | null):
 
 const CONTROL_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A', 'WEBVIEW']);
 
+function cardIsDocked(id: string): boolean {
+  const dl = store.getState().dashboardLayout;
+  return !!(dl.browserCards[id]?.docked_to || dl.viewCards[id]?.docked_to);
+}
+
 // True when the press landed on a real control (text field, button, browser URL bar/tabs, note textarea, webview) rather than the card's frame. Walk up ONLY to the card root so a button living above the card never counts.
 function pressLandedOnControl(target: EventTarget | null | undefined): boolean {
   let el = target as HTMLElement | null;
@@ -89,6 +94,9 @@ export function useDashboardInteractions({
     // A tiled (fullscreen/snapped) card is pinned Arc-style: clicking inside it must not collapse
     // it or glide the camera; it leaves the mode via its own controls (yellow, Esc, dock swap).
     if (store.getState().dashboardLayout.tiledCards[id]) return;
+
+    // A docked mini lives INSIDE a chat; getCardRect knows only its undocked home, so a fit here flies the camera to an empty patch of canvas.
+    if (cardIsDocked(id)) return;
 
     // Single-click on an already-expanded chat is focus, never collapse: the old delayed-collapse
     // toggle made a click land, collapse the chat, and force a second click to reopen ("takes
@@ -244,6 +252,7 @@ export function useDashboardInteractions({
     dispatch(bringToFront({ id, type }));
     setFocusedCardId(id);
     if (store.getState().dashboardLayout.tiledCards[id]) return;
+    if (cardIsDocked(id)) return;
     setTimeout(() => {
       const rect = getCardRect(id, type);
       if (rect) canvas.actions.fitToCards([rect], 1.15, true);

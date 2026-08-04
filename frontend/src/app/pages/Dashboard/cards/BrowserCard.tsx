@@ -1353,6 +1353,7 @@ const BrowserCard: React.FC<Props> = ({
 
       {/* ====== Navigation bar ====== */}
       <Box
+        data-card-control="true"
         sx={{
           display: 'flex',
           alignItems: 'center',
