@@ -1604,6 +1604,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
           <Box
             ref={scrollContainerRef}
             onScroll={handleScroll}
+            // Right-clicking transcript CONTENT gets the OS text menu (copy, spellcheck), never the card menu with Delete chat in it.
+            data-chat-transcript
             sx={{
               height: '100%',
               overflow: 'auto',

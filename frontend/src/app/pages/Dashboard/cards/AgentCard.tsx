@@ -820,7 +820,7 @@ const AgentCard: React.FC<Props> = ({
         e.stopPropagation();
         onDoubleClick?.(session.id, 'agent');
       }}
-      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; openCardContextMenu(e, {
+      onContextMenu={(e: React.MouseEvent) => { if (isNativeMenuTarget(e)) return; if ((e.target as HTMLElement).closest?.('[data-chat-transcript]')) return; openCardContextMenu(e, {
         rename: { value: displayChatTitle(session), onCommit: (name) => dispatch(renameSession({ sessionId: session.id, name })) },
         items: agentCardMenuRows({
           session, dispatch, expanded, tileZone, expandedSessionIds,
