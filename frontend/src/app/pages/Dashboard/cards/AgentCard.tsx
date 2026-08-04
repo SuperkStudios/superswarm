@@ -40,6 +40,7 @@ import AgentNarratorPill from '../desktop/AgentNarratorPill';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
 import { agentCardMenuRows } from './agentCardMenuRows';
 import { extractLatestTodos } from '../desktop/agentTodos';
+import { extractLiveSteps } from '../desktop/agentLiveSteps';
 import { extractLatestShowUi, extractPendingAskUi, freezeIfDone } from '@/app/pages/AgentChat/tool-ui/showUiPayload';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useBrowserPillShot } from '../desktop/useBrowserPillShot';
@@ -693,6 +694,10 @@ const AgentCard: React.FC<Props> = ({
   // Desktop-shell narrator pill: a collapsed card with nothing to ask renders as the minimal pill
   // (live turn label + plan checklist); approvals and drafts keep the full card so their UI has a home.
   const todos = useMemo(() => extractLatestTodos(session.messages || []), [session.messages]);
+  const liveSteps = useMemo(
+    () => (session.status === 'running' ? extractLiveSteps(session.messages || []) : null),
+    [session.messages, session.status],
+  );
   const pillArtifact = useMemo(() => {
     const artifact = extractLatestShowUi(session.messages || []);
     return artifact ? freezeIfDone(artifact, session.status === 'running') : null;
@@ -1032,6 +1037,7 @@ const AgentCard: React.FC<Props> = ({
             label={pillLabel}
             running={pillRunning}
             todos={todos}
+            liveSteps={liveSteps}
             artifact={pillArtifact}
             askPair={pillAskPair}
             sessionId={session.id}
