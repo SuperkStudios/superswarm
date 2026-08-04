@@ -41,6 +41,7 @@ export function useCardDrag({
   const edgePanFrameRef = useRef<number | null>(null);
   const lastMousePosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const lastEdgeTickMsRef = useRef<number | null>(null);
+  const vpRectRef = useRef<DOMRect | null>(null);
 
   const stopEdgePan = useCallback(() => {
     if (edgePanFrameRef.current !== null) {
@@ -48,13 +49,16 @@ export function useCardDrag({
       edgePanFrameRef.current = null;
     }
     lastEdgeTickMsRef.current = null;
+    vpRectRef.current = null;
   }, []);
 
   const tickEdgePan = useCallback(() => {
-    edgePanFrameRef.current = null;
     const vp = viewportRef.current;
-    // Re-arm only while a card is still held, so a drag that ended without a pointerup can't leave the canvas panning forever.
-    if (!vp || !activeDragCardRef.current) return;
+    // Stop only when the card is gone, so a drag that ended without a pointerup can't leave the canvas panning forever.
+    if (!vp || !activeDragCardRef.current) {
+      edgePanFrameRef.current = null;
+      return;
+    }
 
     const now = performance.now();
     // Capped so a background-tab stall can't bank up into one giant jump on the next tick.
@@ -62,13 +66,14 @@ export function useCardDrag({
     lastEdgeTickMsRef.current = now;
     const speed = EDGE_MAX_SPEED_PX_S * (frameMs / 1000);
 
-    const rect = vp.getBoundingClientRect();
+    // Cached at arm time: a live getBoundingClientRect here forces layout every frame, interleaved with the pan's style writes.
+    const rect = vpRectRef.current ?? (vpRectRef.current = vp.getBoundingClientRect());
     const { x: mx, y: my } = lastMousePosRef.current;
     const dx = speed * axisIntensity(mx, rect.left, rect.right);
     const dy = speed * axisIntensity(my, rect.top, rect.bottom);
 
     if (dx !== 0 || dy !== 0) {
-      // Live-only write (no React commit per frame); clearDrag commits once when the drag ends.
+      // Live-only write (no React commit per frame); clearDrag commits once when the drag ends. panBy synchronously fans out pan-changed, which re-enters handleCardDragMove; the ref MUST still be non-null here or every tick arms a duplicate rAF and the loop doubles per frame (the 1.7.2 edge-pan lag).
       canvasActions.panBy(dx, dy);
     }
 
@@ -77,7 +82,8 @@ export function useCardDrag({
 
   const handleCardDragStart = useCallback((id: string, type: CardType) => {
     activeDragCardRef.current = id;
-    if (selection.isSelected(id)) {
+    // Multi only when there is actually company: a lone selected card on this path made every drag after the first pay a setState per frame.
+    if (selection.isSelected(id) && selection.selectedArray().length > 1) {
       isMultiDragRef.current = true;
     } else {
       // Grabbing an unselected card SELECTS just it (was deselectAll, which left nothing selected, so the next spawn had no anchor and flew to viewport-center far from the card you just moved). Also survives the stale-read where the capture-phase click already selected it.
