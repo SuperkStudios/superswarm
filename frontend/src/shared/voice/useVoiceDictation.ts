@@ -4,7 +4,7 @@ import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
 import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 import { createSilenceDetector } from './createSilenceDetector';
-import { getPcmWorkletUrl } from './getPcmWorkletUrl';
+import { createCaptureNode } from './createCaptureNode';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
 
@@ -23,10 +23,10 @@ export interface VoicePartial {
 interface Recorder {
   ctx: AudioContext;
   stream: MediaStream;
-  node: AudioWorkletNode;
+  node: AudioNode;
+  requestFlush: () => Promise<void>;
   source: MediaStreamAudioSourceNode;
   chunks: Float32Array[];
-  flushed: Promise<void>;
   streaming: boolean;
 }
 
@@ -127,20 +127,13 @@ export function useVoiceDictation() {
       if (micOk === false) { setError('mic-denied'); return; }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
       const ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
-      await ctx.audioWorklet.addModule(getPcmWorkletUrl());
       const source = ctx.createMediaStreamSource(stream);
-      const node = new AudioWorkletNode(ctx, 'pcm-streaming-processor');
       const chunks: Float32Array[] = [];
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
       const streamRes = await window.openswarm?.voiceStreamStart?.();
       const streaming = streamRes?.ok === true;
-      let flushResolve: () => void = () => {};
-      const flushed = new Promise<void>((resolve) => { flushResolve = resolve; });
-      node.port.onmessage = (e: MessageEvent): void => {
-        if (e.data === 'flushed') { flushResolve(); return; }
-        const ab = e.data as ArrayBuffer;
-        if (streaming) window.openswarm?.voiceStreamChunk?.(ab);
-        const i16 = new Int16Array(ab);
+      const capture = await createCaptureNode(ctx, (i16) => {
+        if (streaming) window.openswarm?.voiceStreamChunk?.(i16.buffer as ArrayBuffer);
         const data = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
         chunks.push(data);
@@ -150,10 +143,10 @@ export function useVoiceDictation() {
         const rms = Math.sqrt(sum / (data.length / 8));
         volumeRef.current = volumeRef.current * 0.7 + Math.min(1, rms * 6) * 0.3;
         if (endpointer && endpointer.push(data) !== 'listening') void stopRef.current?.();
-      };
-      source.connect(node);
-      node.connect(ctx.destination);
-      recRef.current = { ctx, stream, node, source, chunks, flushed, streaming };
+      });
+      source.connect(capture.node);
+      capture.node.connect(ctx.destination);
+      recRef.current = { ctx, stream, node: capture.node, requestFlush: capture.requestFlush, source, chunks, streaming };
       setState('recording');
       playVoiceCue('start');
       void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
@@ -170,11 +163,8 @@ export function useVoiceDictation() {
     if (stateRef.current !== 'recording') return;
     const rec = recRef.current;
     const streaming = rec?.streaming === true;
-    // Drain the worklet's last partial buffer before teardown (1s watchdog: a wedged worklet costs 50ms of tail, not a hang).
-    if (rec) {
-      try { rec.node.port.postMessage('stop'); } catch (_) { /* node already gone */ }
-      await Promise.race([rec.flushed, new Promise<void>((resolve) => window.setTimeout(resolve, 1000))]);
-    }
+    // Drain the capture's last partial buffer before teardown (worklet flush carries its own 1s watchdog).
+    if (rec) await rec.requestFlush();
     const samples = teardown();
     playVoiceCue('stop');
     void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('alignment');

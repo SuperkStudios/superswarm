@@ -1,8 +1,7 @@
 // OpenWhispr's capture worklet, ported near-verbatim (MIT): 800-sample Int16 buffers (50ms at
 // 16kHz) posted with transferables off the audio thread, plus a "stop" -> drain -> "flushed"
-// handshake so the tail of an utterance is never lost at teardown. Replaces the deprecated
-// main-thread ScriptProcessorNode.
-const WORKLET_SOURCE = `
+// handshake so the tail of an utterance is never lost at teardown. A real static asset, not a blob
+// URL: worklet module fetches obey script-src, and the app's CSP deliberately has no blob: there.
 const BUFFER_SIZE = 800;
 class PCMStreamingProcessor extends AudioWorkletProcessor {
   constructor() {
@@ -11,14 +10,14 @@ class PCMStreamingProcessor extends AudioWorkletProcessor {
     this.offset = 0;
     this.stopped = false;
     this.port.onmessage = (event) => {
-      if (event.data === "stop") {
+      if (event.data === 'stop') {
         if (this.offset > 0) {
           const partial = this.buffer.slice(0, this.offset);
           this.port.postMessage(partial.buffer, [partial.buffer]);
           this.buffer = new Int16Array(BUFFER_SIZE);
           this.offset = 0;
         }
-        this.port.postMessage("flushed");
+        this.port.postMessage('flushed');
         this.stopped = true;
       }
     };
@@ -39,12 +38,4 @@ class PCMStreamingProcessor extends AudioWorkletProcessor {
     return true;
   }
 }
-registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
-`;
-
-let cachedUrl: string | null = null;
-
-export function getPcmWorkletUrl(): string {
-  if (!cachedUrl) cachedUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: 'application/javascript' }));
-  return cachedUrl;
-}
+registerProcessor('pcm-streaming-processor', PCMStreamingProcessor);
