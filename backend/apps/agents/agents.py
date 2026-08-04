@@ -67,6 +67,20 @@ async def list_sessions(dashboard_id: str = ""):
     sessions = agent_manager.get_all_sessions(dashboard_id=dashboard_id or None)
     return {"sessions": [p_session_list_item(s) for s in sessions]}
 
+@agents.router.get("/sessions/{session_id}/followups")
+async def predict_followups_route(session_id: str, count: int = 3):
+    """Chat-specific next-message suggestions in the user's own voice. Empty until the
+    conversation has >= 2 real exchanges; always empty rather than erroring."""
+    session = agent_manager.sessions.get(session_id)
+    if not session:
+        try:
+            session = await agent_manager.resume_session(session_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="session not found")
+    from backend.apps.agents.manager.predict_followups import predict_followups
+    return {"suggestions": await predict_followups(session, count=max(1, min(count, 5)))}
+
+
 @agents.router.get("/predict-prompts")
 async def predict_prompts_route(count: int = 5):
     """Guess a few prompts the user might type next, in their own voice, from what they've already

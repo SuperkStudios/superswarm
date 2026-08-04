@@ -69,6 +69,7 @@ import ForceStopAgentBar from './ForceStopAgentBar';
 import { RateLimitPill } from './shell/RateLimitPill';
 import { ContextRecoveredPill } from './shell/ContextRecoveredPill';
 import ChatInput, { ChatInputHandle } from './ChatInput';
+import FollowupChips from './FollowupChips';
 import ContextDrawer from './shell/ContextDrawer';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 import { ContextPath } from '@/app/components/editor/DirectoryBrowser';
@@ -2434,6 +2435,13 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 <Box sx={{ position: 'relative' }}>
                   <WorkflowModelNotice c={c} label={workflowModelNotice} />
                   <FreeTrialModelNotice c={c} notice={freeTrialModelNotice} />
+                  <FollowupChips
+                    sessionId={id}
+                    busy={agentBusy}
+                    messageCount={session?.messages?.length ?? 0}
+                    enabled={!isDraft && !readOnly && !runContext}
+                    onPick={(p) => handleSend(p)}
+                  />
                   <ChatInput
                   ref={chatInputRef}
                   onSend={handleSend}
