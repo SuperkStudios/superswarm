@@ -115,21 +115,24 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
             '&:hover': canToggleDetails ? { bgcolor: 'rgba(0,0,0,0.02)' } : {},
           }}
         >
+          {/* Accent is a LIVE signal only: a finished row goes neutral so a 20-row group reads as calm history, not a wall of orange (open-webui's state language). */}
           {mcpInfo.isMcp && mcpInfo.service
             ? <GoogleServiceIcon service={mcpInfo.service} size={mcpCompact ? 14 : 15} />
             : (() => {
                 const n = toolName.toLowerCase();
+                const p_iconColor = isPending ? c.accent.primary : c.text.tertiary;
                 if (n.includes('search') || n === 'grep' || n === 'glob')
-                  return <SearchIcon sx={{ fontSize: mcpCompact ? 14 : 15, color: c.accent.primary, flexShrink: 0 }} />;
-                return <TerminalIcon sx={{ fontSize: mcpCompact ? 14 : 15, color: c.accent.primary, flexShrink: 0 }} />;
+                  return <SearchIcon sx={{ fontSize: mcpCompact ? 14 : 15, color: p_iconColor, flexShrink: 0 }} />;
+                return <TerminalIcon sx={{ fontSize: mcpCompact ? 14 : 15, color: p_iconColor, flexShrink: 0 }} />;
               })()
           }
           <Typography
             sx={{
-              color: c.accent.primary,
+              color: isPending ? c.accent.primary : c.text.secondary,
               fontSize: mcpCompact ? '0.78rem' : '0.8rem',
-              fontWeight: 600,
+              fontWeight: isPending ? 600 : 500,
               flexShrink: 0,
+              transition: 'color 0.25s ease',
             }}
           >
             {(() => {

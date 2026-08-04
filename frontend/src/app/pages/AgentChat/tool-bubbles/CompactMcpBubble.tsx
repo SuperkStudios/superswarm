@@ -96,10 +96,11 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
           {!hideVerbLabel && !isWebRow && (
             <Typography
               sx={{
-                color: c.accent.primary,
+                color: isPending ? c.accent.primary : c.text.secondary,
                 fontSize: '0.75rem',
-                fontWeight: 600,
+                fontWeight: isPending ? 600 : 500,
                 flexShrink: 0,
+                transition: 'color 0.25s ease',
               }}
             >
               {serviceLabel}
