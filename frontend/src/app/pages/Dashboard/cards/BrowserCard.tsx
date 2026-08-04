@@ -1095,11 +1095,11 @@ const BrowserCard: React.FC<Props> = ({
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
         willChange: 'transform',
-        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (dockActive ? dockRect!.x : (dragging ? cardX : displayX)),
-        top: dockActive ? dockRect!.y : (dragging ? cardY : displayY),
         // Docked = a TRUE miniature: the card keeps its full-size layout and shrinks by uniform
-        // transform, so the page never reflows and the agent's position-based clicks stay valid.
+        // transform (centered in the slot), so the page never reflows and agent clicks stay valid.
         // Resizing the webview to the slot re-rendered the page as a narrow window, which is wrong.
+        left: keepAliveHidden || isMinimized || dockParked ? -100000 : (dockActive ? dockRect!.x + (dockRect!.w - displayW * Math.min(dockRect!.w / displayW, dockRect!.h / displayH)) / 2 : (dragging ? cardX : displayX)),
+        top: dockActive ? dockRect!.y + (dockRect!.h - displayH * Math.min(dockRect!.w / displayW, dockRect!.h / displayH)) / 2 : (dragging ? cardY : displayY),
         transform: tiledSize ? undefined : (dragging ? `translate3d(${dragTx}px, ${dragTy}px, 0)` : dockActive ? `scale(${Math.min(dockRect!.w / displayW, dockRect!.h / displayH)})` : undefined),
         transformOrigin: tiledSize || dockActive ? '0 0' : undefined,
         width: tiledSize ? tiledSize.width : displayW,
@@ -1834,8 +1834,8 @@ const BrowserCard: React.FC<Props> = ({
         )}
       </Box>
 
-      {/* Resize handles */}
-      {HANDLE_DEFS.map(({ dir, sx }) => (
+      {/* Resize handles; a docked mini's size follows the slot, so grabbing an edge used to pop it out of the chat mid-gesture. */}
+      {!dockActive && HANDLE_DEFS.map(({ dir, sx }) => (
         <Box
           key={dir}
           className="resize-handle"

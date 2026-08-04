@@ -63,7 +63,7 @@ import ToolCallBubble, { ToolPair } from './tool-bubbles/ToolCallBubble';
 import ToolGroupBubble, { RenderItem, ToolGroup, ToolGroupEntry, isToolGroup, isToolPair } from './tool-bubbles/ToolGroupBubble';
 import ToolUiBubble from './tool-ui/ToolUiBubble';
 import AskUiBubble from './tool-ui/AskUiBubble';
-import { isShowUiPair, isAskUiPair } from './tool-ui/showUiPayload';
+import { isShowUiPair, isAskUiPair, extractPendingAskUi } from './tool-ui/showUiPayload';
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ForceStopAgentBar from './ForceStopAgentBar';
 import { RateLimitPill } from './shell/RateLimitPill';
@@ -1062,6 +1062,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   }, [activeBranchMessages, session?.system_prompt, session?.tokens?.input, session?.context_window, streamingMessageId, model, modelsByProvider]);
 
   const sessionRunning = session?.status === 'running' || session?.status === 'waiting_approval';
+  const lastPendingAskCallId = useMemo(
+    () => extractPendingAskUi(session?.messages || [])?.call.id ?? null,
+    [session?.messages],
+  );
 
   const renderItems: RenderItem[] = useMemo(() => {
     const items: RenderItem[] = [];
@@ -1717,6 +1721,16 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               if (isToolPair(item)) {
                 const isPending = item.result === null && sessionRunning;
                 if (isAskUiPair(item)) {
+                  // Only the LATEST unanswered question is live (the backend parks one component); an
+                  // older pending ask renders as a quiet row instead of a second clickable form.
+                  if (item.result === null && lastPendingAskCallId !== null && item.call.id !== lastPendingAskCallId) {
+                    return (
+                      <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
+                        <ToolCallBubble call={item.call} result={item.result} isPending={false} sessionId={session.id} suppressReveal />
+                        {compactionChip}
+                      </Box>
+                    );
+                  }
                   return (
                     <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
                       <AskUiBubble pair={item} sessionId={session.id} isPending={isPending} suppressReveal={item.call.id === justStreamedId} />
@@ -2417,9 +2431,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                     minHeight: 180,
                     mx: 1.5,
                     mb: 1,
-                    borderRadius: '10px',
-                    border: `1px dashed ${c.border.medium}`,
-                    background: c.bg.secondary,
+                    // Pure geometry: the docked mini overlays this rect, so any visible chrome here
+                    // (the old dashed outline) just framed the letterbox margins as an ugly gap.
                   }}
                 />
               )}
