@@ -64,6 +64,7 @@ import ToolGroupBubble, { RenderItem, ToolGroup, ToolGroupEntry, isToolGroup, is
 import ToolUiBubble from './tool-ui/ToolUiBubble';
 import AskUiBubble from './tool-ui/AskUiBubble';
 import { isShowUiPair, isAskUiPair, extractPendingAskUi } from './tool-ui/showUiPayload';
+import { composerPlaceholder } from './composerPlaceholder';
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ForceStopAgentBar from './ForceStopAgentBar';
 import { RateLimitPill } from './shell/RateLimitPill';
@@ -2464,7 +2465,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                   sessionId={id}
                   autoFocus={autoFocus}
                   prefillPrompt={prefillPrompt}
-                  placeholderOverride={runContext ? 'Ask about this run...' : embedded ? 'Send a message...' : undefined}
+                  placeholderOverride={runContext ? 'Ask about this run...' : embedded ? composerPlaceholder(session.id, (session.messages || []).some((mm) => mm.role === 'assistant')) : undefined}
                   runContext={runContext}
                   onClearRunContext={onClearRunContext}
                   thinkingLevel={session?.thinking_level ?? 'auto'}
