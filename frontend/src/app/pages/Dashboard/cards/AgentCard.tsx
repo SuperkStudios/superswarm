@@ -458,6 +458,10 @@ const AgentCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // A fullscreen window has no drag (macOS rule); arming the machinery here let a title wiggle
+    // untile the card mid-click and a plain click wipe tiledGeometry's camera transform, which is
+    // the "fullscreen shifted left with the traffic lights cut off" bug.
+    if (tiling.zone === 'fullscreen') return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
@@ -539,10 +543,10 @@ const AgentCard: React.FC<Props> = ({
       dispatch(setCardPosition({ sessionId: session.id, x: finalX, y: finalY }));
       justDraggedRef.current = true;
       requestAnimationFrame(() => { justDraggedRef.current = false; });
+      // Drop the imperative drag transform in the SAME frame the committed position lands, or the card paints double-offset for a beat. Only when this drag actually wrote it: on a tiled card the transform belongs to tiledGeometry, and clearing it on a plain click shifted the tile by the camera offset.
+      const el = cardBoxRef.current as HTMLElement | null;
+      if (el) el.style.transform = '';
     }
-    // Drop the imperative drag transform in the SAME frame the committed position lands, or the card paints double-offset for a beat.
-    const el = cardBoxRef.current as HTMLElement | null;
-    if (el) el.style.transform = '';
     onDragEnd?.(dx, dy, didDrag.current);
     dragState.current = null;
     didDrag.current = false;

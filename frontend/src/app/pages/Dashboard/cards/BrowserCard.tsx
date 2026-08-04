@@ -769,6 +769,8 @@ const BrowserCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // Fullscreen has no drag (macOS rule); same title-wiggle untile hazard as AgentCard.
+    if (tiling.zone === 'fullscreen') return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();
