@@ -88,8 +88,11 @@ try {
 }
 
 // Capture every main-process throw we can. Without these, a throw inside an IPC handler or BrowserWindow event listener can die silently and look indistinguishable from a renderer crash in the trace.
+const crashReports = require('./crashReports');
+crashReports.init(app, null);
 process.on('uncaughtException', (err) => {
   console.error('[diag][main:uncaughtException]', err && err.stack || err);
+  crashReports.writeCrashReport('main-uncaught-exception', { message: String(err && err.message || err), stack: String(err && err.stack || '') });
 });
 process.on('unhandledRejection', (reason) => {
   console.error('[diag][main:unhandledRejection]', reason && reason.stack || reason);
@@ -98,6 +101,10 @@ process.on('unhandledRejection', (reason) => {
 // child-process-gone fires for GPU/utility/renderer process deaths. The GPU one is especially useful: a GPU crash forces the renderer to recover its compositor, and that recovery can itself crash on Windows.
 app.on('child-process-gone', (_event, details) => {
   console.error('[diag][main:child-process-gone]', JSON.stringify(details));
+  // Clean exits and user kills are not crashes; reporting them would bury the real ones.
+  if (details && details.reason && details.reason !== 'clean-exit' && details.reason !== 'killed') {
+    crashReports.writeCrashReport('child-process-gone', details);
+  }
 });
 // Platform-split auto-updater: electron-updater on Mac (full-featured), Electron's
 // built-in autoUpdater on Windows (Squirrel.Windows target; electron-updater dropped Squirrel).
@@ -1199,6 +1206,7 @@ function markBackendReady() {
     // Read lazily: mainWindow is replaced by recreateMainWindow, so a captured value goes stale.
     workflowsLifecycle.setNotificationTarget(() => mainWindow);
     workflowsLifecycle.startPolling();
+    crashReports.init(app, (payload) => { try { workflowsLifecycle.showNativeNotification(payload); } catch (_) {} });
   } catch (_) {}
   try { connectMainBridge(); } catch (_) {}
 }

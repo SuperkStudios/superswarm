@@ -409,6 +409,17 @@ class WebSocketManager {
           if (data.status === 'running' && session_id) {
             store.dispatch(trackAgentNotification(session_id));
           }
+          // Native OS notification when an agent finishes while the user is elsewhere: workflows already had this; long chat tasks deserve the same "it's done" tap on both platforms. Sub-agents stay silent (their parent's finish is the story).
+          if (data.status === 'completed' && session_id && document.hidden) {
+            const p_sess2 = data.session ?? store.getState().agents.sessions[session_id];
+            if (p_sess2 && !p_sess2.parent_session_id && p_sess2.mode !== 'browser-agent') {
+              void (window as any).openswarm?.notify?.({
+                title: 'Agent finished',
+                body: (p_sess2.name && p_sess2.name !== 'Untitled' ? p_sess2.name : 'Your task is done.').slice(0, 200),
+                deepLink: `openswarm://session/${session_id}`,
+              });
+            }
+          }
 
           // An AppAgent driving an app card announces itself only via this status event (no card_added like browsers), so light the app card here. Keyed by the parent chat like browser glows, so the same terminal fade below clears it.
           const p_sess = data.session;

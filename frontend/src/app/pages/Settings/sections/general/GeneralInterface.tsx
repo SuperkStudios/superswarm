@@ -50,25 +50,30 @@ const GeneralInterface: React.FC<{
         </ToggleButtonGroup>
       </Box>
 
-      <Box sx={inlineRowSx} {...settingSelectAttrs('ui_font_scale', 'Text size', 'Interface', 'Scales all text across the app; layout stays intact.')}>
-        <Box sx={{ mr: 3 }}>
-          <Typography sx={labelSx}>Text size</Typography>
-          <Typography sx={descSx}>Scales all text across the app. Layout stays intact.</Typography>
+      <Box sx={rowSx} {...settingSelectAttrs('ui_font_scale', 'Text size', 'Interface', 'Scales all text across the app; layout stays intact.')}>
+        <Typography sx={labelSx}>Text size</Typography>
+        <Typography sx={{ ...descSx, mb: 1 }}>Scales all text across the app. Layout stays intact.</Typography>
+        <Box sx={{ px: 1 }}>
+          <Slider
+            value={form.ui_font_scale ?? 1}
+            onChange={(_, v) => setForm({ ...form, ui_font_scale: v as number })}
+            min={0.8}
+            max={1.35}
+            step={0.05}
+            valueLabelDisplay="auto"
+            valueLabelFormat={(v) => `${Math.round(v * 100)}%`}
+            marks={[
+              { value: 0.8, label: 'Small' },
+              { value: 1, label: 'Default' },
+              { value: 1.35, label: 'Large' },
+            ]}
+            sx={{
+              color: c.accent.primary,
+              '& .MuiSlider-markLabel': { color: c.text.tertiary, fontSize: '0.6875rem' },
+              '& .MuiSlider-valueLabel': { bgcolor: c.accent.primary },
+            }}
+          />
         </Box>
-        <ToggleButtonGroup
-          value={form.ui_font_scale ?? 1}
-          exclusive
-          onChange={(_, v) => { if (v) setForm({ ...form, ui_font_scale: v }); }}
-          size="small"
-          sx={toggleGroupSx}
-        >
-          <ToggleButton value={0.8}>Tiny</ToggleButton>
-          <ToggleButton value={0.9}>Small</ToggleButton>
-          <ToggleButton value={1}>Default</ToggleButton>
-          <ToggleButton value={1.1}>Large</ToggleButton>
-          <ToggleButton value={1.2}>Larger</ToggleButton>
-          <ToggleButton value={1.35}>Largest</ToggleButton>
-        </ToggleButtonGroup>
       </Box>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('voice_hold_to_talk', 'Dictation', 'Interface', 'Hold to talk, or tap to start and stop.')}>
