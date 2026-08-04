@@ -121,6 +121,9 @@ class WebSocketManager {
     WebSocketManager._flushTimer = setTimeout(WebSocketManager._flushMessages, 250);
   }
 
+  // First moment a flush was deferred for a live drag; bounds the damming so a stuck drag class can't buffer forever.
+  private static _dragDeferredAt = 0;
+
   private static _flushMessages = () => {
     if (!WebSocketManager._flushScheduled) return; // the other trigger already drained this batch
     WebSocketManager._flushScheduled = false;
@@ -129,6 +132,18 @@ class WebSocketManager {
       WebSocketManager._flushTimer = null;
     }
     if (WebSocketManager._messageQueue.length === 0) return;
+    // A live card drag owns the main thread: WS-driven renders mid-drag are what made dragging a
+    // working agent feel laggy, and nobody reads streaming tokens while holding a card. Buffer until
+    // the pointer settles, hard-capped by time and queue depth.
+    if (document.body.classList.contains('dashboard-marquee-active')) {
+      if (!WebSocketManager._dragDeferredAt) WebSocketManager._dragDeferredAt = Date.now();
+      if (Date.now() - WebSocketManager._dragDeferredAt < 2000 && WebSocketManager._messageQueue.length < 500) {
+        WebSocketManager._flushScheduled = true;
+        WebSocketManager._flushTimer = setTimeout(WebSocketManager._flushMessages, 100);
+        return;
+      }
+    }
+    WebSocketManager._dragDeferredAt = 0;
     const batch = WebSocketManager._messageQueue;
     WebSocketManager._messageQueue = [];
     // unstable_batchedUpdates collapses all dispatches inside the callback into a single React render. Available in React 17; React 18's automatic batching covers this too, but explicit wrap remains correct in both and protects against future batching-context changes.
