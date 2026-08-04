@@ -17,11 +17,13 @@ import BrowserAgentInlineFeed from '../shell/BrowserAgentInlineFeed';
 import { GoogleServiceIcon } from '../mcp-cards/GoogleServiceIcon';
 import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
 import { useTermColors, colorizeInput, colorizeOutput } from '../parsing/toolColorize';
-import { ParsedResult } from '../parsing/toolResultParsing';
+import { ParsedResult, getToolData } from '../parsing/toolResultParsing';
+import { resolveRichRender } from '../parsing/richResultDispatch';
 import { McpToolInfo } from '@/shared/mcpToolMeta';
 import { McpResultCard } from '../mcp-cards/McpResultCard';
 import { domainFromUrl } from './SourceFavicons';
 import { DomainIcon } from './DomainIcon';
+import VendoredToolUi from '@toolui/VendoredToolUi';
 
 interface DefaultToolBubbleProps {
   call: AgentMessage;
@@ -57,6 +59,11 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
 }) => {
   const c = useClaudeTokens();
   const tc = useTermColors();
+  // Auto-elevated rendering: builtin coding tools map onto the vendored terminal/code components by schema, no ShowUI involved; null keeps the classic colorized <pre>. Streaming stays on the classic path (partial args are unparseable).
+  const richRender = React.useMemo(
+    () => (!isStreaming && result ? resolveRichRender(toolName, input ?? {}, parsedResult, resultElapsedMs, getToolData(call).toolId || call.id) : null),
+    [isStreaming, result, toolName, input, parsedResult, resultElapsedMs, call],
+  );
   // JS-driven mount reveal (see useMountReveal). The streaming pill itself glides in so a tool enters smoothly the moment it starts; when it commits, AgentChat sets suppressReveal on that same row so the hand-off doesn't re-animate what's already on screen. mcpCompact rows opt out (the group's row-fade handles them).
   const reveal = useMountReveal();
   const enterStyle = (!mcpCompact && !suppressReveal) ? reveal : {};
@@ -207,6 +214,16 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
         </Box>
 
         <Collapse in={showBody && canToggleDetails}>
+          {richRender ? (
+            <Box sx={{ p: 1, bgcolor: tc.TERM_BG, borderTop: `1px solid ${tc.TERM_BORDER}` }}>
+              <VendoredToolUi name={richRender.name} props={richRender.props} />
+              {parsedResult?.platformNote && (
+                <Typography sx={{ mt: 0.5, px: 0.5, fontSize: '0.6875rem', color: c.text.tertiary }}>
+                  {parsedResult.platformNote}
+                </Typography>
+              )}
+            </Box>
+          ) : (
           <Box
             sx={{
               bgcolor: tc.TERM_BG,
@@ -344,6 +361,7 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
               </Box>
             )}
           </Box>
+          )}
         </Collapse>
       </Box>
     </Box>
