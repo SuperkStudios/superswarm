@@ -106,7 +106,8 @@ export function useCanvasControls(
     const grid = gridRef.current;
     if (grid) {
       const spacing = 24 * zoom;
-      grid.style.backgroundPosition = `${panX % spacing}px ${panY % spacing}px`;
+      // Phase rides a compositor transform (the element is bled past the viewport); backgroundPosition here repainted the whole viewport every pan frame.
+      grid.style.transform = `translate3d(${panX % spacing}px, ${panY % spacing}px, 0)`;
       // Dot RADIUS lives in the committed backgroundImage and lags to gesture-end; at 1-4px dots the mid-pinch error is invisible and skipping the per-frame gradient rebuild keeps this handler pure style writes.
       grid.style.backgroundSize = `${spacing}px ${spacing}px`;
     }

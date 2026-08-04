@@ -16,7 +16,10 @@ import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import { GRAIN_URL } from '@/shared/styles/grainTexture';
-import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
+import { washOpaqueBackgroundUrl, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
+
+// How far the dot grid bleeds past the viewport; must exceed one tile period (24px * max zoom) so the compositor phase translate can never expose an edge.
+const GRID_BLEED_PX = 256;
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -346,6 +349,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           position: 'absolute',
           inset: 0,
           overflow: 'hidden',
+          // Last line of the never-white guarantee: if every background layer's raster is gone, the viewport itself still paints tint (solid colors are compositor quads, not evictable textures).
+          backgroundColor: washUnderlayColor(washStops, washOpacity, c.bg.page),
           cursor: canvas.isPanning
             ? 'grabbing'
             : (canvas.spaceHeld || canvas.cmdHeld)
@@ -355,14 +360,15 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
                 : 'default',
         }}
       >
-        {/* Gradient wash: the user's theme-pad stops tint the canvas, Arc-window style; intensity + grain come from the theme device; sits under the dot grid. */}
+        {/* Gradient wash: the user's theme-pad stops tint the canvas, Arc-window style; intensity + grain come from the theme device; sits under the dot grid. Pre-blended opaque + declared backgroundColor so a GPU-evicted tile paints as tint, never raw white/black (the ENG-151 band). */}
         {washStops && washStops.length > 0 && (
           <Box
             sx={{
               position: 'absolute',
               inset: 0,
               pointerEvents: 'none',
-              backgroundImage: washBackgroundUrl(washStops, washOpacity),
+              backgroundColor: washUnderlayColor(washStops, washOpacity, c.bg.page),
+              backgroundImage: washOpaqueBackgroundUrl(washStops, washOpacity, c.bg.page),
               backgroundSize: '100% 100%',
             }}
           />
@@ -384,15 +390,17 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           ref={canvas.gridRef}
           sx={{
             position: 'absolute',
-            inset: 0,
+            // Bled past the viewport so the pan phase rides a compositor transform: backgroundPosition writes repainted the WHOLE viewport every pan frame, which both cost the frame budget and fed the GPU pressure that evicts the wash.
+            inset: `-${GRID_BLEED_PX}px`,
             pointerEvents: 'none',
+            willChange: 'transform',
+            transform: `translate3d(${canvas.panX % dotSpacing}px, ${canvas.panY % dotSpacing}px, 0)`,
             // Arc fullscreen: the float sits on a clean themed ground, the dot texture is canvas-only.
             display: anyFullscreen ? 'none' : undefined,
             backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
               `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
             )}")`,
             backgroundSize: `${dotSpacing}px ${dotSpacing}px`,
-            backgroundPosition: `${canvas.panX % dotSpacing}px ${canvas.panY % dotSpacing}px`,
           }}
         />
 
