@@ -6,6 +6,9 @@ import IconButton from '@mui/material/IconButton';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import CheckIcon from '@mui/icons-material/Check';
+import CircularProgress from '@mui/material/CircularProgress';
+import { summarizeToolGroup } from './summarizeToolGroup';
 import { AgentMessage, ToolGroupMeta } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useMountReveal } from './useMountReveal';
@@ -124,6 +127,7 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
     return domains;
   }, [group]);
   const webGroupLabel = webDomains ? 'Searched the web' : null;
+  const restingLabel = webGroupLabel ?? workflowGroupLabel;
   const displayName = workflowGroupLabel || webGroupLabel || meta?.name || group.label;
   const hasSvg = !!meta?.svg && !workflowGroupLabel && !webGroupLabel;
 
@@ -165,13 +169,14 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
               '&:hover': { color: c.text.secondary },
             }}
           >
+            {!allDone && <CircularProgress size={12} thickness={5} sx={{ color: c.accent.primary, flexShrink: 0 }} />}
             {webDomains && webDomains.length > 0 && <SourceFavicons domains={webDomains} size={16} />}
             <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: 'inherit' }}>
-              {webGroupLabel ?? `${group.callCount} tool call${group.callCount === 1 ? '' : 's'}`}
+              {allDone ? (restingLabel ?? summarizeToolGroup(toolNames) ?? `Ran ${group.callCount} step${group.callCount === 1 ? '' : 's'}`) : (restingLabel ?? 'Working')}
             </Typography>
-            {!allDone && (
-              <Typography sx={{ fontSize: '0.6875rem', color: 'inherit', fontFamily: c.font.mono, fontVariantNumeric: 'tabular-nums' }}>
-                {completedCount}/{group.callCount}
+            {!allDone && group.callCount > 1 && (
+              <Typography sx={{ fontSize: '0.6875rem', color: 'inherit', fontVariantNumeric: 'tabular-nums' }}>
+                {completedCount} of {group.callCount}
               </Typography>
             )}
             {allDone && webDomains && webDomains.length > 0 && (
@@ -199,14 +204,16 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
             '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' },
           }}
         >
-          {webDomains && webDomains.length > 0 ? (
+          {!allDone ? (
+            <CircularProgress size={13} thickness={5} sx={{ color: c.accent.primary, flexShrink: 0 }} />
+          ) : webDomains && webDomains.length > 0 ? (
             <SourceFavicons domains={webDomains} size={16} />
           ) : !meta ? (
             <SkeletonPulse width={15} height={15} borderRadius={8} />
           ) : hasSvg ? (
-            <GeneratedSvgIcon svg={meta.svg} size={15} color={c.accent.primary} />
+            <GeneratedSvgIcon svg={meta.svg} size={15} color={c.text.secondary} />
           ) : (
-            <TerminalIcon sx={{ fontSize: 15, color: c.accent.primary, flexShrink: 0 }} />
+            <TerminalIcon sx={{ fontSize: 15, color: c.text.secondary, flexShrink: 0 }} />
           )}
 
           {!meta && !webGroupLabel && !workflowGroupLabel ? (
@@ -216,10 +223,11 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
           ) : (
             <Typography
               sx={{
-                color: c.accent.primary,
+                color: allDone ? c.text.secondary : c.accent.primary,
                 fontSize: '0.8125rem',
                 fontWeight: 600,
                 flex: 1,
+                transition: 'color 200ms ease',
               }}
             >
               {displayName}
@@ -231,18 +239,10 @@ const ToolGroupBubble: React.FC<Props> = React.memo(({ group, isSessionRunning =
               {deniedCount} denied
             </Typography>
           )}
-          {/* Single fraction renders progress AND total; the green color
-              alone signals completion, and the fraction's denominator
-              makes the separate ×N chip redundant. tabular-nums +
-              minWidth keep the position stable as digits change. */}
-          {allDone && completedCount > 0 && (
-            <Typography sx={{ color: c.status.success, fontSize: '0.6875rem', fontVariantNumeric: 'tabular-nums', fontFamily: c.font.mono, minWidth: 36, textAlign: 'right' }}>
-              {completedCount}/{group.callCount}
-            </Typography>
-          )}
+          {allDone && completedCount > 0 && <CheckIcon sx={{ fontSize: 14, color: c.status.success, flexShrink: 0 }} />}
           {!allDone && pendingCount > 0 && (
-            <Typography sx={{ color: c.text.tertiary, fontSize: '0.6875rem', fontFamily: c.font.mono, fontVariantNumeric: 'tabular-nums', minWidth: 36, textAlign: 'right' }}>
-              {completedCount}/{group.callCount}
+            <Typography sx={{ color: c.text.tertiary, fontSize: '0.6875rem', fontVariantNumeric: 'tabular-nums', minWidth: 36, textAlign: 'right' }}>
+              {completedCount} of {group.callCount}
             </Typography>
           )}
           <IconButton size="small" sx={{ color: c.text.tertiary, p: 0.15 }}>
