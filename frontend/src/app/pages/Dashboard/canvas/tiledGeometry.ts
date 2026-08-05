@@ -170,6 +170,12 @@ function stopObserving(): void {
   window.removeEventListener('resize', onWorkspaceChanged);
 }
 
+// Entering a tile GLIDES instead of teleporting: one short transform transition on the registering
+// frame only, removed on end so per-frame camera writes never fight an animation. Same curve as the
+// tool-row motion so the whole app eases identically.
+const ENTER_MS = 260;
+const ENTER_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+
 export function registerTiledCard(id: string, zone: string, origin: { x: number; y: number }, cam: Camera): void {
   const el = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(id)}"]`);
   if (!el) return;
@@ -179,6 +185,8 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   // Tiling usually commits alongside chrome collapsing, so a cached workspace is untrustworthy here.
   workspace = null;
   lastCamera = cam;
+  el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
+  window.setTimeout(() => { if (entries.get(id)?.el === el) el.style.transition = ''; }, ENTER_MS + 40);
   applyEntry(entry, cam);
 }
 

@@ -58,7 +58,8 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   };
   const tile = (entry: MinimizedEntry, zone: string): void => {
     restore(entry);
-    if (zone !== 'restore') dispatch(setTiledCard({ cardId: entry.id, zone }));
+    // Let the unpark PAINT before tiling: doing both in one frame teleported a half-built card into the zone (the janky minimized-to-fullscreen). Next frame, the tile glide takes it from its home to the zone.
+    if (zone !== 'restore') requestAnimationFrame(() => requestAnimationFrame(() => dispatch(setTiledCard({ cardId: entry.id, zone }))));
   };
 
   return (
