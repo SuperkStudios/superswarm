@@ -9,12 +9,10 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutlined';
 import LanguageIcon from '@mui/icons-material/Language';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
-import ViewQuiltOutlinedIcon from '@mui/icons-material/ViewQuiltOutlined';
 import { useAppSelector, useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { fetchBuiltinTools, fetchTools } from '@/shared/state/toolsSlice';
 import { getToolGroupIcon } from '@/app/components/editor/CommandPicker';
-import { fetchOutputs } from '@/shared/state/outputsSlice';
 import { fetchSkills } from '@/shared/state/skillsSlice';
 import { fetchModes } from '@/shared/state/modesSlice';
 
@@ -62,21 +60,18 @@ export const CommandsContent: React.FC = () => {
   const modesMap = useAppSelector((state) => state.modes.items);
   const builtinTools = useAppSelector((state) => state.tools.builtinTools);
   const customTools = useAppSelector((state) => state.tools.items);
-  const outputItems = useAppSelector((state) => state.outputs.items);
 
   const skillsLoaded = useAppSelector((state) => state.skills.loaded);
   const modesLoaded = useAppSelector((state) => state.modes.loaded);
   const builtinLoaded = useAppSelector((state) => state.tools.builtinLoaded);
   const toolsLoaded = useAppSelector((state) => state.tools.loaded);
-  const outputsLoaded = useAppSelector((state) => state.outputs.loaded);
 
   useEffect(() => {
     if (!skillsLoaded) dispatch(fetchSkills());
     if (!modesLoaded) dispatch(fetchModes());
     if (!builtinLoaded) dispatch(fetchBuiltinTools());
     if (!toolsLoaded) dispatch(fetchTools());
-    if (!outputsLoaded) dispatch(fetchOutputs());
-  }, [dispatch, skillsLoaded, modesLoaded, builtinLoaded, toolsLoaded, outputsLoaded]);
+  }, [dispatch, skillsLoaded, modesLoaded, builtinLoaded, toolsLoaded]);
 
   const slashCommands: SlashCommand[] = useMemo(() => [
     ...Object.values(skills).map((s) => ({
@@ -173,19 +168,8 @@ export const CommandsContent: React.FC = () => {
       }
     }
 
-    for (const out of Object.values(outputItems)) {
-      const cmd = out.name.toLowerCase().replace(/\s+/g, '-');
-      items.push({
-        prefix: `@${cmd}`,
-        label: out.name,
-        description: out.description || `Render ${out.name} view`,
-        icon: <ViewQuiltOutlinedIcon sx={{ fontSize: 18 }} />,
-        source: 'view',
-      });
-    }
-
     return items;
-  }, [builtinTools, customTools, outputItems]);
+  }, [builtinTools, customTools]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
