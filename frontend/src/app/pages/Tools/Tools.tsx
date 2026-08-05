@@ -21,7 +21,7 @@ import {
 import { Skeleton } from '@/app/components/feedback/Loading';
 
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { Integration, INTEGRATIONS } from './integrations';
+import { INTEGRATIONS } from './integrations';
 import { CATEGORY_ORDER } from './toolsHelpers';
 import ToolSection from './cards/ToolSection';
 import BrowserPermissionCard from './cards/BrowserPermissionCard';
@@ -30,9 +30,14 @@ import RegistryBrowserDialog from './dialogs/RegistryBrowserDialog';
 import ToolsAddMenu from './dialogs/ToolsAddMenu';
 import ToolDialogs from './dialogs/ToolDialogs';
 import CustomToolCard from './cards/CustomToolCard';
+import PopularConnectorsRow from './cards/PopularConnectorsRow';
+import TextField from '@mui/material/TextField';
+import IconButton from '@mui/material/IconButton';
+import SearchIcon from '@mui/icons-material/Search';
 import IntegrationGalleryCard from './cards/IntegrationGalleryCard';
 import { useToolsActions } from './hooks/useToolsActions';
 import { useBuiltinSections } from './hooks/useBuiltinSections';
+import { useConnectorFilters } from './hooks/useConnectorFilters';
 import { useCuratedRegistry } from './hooks/useCuratedRegistry';
 
 interface ToolsProps {
@@ -69,13 +74,7 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
   const [browserSectionOpen, setBrowserSectionOpen] = useState(false);
   const [browserCollapsed, setBrowserCollapsed] = useState<Record<string, boolean>>({ browser_delegation: true, browser_action: true });
   // claude.ai's Connectors page tabs: All / Connected / Not connected.
-  const [connFilter, setConnFilter] = useState<'all' | 'connected' | 'not-connected'>('all');
-  const visibleTools = useMemo(() => {
-    if (connFilter === 'connected') return tools.filter((t) => t.enabled !== false);
-    if (connFilter === 'not-connected') return tools.filter((t) => t.enabled === false);
-    return tools;
-  }, [tools, connFilter]);
-  const visibleGallery = useMemo(() => (connFilter === 'connected' ? [] : uninstalledIntegrations), [uninstalledIntegrations, connFilter]);
+  const { connFilter, setConnFilter, searchOpen, setSearchOpen, searchQ, setSearchQ, q, visibleTools, visibleGallery, popularUninstalled } = useConnectorFilters(tools, uninstalledIntegrations);
 
   useEffect(() => {
     dispatch(fetchTools());
@@ -119,6 +118,22 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
             </Box>
           ))}
         </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        {searchOpen ? (
+          <TextField
+            autoFocus
+            size="small"
+            placeholder="Search connectors..."
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            onBlur={() => { if (!searchQ.trim()) setSearchOpen(false); }}
+            sx={{ width: 240, '& .MuiOutlinedInput-root': { fontSize: '0.875rem', borderRadius: 999, '& input': { py: 0.6 } } }}
+          />
+        ) : (
+          <IconButton size="small" onClick={() => setSearchOpen(true)} sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
+            <SearchIcon sx={{ fontSize: 19 }} />
+          </IconButton>
+        )}
         <ToolsAddMenu
           devMode={!!devMode}
           onBrowseConnectors={onBrowseConnectors}
@@ -126,6 +141,7 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
           onOpenRegistry={a.openRegistryBrowser}
           onSnackbar={(message, severity) => a.setSnackbar({ open: true, message, severity: severity === 'error' ? 'error' : undefined })}
         />
+        </Box>
       </Box>
 
       {loading ? (
@@ -135,13 +151,17 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
           ))}
         </Box>
       ) : (
+        <>
+        {connFilter === 'all' && !q && (
+          <PopularConnectorsRow integrations={popularUninstalled} loading={a.integrationLoading} onConnect={a.handleIntegrationToggle} />
+        )}
         <Box sx={{ border: `1px solid ${c.border.subtle}`, borderRadius: '12px', overflow: 'hidden', bgcolor: c.bg.surface }}>
           <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 130px 150px', gap: 2, px: 2, py: 1.1, borderBottom: `1px solid ${c.border.subtle}` }}>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem' }}>Connector</Typography>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem' }}>Type</Typography>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem', textAlign: 'right' }}>Status</Typography>
           </Box>
-          {connFilter === 'all' && (
+          {connFilter === 'all' && !q && (
             <>
       {coreTools.length > 0 && (
         <ToolSection label="Core Tools" icon={<LockIcon sx={{ fontSize: 14, color: c.text.tertiary }} />} count={coreTools.length} open={coreSectionOpen} onToggle={() => setCoreSectionOpen((v) => !v)} grouped={groupedCore} collapsedCategories={collapsedCategories} toggleCategory={toggleCategory} expandedBuiltin={expandedBuiltin} toggleBuiltinExpand={toggleBuiltinExpand} builtinPermissions={builtinPermissions} onPermissionChange={a.handleBuiltinPermissionChange} onCategoryPermissionChange={a.handleBuiltinCategoryPermissionChange} enabled={coreSectionEnabled} onEnabledChange={(v) => a.handleSectionEnabledChange(coreTools, v)} />
@@ -212,6 +232,7 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
             </Box>
           )}
         </Box>
+        </>
       )}
 
       <Box sx={{ mt: 3 }}>
