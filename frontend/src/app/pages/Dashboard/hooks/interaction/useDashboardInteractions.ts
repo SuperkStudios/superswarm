@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, type Dispatch, type SetStateActi
 import { report } from '@/shared/serviceClient';
 import { useAppDispatch } from '@/shared/hooks';
 import { store } from '@/shared/state/store';
+import { isAgentDrivenBrowser } from '@/shared/isAgentDrivenBrowser';
 import { expandSession } from '@/shared/state/agentsSlice';
 import { bringToFront } from '@/shared/state/dashboardLayoutSlice';
 import { setScrollFocusedCard } from '@/shared/cardScrollFocus';
@@ -145,13 +146,7 @@ export function useDashboardInteractions({
       // Mid-drag/marquee a selection change joins the card to the multi-drag (the browser visibly chased the cursor); the shield class is up for exactly that window.
       if (document.body.classList.contains('dashboard-marquee-active')) return;
       // The guest preload fires app-clicked for the AGENT's clicks too; a working agent driving its own page must not steal selection (it also re-anchored spawn-beside onto its browser).
-      const st = store.getState();
-      const working = (s?: { status?: string }) => !!s && (s.status === 'running' || s.status === 'waiting_approval');
-      const glow = st.dashboardLayout.glowingBrowserCards[browserId];
-      const agentDriven =
-        Object.values(st.agents.sessions).some((s) => s.browser_id === browserId && working(s)) ||
-        (!!glow && !glow.fading && working(st.agents.sessions[glow.sourceId]));
-      if (agentDriven) return;
+      if (isAgentDrivenBrowser(browserId)) return;
       selection.selectCard(browserId, 'browser', false);
       dispatch(bringToFront({ id: browserId, type: 'browser' }));
       // In-guest clicks never reach the host capture handler, so mark the browser focused here, mainly to UN-focus any chat so scroll over other cards behaves right (the browser's own page scroll/zoom is native regardless).

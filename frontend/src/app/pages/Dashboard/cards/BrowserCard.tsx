@@ -62,6 +62,7 @@ import {
 } from '@/shared/browserRegistry';
 import { captureBrowserShot } from '@/shared/captureBrowserShot';
 import { setLastInteractedBrowser } from '@/shared/browserFocus';
+import { isAgentDrivenBrowser } from '@/shared/isAgentDrivenBrowser';
 import { registerCapsuleForRestore } from '@/shared/browserStateCapsule';
 import BrowserFindBar from './BrowserFindBar';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
@@ -562,8 +563,11 @@ const BrowserCard: React.FC<Props> = ({
           );
         } else if (e?.channel === 'app-clicked') {
           // In-guest mousedown: a page click never reaches the host document, so this IPC is how a webview-content click marks this browser as last-interacted (drives Ctrl+R/zoom/tab targeting) and selected (spawn-beside anchor).
-          setLastInteractedBrowser(browserId);
-          window.dispatchEvent(new CustomEvent('openswarm:browser-guest-select', { detail: { browserId } }));
+          // The guest fires this for the AGENT's clicks too; those must not hijack targeting (or dictation's fallback types into the agent's page).
+          if (!isAgentDrivenBrowser(browserId)) {
+            setLastInteractedBrowser(browserId);
+            window.dispatchEvent(new CustomEvent('openswarm:browser-guest-select', { detail: { browserId } }));
+          }
         }
       };
 
