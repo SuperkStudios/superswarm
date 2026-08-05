@@ -258,13 +258,18 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   const hasDockedBrowser = useAppSelector((st) =>
     Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)) ||
     Object.values(st.dashboardLayout.viewCards).some((vc) => vc.docked_to === (sessionIdProp || routeId)));
-  // The docked surface's aspect ratio, so the inline slot hugs the browser's shape instead of reserving a fixed letterbox band (primitive selectors so no fresh-object rerenders).
-  const dockedSurfaceW = useAppSelector((st) =>
-    Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.width ?? 0);
-  const dockedSurfaceH = useAppSelector((st) =>
-    Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.height ?? 0);
-  const dockedSurfaceId = useAppSelector((st) =>
-    Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.browser_id ?? null);
+  // The docked surface's aspect ratio, so the inline slot hugs the browser's shape instead of reserving a fixed letterbox band (primitive selectors so no fresh-object rerenders). Highest z wins, mirroring BrowserCard's dock-owner election, so a dead rival's stale dock never feeds dims or shots.
+  const pickTopDocked = (st: { dashboardLayout: { browserCards: Record<string, { browser_id: string; docked_to?: string | null; width: number; height: number; zOrder: number }> } }) => {
+    let best: { browser_id: string; width: number; height: number; zOrder: number } | null = null;
+    for (const b of Object.values(st.dashboardLayout.browserCards)) {
+      if (b.docked_to !== (sessionIdProp || routeId)) continue;
+      if (!best || (b.zOrder || 0) > (best.zOrder || 0)) best = b;
+    }
+    return best;
+  };
+  const dockedSurfaceW = useAppSelector((st) => pickTopDocked(st)?.width ?? 0);
+  const dockedSurfaceH = useAppSelector((st) => pickTopDocked(st)?.height ?? 0);
+  const dockedSurfaceId = useAppSelector((st) => pickTopDocked(st)?.browser_id ?? null);
   // Shared by the anchor slot and the fallback slot so both read as the same framed block.
   const browserSlotSx = {
     position: 'relative',

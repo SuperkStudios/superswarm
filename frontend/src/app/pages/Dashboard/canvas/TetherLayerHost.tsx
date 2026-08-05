@@ -9,8 +9,10 @@ import TetherLayer from './TetherLayer';
 // whole dashboard tree (the ENG-88 input delay).
 const TetherLayerHost: React.FC<{ inputs: TetherInputs; c: ClaudeTokens }> = ({ inputs, c }) => {
   const [liveDrag, setLiveDrag] = useState<LiveDragInfo | null>(null);
-  // Tethers only exist while something glows; on an idle canvas a drag frame should cost zero React work, so don't even subscribe.
-  const hasTethers = Object.keys(inputs.glowingAgentCards).length > 0 || Object.keys(inputs.glowingBrowserCards).length > 0;
+  // Tethers only exist while something glows AND that something is on the canvas; a DOCKED browser's glow draws no tether (geometry skips docked cards), so dragging its chat must not buy per-frame React either.
+  const hasTethers =
+    Object.keys(inputs.glowingAgentCards).length > 0 ||
+    Object.keys(inputs.glowingBrowserCards).some((bid) => !inputs.browserCards[bid]?.docked_to);
   useEffect(() => {
     if (!hasTethers) { setLiveDrag(null); return undefined; }
     return subscribeLiveDrag(setLiveDrag);

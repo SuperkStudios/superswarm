@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { subscribeLiveDrag } from '../hooks/interaction/liveDragChannel';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -316,6 +317,23 @@ const BrowserCard: React.FC<Props> = ({
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
   const dockParentZ = dockParentCard?.zOrder ?? 0;
+
+  // The chat drags on a per-frame compositor transform, but dock geometry only re-measures at settle; ride the same drag channel imperatively or the mini visibly trails its own chat.
+  const hasDockRect = !!dockRect;
+  useEffect(() => {
+    if (!dockedTo || !hasDockRect) return undefined;
+    const off = subscribeLiveDrag((info) => {
+      const el = rootElRef.current;
+      if (!el) return;
+      if (info && info.cardId === dockedTo) el.style.translate = `${info.dx}px ${info.dy}px`;
+      else el.style.translate = '';
+    });
+    return () => {
+      off();
+      const el = rootElRef.current;
+      if (el) el.style.translate = '';
+    };
+  }, [dockedTo, hasDockRect]);
 
   const suspendedSnap = useAppSelector((state) => state.dashboardLayout.suspendedBrowserCards[browserId]);
   const endingState = useAppSelector((state) => state.dashboardLayout.endingBrowserCards[browserId]);
@@ -1048,9 +1066,22 @@ const BrowserCard: React.FC<Props> = ({
             ? `0 0 0 1px #3b82f6, ${c.shadow.md}`
             : c.shadow.md;
 
-  const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
-  // Docked in intent but no slot rect yet (slot not mounted, or windowed out before first measure): hide rather than flash the card at its stale canvas home.
-  const dockPending = !!dockedTo && !!dockParentCard && dockParentExpanded && !dockRect && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
+  // Exactly one card owns a chat's dock (highest z wins): a dead browser whose dock the layout sync re-asserts must never stack under its replacement in the same slot.
+  const dockOwnerId = useAppSelector((state) => {
+    if (!dockedTo) return null;
+    let bestId: string | null = null;
+    let bestZ = -Infinity;
+    for (const b of Object.values(state.dashboardLayout.browserCards)) {
+      if (b.docked_to !== dockedTo) continue;
+      const z = b.zOrder || 0;
+      if (z > bestZ) { bestZ = z; bestId = b.browser_id; }
+    }
+    return bestId;
+  });
+  const isDockOwner = dockOwnerId === browserId;
+  const dockActive = !!dockRect && isDockOwner && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
+  // Docked in intent but no slot rect yet (slot not mounted, or windowed out before first measure), OR docked but out-elected by a newer dock owner: hide rather than flash the card at its stale canvas home.
+  const dockPending = !!dockedTo && !!dockParentCard && (!isDockOwner || (dockParentExpanded && !dockRect)) && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
   // An agent can only SEE a page the compositor is drawing, and Chromium draws nothing at all for a
   // guest parked at left:-100000. Measured in one window: a card on screen captured in 58ms while
   // the same card parked timed out on guest capturePage, on host capturePage AND on CDP
