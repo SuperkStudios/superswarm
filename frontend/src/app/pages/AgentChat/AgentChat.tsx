@@ -274,7 +274,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   const browserSlotSx = {
     position: 'relative',
     // When the height cap bites, the WIDTH shrinks to keep the slot at the page's exact aspect (a maxHeight that broke the ratio left the live overlay letterboxed inside its own frame).
-    width: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `min(100%, calc(min(400px, 42vh) * ${dockedSurfaceW / dockedSurfaceH}))` : '100%',
+    width: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `min(100%, calc(min(480px, 52vh) * ${dockedSurfaceW / dockedSurfaceH}))` : '100%',
     aspectRatio: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `${dockedSurfaceW} / ${dockedSurfaceH}` : undefined,
     height: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? 'auto' : 'min(360px, 38vh)',
     minHeight: 140,
