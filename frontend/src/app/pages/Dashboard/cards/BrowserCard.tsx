@@ -274,7 +274,18 @@ const BrowserCard: React.FC<Props> = ({
       }
       const z = getCanvasState().zoom || 1;
       const lr = layer.getBoundingClientRect();
-      const sr = slot.getBoundingClientRect();
+      let sr: { left: number; top: number; right: number; bottom: number; width: number; height: number } = slot.getBoundingClientRect();
+      // Hard containment: the mini must NEVER paint outside its chat card, whatever a mid-animation or mismeasured slot claims; clamp to the card's real bounds and hide when the overlap collapses.
+      const parentEl = document.querySelector(`[data-select-id="${dockedTo}"]`);
+      if (parentEl) {
+        const pr = parentEl.getBoundingClientRect();
+        const left = Math.max(sr.left, pr.left);
+        const top = Math.max(sr.top, pr.top);
+        const right = Math.min(sr.right, pr.right);
+        const bottom = Math.min(sr.bottom, pr.bottom);
+        if (right - left < 60 || bottom - top < 60) { setDockVisible(false); return; }
+        sr = { left, top, right, bottom, width: right - left, height: bottom - top };
+      }
       // Slot and card share the transformed layer, so layer-relative coords are camera-invariant.
       setDockRect({ x: (sr.left - lr.left) / z, y: (sr.top - lr.top) / z, w: sr.width / z, h: sr.height / z });
       if (scrollHost) {
@@ -436,7 +447,8 @@ const BrowserCard: React.FC<Props> = ({
             })
             .catch(() => {});
           try {
-            (wv as any).setVisualZoomLevelLimits?.(1, 1);
+            // Chrome-parity pinch: locked at (1,1) Electron DROPS trackpad pinch entirely, so Figma/Miro/Maps never saw the ctrl+wheel their canvas zoom listens for. Pages that preventDefault it (Figma) own the zoom; plain pages get Chrome's pinch magnify.
+            (wv as any).setVisualZoomLevelLimits?.(1, 3);
             (wv as any).setZoomFactor?.(1);
           } catch (_) {}
         };
@@ -449,6 +461,11 @@ const BrowserCard: React.FC<Props> = ({
         };
         wv.addEventListener('dom-ready', onReady, { once: true });
         cleanups.push(() => wv.removeEventListener('dom-ready', onReady));
+        // The preload re-runs on every full navigation, so re-tag the guest each dom-ready: browser surfaces keep ctrl/meta+wheel (pinch) IN the page instead of forwarding it to canvas zoom.
+        const tagSurface = () => { try { (wv as any).send?.('openswarm:set-surface', { kind: 'browser' }); } catch (_) {} };
+        tagSurface();
+        wv.addEventListener('dom-ready', tagSurface);
+        cleanups.push(() => wv.removeEventListener('dom-ready', tagSurface));
       }
 
       // Every guest sits at about:blank before its real load (lazy tabs never leave it); mirroring
