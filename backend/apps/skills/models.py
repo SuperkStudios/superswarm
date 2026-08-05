@@ -39,6 +39,11 @@ class SkillLoadRequest(BaseModel):
     id: str
 
 
+class SkillUpload(BaseModel):
+    filename: str
+    content_b64: str
+
+
 class SkillWorkspaceSeedRequest(BaseModel):
     workspace_id: str
     skill_content: Optional[str] = None

@@ -1,3 +1,6 @@
+import base64
+import binascii
+import io
 import os
 import hashlib
 import json
@@ -6,10 +9,11 @@ import re
 import tempfile
 import threading
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from fastapi import HTTPException
 from backend.config.Apps import SubApp
-from backend.apps.skills.models import Skill, SkillCreate, SkillLoadRequest, SkillUpdate, SkillWorkspaceSeedRequest
+from backend.apps.skills.models import Skill, SkillCreate, SkillLoadRequest, SkillUpdate, SkillUpload, SkillWorkspaceSeedRequest
 
 logger = logging.getLogger(__name__)
 
@@ -471,6 +475,56 @@ def write_folder_skill(skill_id: str, files: dict[str, str], meta: dict) -> Skil
     with open(md_path, encoding="utf-8") as f:
         content = f.read()
     return p_build_skill(slug, content, md_path, kind, index)
+
+
+@skills.router.post("/upload")
+async def upload_skill(body: SkillUpload):
+    """The Directory's Upload skill drop zone: a bare SKILL .md, or a .zip/.skill archive
+    whose shallowest SKILL.md marks the skill root; sibling files ride along as folder extras."""
+    name_l = body.filename.lower()
+    try:
+        raw = base64.b64decode(body.content_b64)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="upload was not valid base64")
+
+    if name_l.endswith(".md"):
+        text = raw.decode("utf-8", errors="replace")
+        meta = p_parse_skill_frontmatter(text)
+        if not meta.get("name") or not meta.get("description"):
+            raise HTTPException(status_code=400, detail=".md file must contain skill name and description formatted in YAML")
+        skill = write_folder_skill(unique_skill_slug(meta["name"]), {"SKILL.md": text}, meta)
+        return {"ok": True, "skill": skill.model_dump()}
+
+    if name_l.endswith(".zip") or name_l.endswith(".skill"):
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="file is not a valid zip archive")
+        entries = [n for n in zf.namelist() if not n.endswith("/")]
+        md_entries = [n for n in entries if n.split("/")[-1] == "SKILL.md"]
+        if not md_entries:
+            raise HTTPException(status_code=400, detail=".zip or .skill file must include a SKILL.md file")
+        md_entry = min(md_entries, key=lambda n: n.count("/"))
+        root = md_entry[: -len("SKILL.md")]
+        files: dict[str, str] = {}
+        for n in entries:
+            if not n.startswith(root):
+                continue
+            rel = n[len(root):]
+            if not rel:
+                continue
+            try:
+                files[rel] = zf.read(n).decode("utf-8")
+            except UnicodeDecodeError:
+                # Binary assets are skipped; the skill contract is text (SKILL.md + scripts).
+                logger.warning("skill upload: skipped binary entry %r", n)
+        meta = p_parse_skill_frontmatter(files.get("SKILL.md", ""))
+        if not meta.get("name"):
+            meta["name"] = re.sub(r"\.(zip|skill)$", "", body.filename, flags=re.IGNORECASE)
+        skill = write_folder_skill(unique_skill_slug(meta["name"]), files, meta)
+        return {"ok": True, "skill": skill.model_dump()}
+
+    raise HTTPException(status_code=400, detail="unsupported file type: upload a .md, .zip, or .skill file")
 
 
 @skills.router.post("/create")
