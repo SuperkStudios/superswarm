@@ -3125,6 +3125,13 @@ ipcMain.handle('set-window-buttons-visible', (_e, visible) => {
   if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return;
   try { mainWindow.setWindowButtonVisibility(!!visible); } catch (err) { console.warn('[main] setWindowButtonVisibility failed:', err.message); }
 });
+// The creation-time backgroundColor is boot-dark; the renderer re-points it at the live theme's page
+// color so a live resize paints theme-matched filler, not a dark band behind a light UI.
+ipcMain.handle('set-window-background', (_e, color) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (typeof color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(color)) return;
+  try { mainWindow.setBackgroundColor(color); } catch (err) { console.warn('[main] setBackgroundColor failed:', err.message); }
+});
 // Phase 2 provenance: the renderer's About panel shows the commit this build
 // was cut from, so a screenshot is enough to identify the exact code shipped.
 ipcMain.handle('get-build-info', () => getBuildInfo());

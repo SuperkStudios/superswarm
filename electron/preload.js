@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('openswarm', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   // Arc-style chrome: the mac traffic lights hide at rest; the dashboard's top-edge hover reveals them.
   setWindowButtonsVisible: (visible) => ipcRenderer.invoke('set-window-buttons-visible', visible),
+  // Native window bg tracks the theme so a live resize never paints the boot-dark color behind a light UI.
+  setWindowBackground: (color) => ipcRenderer.invoke('set-window-background', color),
 
   // Phase 2 provenance: { sha, shortSha, builtAt, channel } for the About panel.
   getBuildInfo: () => ipcRenderer.invoke('get-build-info'),
