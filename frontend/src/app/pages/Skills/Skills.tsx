@@ -58,8 +58,10 @@ import ShareButton from '@/app/components/share/ShareButton';
 import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
-import CommunitySkillsDialog from './CommunitySkillsDialog';
-import PublicIcon from '@mui/icons-material/Public';
+import DirectoryDialog from '../Directory/DirectoryDialog';
+import UploadSkillDialog from '../Directory/UploadSkillDialog';
+import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
+import DriveFolderUploadOutlinedIcon from '@mui/icons-material/DriveFolderUploadOutlined';
 
 interface SkillForm {
   name: string;
@@ -103,7 +105,8 @@ const Skills: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [builderPreview, setBuilderPreview] = useState<SkillPreviewData | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [communityOpen, setCommunityOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const handleBuilderPreview = useCallback((data: SkillPreviewData | null) => {
     setBuilderPreview(data);
@@ -368,13 +371,13 @@ const Skills: React.FC = () => {
                 <SearchIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Browse community skills (skills.sh)">
+            <Tooltip title="Upload skill">
               <IconButton
                 size="small"
-                onClick={() => setCommunityOpen(true)}
+                onClick={() => setUploadOpen(true)}
                 sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
               >
-                <PublicIcon sx={{ fontSize: 18 }} />
+                <DriveFolderUploadOutlinedIcon sx={{ fontSize: 18 }} />
               </IconButton>
             </Tooltip>
             <Tooltip title="Create skill">
@@ -405,6 +408,29 @@ const Skills: React.FC = () => {
             }}
           >
             Build with AI
+          </Button>
+        </Box>
+        <Box sx={{ px: 1.5, pb: 0.5 }}>
+          <Button
+            size="small"
+            startIcon={<StorefrontOutlinedIcon sx={{ fontSize: 14 }} />}
+            onClick={() => setDirectoryOpen(true)}
+            fullWidth
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              color: c.bg.surface,
+              bgcolor: c.text.primary,
+              justifyContent: 'center',
+              gap: 0.5,
+              py: 0.8,
+              px: 1.5,
+              borderRadius: 999,
+              '&:hover': { bgcolor: c.text.secondary },
+            }}
+          >
+            Browse directory
           </Button>
         </Box>
 
@@ -811,13 +837,23 @@ const Skills: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      <CommunitySkillsDialog
-        open={communityOpen}
-        onClose={() => setCommunityOpen(false)}
-        onInstalled={(name) => {
-          dispatch(fetchSkills());
+      <DirectoryDialog
+        open={directoryOpen}
+        initialTab="skills"
+        onClose={() => setDirectoryOpen(false)}
+        onOpenInstalledSkill={(skillId) => {
+          setDirectoryOpen(false);
           onboardingBus.emit('skill:installed');
-          setSnackbar({ open: true, message: `Installed "${name}" from skills.sh` });
+          setSelection({ type: 'local', id: skillId });
+        }}
+      />
+
+      <UploadSkillDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={(name) => {
+          onboardingBus.emit('skill:installed');
+          setSnackbar({ open: true, message: `Uploaded "${name}"` });
         }}
       />
 
