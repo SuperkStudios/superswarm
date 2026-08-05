@@ -51,19 +51,15 @@ const SettingsRail: React.FC<{
   const c = useClaudeTokens();
   return (
     <Box sx={{
-      width: 192, flexShrink: 0, display: 'flex', flexDirection: 'column',
-      borderRight: `1px solid ${c.border.subtle}`, bgcolor: c.bg.surface,
-      px: 1.25, py: 1.75, overflowY: 'auto',
+      width: 210, minWidth: 210, flexShrink: 0, display: 'flex', flexDirection: 'column',
+      px: 2, pt: 0.5, overflowY: 'auto',
     }}>
-      <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: c.font.size.md, px: 1, pb: 1 }}>
-        Settings
-      </Typography>
       {RAIL_GROUPS.map((group) => (
         <Box key={group.header ?? 'top'} sx={{ mb: 0.5 }}>
           {group.header && (
             <Typography sx={{
               color: c.text.ghost, fontSize: '0.6875rem', fontWeight: 700,
-              letterSpacing: '0.07em', textTransform: 'uppercase', px: 1, pt: 1.5, pb: 0.5,
+              letterSpacing: '0.07em', textTransform: 'uppercase', px: 1.5, pt: 1.5, pb: 0.5,
             }}>
               {group.header}
             </Typography>
@@ -78,16 +74,16 @@ const SettingsRail: React.FC<{
                 data-onboarding={s.value === 'models' ? 'settings-models-tab' : undefined}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: 1.25, width: '100%',
-                  px: 1, py: 0.75, mb: '2px', border: 'none', borderRadius: '8px',
-                  bgcolor: selected ? `${c.accent.primary}1F` : 'transparent',
-                  color: selected ? c.text.primary : c.text.secondary,
-                  fontFamily: 'inherit', fontSize: c.font.size.base, fontWeight: selected ? 600 : 500,
+                  px: 1.5, py: 1, mb: '2px', border: 'none', borderRadius: `${c.radius.md}px`,
+                  bgcolor: selected ? c.bg.secondary : 'transparent',
+                  color: c.text.primary,
+                  fontFamily: 'inherit', fontSize: '0.9375rem', fontWeight: 600,
                   cursor: 'pointer', textAlign: 'left',
-                  transition: 'background-color 0.12s, color 0.12s',
-                  '&:hover': selected ? {} : { bgcolor: `${c.text.tertiary}0F`, color: c.text.primary },
+                  transition: 'background-color 0.12s',
+                  '&:hover': { bgcolor: selected ? c.bg.secondary : c.bg.elevated },
                 }}
               >
-                <s.Icon size={15} style={{ flexShrink: 0, opacity: selected ? 1 : 0.75 }} />
+                <s.Icon size={16} style={{ flexShrink: 0, color: c.text.secondary }} />
                 {s.label}
               </Box>
             );
