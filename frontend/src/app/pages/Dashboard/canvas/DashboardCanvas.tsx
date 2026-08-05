@@ -267,10 +267,27 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
     onHighlightCard?.(cardId);
   }, [minimizedCards, dispatch, fitRenderedCard, onHighlightCard]);
   const handleToggleApps = React.useCallback(() => setAppsWindowOpen((v) => !v), []);
+  // ENG-154: with nothing selected the trash pops the newest-CREATED card (undo-stack feel); the ledger id must also resolve to a card visible on THIS dashboard, never a keep-alive from another one.
+  const creationOrder = useAppSelector((s) => s.dashboardLayout.creationOrder);
+  const newestDeletable = React.useMemo((): { id: string; type: CardType } | null => {
+    for (let i = creationOrder.length - 1; i >= 0; i--) {
+      const id = creationOrder[i];
+      if (cards[id]) return { id, type: 'agent' };
+      if (viewCards[id]) return { id, type: 'view' };
+      const bc = browserCards[id];
+      if (bc && (!bc.dashboard_id || bc.dashboard_id === dashboardId)) return { id, type: 'browser' };
+      if (workflowCards[id]) return { id, type: 'workflow' };
+    }
+    return null;
+  }, [creationOrder, cards, viewCards, browserCards, workflowCards, dashboardId]);
   const handleDeleteSelected = React.useCallback(() => {
-    deleteSelectedCards(selection.selectedIds, dispatch);
-    selection.deselectAll();
-  }, [selection, dispatch]);
+    if (selection.selectedIds.size > 0) {
+      deleteSelectedCards(selection.selectedIds, dispatch);
+      selection.deselectAll();
+      return;
+    }
+    if (newestDeletable) deleteSelectedCards(new Map([[newestDeletable.id, newestDeletable.type]]), dispatch);
+  }, [selection, dispatch, newestDeletable]);
 
   // Gestures write the transform imperatively (no React commit per frame), so a foreign render mid-gesture would paint the stale committed transform for a frame. Re-applying live after EVERY render seals that; do not remove.
   React.useLayoutEffect(() => {
@@ -513,7 +530,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onFitToView={onFitToView}
         onTidy={onTidy}
         onDeleteSelected={handleDeleteSelected}
-        hasSelection={selection.selectedIds.size > 0}
+        deleteMode={selection.selectedIds.size > 0 ? 'selection' : newestDeletable ? 'newest' : 'none'}
         onSearchPaletteClose={onSearchPaletteClose}
         toolbarPrefill={toolbarPrefill}
         toolbarPrefillMode={toolbarPrefillMode}

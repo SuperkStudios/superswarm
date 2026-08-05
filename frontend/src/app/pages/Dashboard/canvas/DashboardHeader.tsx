@@ -8,7 +8,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import HistoryIcon from '@mui/icons-material/History';
 import Tooltip from '@mui/material/Tooltip';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import { useAppDispatch } from '@/shared/hooks';
+import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import DashboardGlyph from './DashboardGlyph';
 import ShareButton from '@/app/components/share/ShareButton';
 import type { AgentSession } from '@/shared/state/agentsSlice';
@@ -61,6 +61,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
+  const creationOrder = useAppSelector((s) => s.dashboardLayout.creationOrder);
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -197,7 +198,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({
               onOpen={() => {
                 // Layout saves are debounced, so a just-added app/agent card may not be on disk yet. The export reads disk, flush the live layout now so Share captures the current board, not a stale one.
                 if (!dashboardId) return;
-                dispatch(saveLayout({ dashboardId, cards, viewCards, browserCards, workflowCards, workflowsHub, expandedSessionIds }));
+                dispatch(saveLayout({ dashboardId, cards, viewCards, browserCards, workflowCards, workflowsHub, expandedSessionIds, creationOrder }));
               }}
             />
           </Box>

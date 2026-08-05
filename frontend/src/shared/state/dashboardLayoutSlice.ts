@@ -175,6 +175,8 @@ export interface DashboardLayoutState {
   settingsCard: WorkflowsHubPosition | null;
   /** Transient: signals Dashboard to pan/zoom to the Settings window on open. */
   pendingFocusSettingsCard: boolean;
+  /** Creation-order ledger, oldest first, across all content card types; the trash's no-selection press pops the newest. Persisted with the layout (zOrder can't stand in, it re-bumps on every focus). */
+  creationOrder: string[];
 }
 
 export interface WorkflowsRunContext {
@@ -216,6 +218,7 @@ const initialState: DashboardLayoutState = {
   workflowsRunContext: null,
   settingsCard: null,
   pendingFocusSettingsCard: false,
+  creationOrder: [],
 };
 
 interface LayoutPayload {
@@ -225,6 +228,22 @@ interface LayoutPayload {
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
   expandedSessionIds: string[];
+  creationOrder: string[];
+}
+
+function ledgerAdd(ledger: string[], id: string): void {
+  if (!ledger.includes(id)) ledger.push(id);
+}
+
+function ledgerRemove(ledger: string[], id: string): void {
+  const i = ledger.indexOf(id);
+  if (i !== -1) ledger.splice(i, 1);
+}
+
+function ledgerRekey(ledger: string[], oldId: string, newId: string): void {
+  const i = ledger.indexOf(oldId);
+  if (i !== -1) ledger[i] = newId;
+  else ledgerAdd(ledger, newId);
 }
 
 function generateTabId(): string {
@@ -261,6 +280,7 @@ export const fetchLayout = createAsyncThunk(
       workflowCards: (layout.workflow_cards ?? {}) as Record<string, WorkflowCardPosition>,
       workflowsHub: (layout.workflows_hub ?? null) as WorkflowsHubPosition | null,
       expandedSessionIds: (layout.expanded_session_ids ?? []) as string[],
+      creationOrder: (layout.creation_order ?? []) as string[],
     } satisfies LayoutPayload;
   },
 );
@@ -286,6 +306,7 @@ export const saveLayout = createAsyncThunk(
           workflow_cards: payload.workflowCards,
           workflows_hub: payload.workflowsHub,
           expanded_session_ids: payload.expandedSessionIds,
+          creation_order: payload.creationOrder,
         },
       }),
     });
@@ -680,6 +701,7 @@ const dashboardLayoutSlice = createSlice({
         height,
         zOrder: state.nextZOrder++,
       };
+      ledgerAdd(state.creationOrder, sessionId);
     },
 
     bringToFront(
@@ -733,6 +755,7 @@ const dashboardLayoutSlice = createSlice({
       delete state.cards[action.payload];
       delete state.tiledCards[action.payload];
       delete state.minimizedCards[action.payload];
+      ledgerRemove(state.creationOrder, action.payload);
     },
 
     reconcileSessions(
@@ -749,6 +772,7 @@ const dashboardLayoutSlice = createSlice({
           // A dead card must never keep owning a tile: an orphaned 'fullscreen' entry hides ALL chrome until reload.
           delete state.tiledCards[id];
           delete state.minimizedCards[id];
+          ledgerRemove(state.creationOrder, id);
         }
       }
 
@@ -772,6 +796,7 @@ const dashboardLayoutSlice = createSlice({
             zOrder: state.nextZOrder++,
           };
         }
+        ledgerAdd(state.creationOrder, id);
       }
     },
 
@@ -887,6 +912,7 @@ const dashboardLayoutSlice = createSlice({
         docked_to: (parentSessionId && (clearOtherDocks(state, parentSessionId), parentSessionId)) || null,
         preview_deferred: previewDeferred || undefined,
       };
+      ledgerAdd(state.creationOrder, cardKey);
       state.pendingFocusViewCardId = cardKey;
     },
 
@@ -925,6 +951,7 @@ const dashboardLayoutSlice = createSlice({
       delete state.viewCards[action.payload];
       delete state.tiledCards[action.payload];
       delete state.minimizedCards[action.payload];
+      ledgerRemove(state.creationOrder, action.payload);
       if (state.activeViewCardId === action.payload) state.activeViewCardId = null;
     },
 
@@ -952,6 +979,7 @@ const dashboardLayoutSlice = createSlice({
         // Born onto the current dashboard so it shows there and only there, never bleeding onto every dashboard while it waits for the first layout save to tag it.
         dashboard_id: getLastDashboardId() ?? undefined,
       };
+      ledgerAdd(state.creationOrder, id);
       state.pendingFocusBrowserId = id;
     },
 
@@ -998,6 +1026,7 @@ const dashboardLayoutSlice = createSlice({
         // An agent-spawned card must carry its home dashboard or it renders on EVERY dashboard; trust the backend's tag, fall back to the current dashboard so an old/untagged payload can't bleed.
         dashboard_id: card.dashboard_id ?? getLastDashboardId() ?? undefined,
       };
+      ledgerAdd(state.creationOrder, card.browser_id);
     },
 
     setBrowserCardPosition(
@@ -1027,6 +1056,7 @@ const dashboardLayoutSlice = createSlice({
       delete state.endingBrowserCards[action.payload];
       delete state.tiledCards[action.payload];
       delete state.minimizedCards[action.payload];
+      ledgerRemove(state.creationOrder, action.payload);
     },
 
     markBrowserCardEnding(
@@ -1102,6 +1132,7 @@ const dashboardLayoutSlice = createSlice({
         zOrder: state.nextZOrder++,
         source_session_id: sourceSessionId || null,
       };
+      ledgerAdd(state.creationOrder, workflowId);
       state.pendingFocusWorkflowId = workflowId;
     },
 
@@ -1131,6 +1162,7 @@ const dashboardLayoutSlice = createSlice({
       // Rule 7: a dead card must never keep owning a tile; a stale entry poisons every reader of it.
       delete state.tiledCards[action.payload];
       delete state.minimizedCards[action.payload];
+      ledgerRemove(state.creationOrder, action.payload);
     },
 
     // Rekey draft- id to the server-assigned id without visually hopping the card.
@@ -1143,6 +1175,7 @@ const dashboardLayoutSlice = createSlice({
       if (!card) return;
       delete state.workflowCards[oldId];
       state.workflowCards[newId] = { ...card, workflow_id: newId };
+      ledgerRekey(state.creationOrder, oldId, newId);
       if (state.pendingFocusWorkflowId === oldId) state.pendingFocusWorkflowId = newId;
     },
 
@@ -1724,6 +1757,8 @@ const dashboardLayoutSlice = createSlice({
       state.suspendedBrowserCards = keptSuspended;
       state.endingBrowserCards = {};
       state.pendingFocusWorkflowId = null;
+      // Per-dashboard, same as the cards it tracks; fetchLayout.fulfilled rebuilds it for the new dashboard.
+      state.creationOrder = [];
     },
 
   },
@@ -1787,6 +1822,22 @@ const dashboardLayoutSlice = createSlice({
           if (w.zOrder > maxZ) maxZ = w.zOrder;
         }
         state.nextZOrder = maxZ + 1;
+
+        // Ledger rebuild: persisted order filtered to live ids, then unledgered survivors by zOrder (legacy layouts, drift). Keep-alive browsers homed on OTHER dashboards stay out: the trash must never delete a card the user can't see.
+        const zOf = (id: string): number =>
+          state.cards[id]?.zOrder ?? state.viewCards[id]?.zOrder ?? state.browserCards[id]?.zOrder ?? state.workflowCards[id]?.zOrder ?? 0;
+        const live = new Set<string>([
+          ...Object.keys(state.cards),
+          ...Object.keys(state.viewCards),
+          ...Object.keys(state.workflowCards),
+          ...Object.entries(state.browserCards)
+            .filter(([, bc]) => !bc.dashboard_id || bc.dashboard_id === ownerDashboardId)
+            .map(([id]) => id),
+        ]);
+        const persisted = action.payload.creationOrder.filter((id) => live.has(id));
+        const ledgered = new Set(persisted);
+        const rest = [...live].filter((id) => !ledgered.has(id)).sort((a, b) => zOf(a) - zOf(b));
+        state.creationOrder = [...persisted, ...rest];
       })
       .addCase(fetchLayout.rejected, (state) => {
         state.loading = false;
@@ -1812,10 +1863,12 @@ const dashboardLayoutSlice = createSlice({
         const id = payload.sessionId;
         if (state.cards[id]) delete state.cards[id];
         if (state.closedCardPositions[id]) delete state.closedCardPositions[id];
+        ledgerRemove(state.creationOrder, id);
       })
       .addCase(deleteWorkflowFulfilledAction, (state, action) => {
         const id = action.payload;
         if (id && state.workflowCards[id]) delete state.workflowCards[id];
+        if (id) ledgerRemove(state.creationOrder, id);
       })
       .addCase(launchAndSendFirstMessage.fulfilled, (state, action) => {
         const { draftId, session } = action.payload;
@@ -1823,6 +1876,7 @@ const dashboardLayoutSlice = createSlice({
         if (card) {
           delete state.cards[draftId];
           state.cards[session.id] = { ...card, session_id: session.id, zOrder: state.nextZOrder++ };
+          ledgerRekey(state.creationOrder, draftId, session.id);
         }
         // The zone rides the re-key too: left behind, a tiled draft pops out of its tile AND strands an
         // entry no reader can ever clear (a stranded 'fullscreen' hides the whole shell until reload).

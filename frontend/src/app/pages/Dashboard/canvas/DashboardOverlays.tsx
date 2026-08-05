@@ -53,7 +53,7 @@ interface DashboardOverlaysProps {
   onFitToView: () => void;
   onTidy: () => void;
   onDeleteSelected: () => void;
-  hasSelection: boolean;
+  deleteMode: 'selection' | 'newest' | 'none';
   onSearchPaletteClose: () => void;
   toolbarPrefill?: string;
   toolbarPrefillMode?: string;
@@ -87,7 +87,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
   onFitToView,
   onTidy,
   onDeleteSelected,
-  hasSelection,
+  deleteMode,
   onSearchPaletteClose,
   toolbarPrefill,
   toolbarPrefillMode,
@@ -143,7 +143,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
           onFitToView={onFitToView}
           onTidy={onTidy}
           onDeleteSelected={onDeleteSelected}
-          hasSelection={hasSelection}
+          deleteMode={deleteMode}
           minimapProps={{
             panX: canvas.panX,
             panY: canvas.panY,
