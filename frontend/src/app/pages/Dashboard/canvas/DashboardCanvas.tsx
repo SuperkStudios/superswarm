@@ -167,9 +167,15 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   const { accent, gradient } = useThemeAccent();
   const { washOpacity, grain } = useThemeWash();
   // A single picked color stores gradient=null, so fall back to the accent (mirrors BeatShell).
-  const washStops = effectiveWashStops(gradient, accent);
+  const washStops = React.useMemo(() => effectiveWashStops(gradient, accent), [gradient, accent]);
   const dotSize = Math.max(1, 1.5 * canvas.zoom);
   const dotSpacing = 24 * canvas.zoom;
+  // Memoized: this component re-renders every card-drag frame, and rebuilding these strings (SVG encode + hex blends) per frame is pure waste.
+  const washUnderlay = React.useMemo(() => washUnderlayColor(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
+  const washUrl = React.useMemo(() => washOpaqueBackgroundUrl(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
+  const gridTileUrl = React.useMemo(() => `url("data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
+  )}")`, [dotSpacing, dotSize, c.border.medium]);
 
   useWebviewSuspend(browserCards, canvas.panX, canvas.panY, canvas.zoom, canvas.viewportRef);
 
@@ -374,7 +380,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           inset: 0,
           overflow: 'hidden',
           // Last line of the never-white guarantee: if every background layer's raster is gone, the viewport itself still paints tint (solid colors are compositor quads, not evictable textures).
-          backgroundColor: washUnderlayColor(washStops, washOpacity, c.bg.page),
+          backgroundColor: washUnderlay,
           cursor: canvas.isPanning
             ? 'grabbing'
             : (canvas.spaceHeld || canvas.cmdHeld)
@@ -391,8 +397,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               position: 'absolute',
               inset: 0,
               pointerEvents: 'none',
-              backgroundColor: washUnderlayColor(washStops, washOpacity, c.bg.page),
-              backgroundImage: washOpaqueBackgroundUrl(washStops, washOpacity, c.bg.page),
+              backgroundColor: washUnderlay,
+              backgroundImage: washUrl,
               backgroundSize: '100% 100%',
             }}
           />
@@ -421,9 +427,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             transform: `translate3d(${canvas.panX % dotSpacing}px, ${canvas.panY % dotSpacing}px, 0)`,
             // Arc fullscreen: the float sits on a clean themed ground, the dot texture is canvas-only.
             display: anyFullscreen ? 'none' : undefined,
-            backgroundImage: `url("data:image/svg+xml,${encodeURIComponent(
-              `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
-            )}")`,
+            backgroundImage: gridTileUrl,
             backgroundSize: `${dotSpacing}px ${dotSpacing}px`,
           }}
         />
