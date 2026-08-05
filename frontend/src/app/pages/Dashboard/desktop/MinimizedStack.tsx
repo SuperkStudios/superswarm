@@ -2,7 +2,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import {
-  toggleMinimizeCard, setTiledCard, recordClosedCard, closeSettingsCard, closeWorkflowsApp,
+  toggleMinimizeCard, setTiledCard, recordClosedCard, closeSettingsCard, closeMarketplaceCard, closeWorkflowsApp,
 } from '@/shared/state/dashboardLayoutSlice';
 import { removeBrowserCardCleanly } from '@/shared/browserTeardown';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
@@ -32,7 +32,8 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
   const tiledCards = useAppSelector((s) => s.dashboardLayout.tiledCards);
   const workflowsHub = useAppSelector((s) => s.dashboardLayout.workflowsHub);
   const settingsCard = useAppSelector((s) => s.dashboardLayout.settingsCard);
-  const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, workflowsHub, settingsCard, minimizedCards });
+  const marketplaceCard = useAppSelector((s) => s.dashboardLayout.marketplaceCard);
+  const entries = buildMinimizedEntries({ browserCards, viewCards, outputs, workflowsHub, settingsCard, marketplaceCard, minimizedCards });
   if (entries.length === 0) return null;
 
   const restore = (entry: MinimizedEntry): void => {
@@ -52,6 +53,8 @@ function MinimizedStack({ browserCards, viewCards, outputs, selectedIds, onResto
       void removeViewCardCleanly(entry.id, dispatch);
     } else if (entry.kind === 'workflows') {
       dispatch(closeWorkflowsApp());
+    } else if (entry.kind === 'marketplace') {
+      dispatch(closeMarketplaceCard());
     } else {
       dispatch(closeSettingsCard());
     }

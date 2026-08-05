@@ -4,7 +4,7 @@ import Tooltip from '@mui/material/Tooltip';
 import { Globe, CalendarClock, Settings, LayoutGrid, Store } from 'lucide-react';
 import { useAppDispatch } from '@/shared/hooks';
 import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
-import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
+import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 
 // The dock reserves room for these before it knows what they are, so the count lives with the list.
 export const DOCK_ACTION_COUNT = 5;

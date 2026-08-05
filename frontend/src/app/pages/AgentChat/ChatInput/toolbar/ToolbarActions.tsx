@@ -19,7 +19,7 @@ import { useVoice } from '@/shared/voice/voiceContext';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { ComposerPlusMenu, ActiveTogglePills, PlusMenuItem } from './ComposerPlusMenu';
-import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
+import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 
 // Stable empty: minting [] inside the selector re-rendered the toolbar on every store commit.
 const EMPTY_MCPS: string[] = [];

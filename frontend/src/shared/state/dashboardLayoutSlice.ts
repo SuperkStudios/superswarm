@@ -29,6 +29,9 @@ export const DEFAULT_SETTINGS_CARD_W = 900;
 export const DEFAULT_SETTINGS_CARD_H = 640;
 // The two singleton windows have no card map to key off, so they own these fixed ids everywhere (selection, minimize, z-order).
 export const SETTINGS_CARD_ID = 'settings';
+export const MARKETPLACE_CARD_ID = 'marketplace';
+export const DEFAULT_MARKETPLACE_CARD_W = 1080;
+export const DEFAULT_MARKETPLACE_CARD_H = 720;
 export const WORKFLOWS_HUB_ID = 'workflows-hub';
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;
@@ -37,7 +40,7 @@ export const WORKFLOW_CARD_GAP = 140;
 const GRID_ORIGIN = { x: 40, y: 100 };
 const GRID_COLS_FALLBACK = 4;
 
-export type CardType = 'agent' | 'view' | 'browser' | 'workflow' | 'workflows-hub' | 'workflows-monitor' | 'settings';
+export type CardType = 'agent' | 'view' | 'browser' | 'workflow' | 'workflows-hub' | 'workflows-monitor' | 'settings' | 'marketplace';
 
 export interface CardPosition {
   session_id: string;
@@ -175,6 +178,12 @@ export interface DashboardLayoutState {
   settingsCard: WorkflowsHubPosition | null;
   /** Transient: signals Dashboard to pan/zoom to the Settings window on open. */
   pendingFocusSettingsCard: boolean;
+  /** Marketplace as an on-canvas window (singleton), same lifecycle as the Settings window. */
+  marketplaceCard: WorkflowsHubPosition | null;
+  /** Transient: signals Dashboard to pan/zoom to the Marketplace window on open. */
+  pendingFocusMarketplaceCard: boolean;
+  /** Transient deep-link: which marketplace view to land on; the card consumes and clears it. */
+  marketplaceRequestedTab: string | null;
   /** Creation-order ledger, oldest first, across all content card types; the trash's no-selection press pops the newest. Persisted with the layout (zOrder can't stand in, it re-bumps on every focus). */
   creationOrder: string[];
 }
@@ -218,6 +227,9 @@ const initialState: DashboardLayoutState = {
   workflowsRunContext: null,
   settingsCard: null,
   pendingFocusSettingsCard: false,
+  marketplaceCard: null,
+  pendingFocusMarketplaceCard: false,
+  marketplaceRequestedTab: null,
   creationOrder: [],
 };
 
@@ -358,6 +370,9 @@ function collectOccupiedRects(
   }
   if (state.settingsCard) {
     rects.push({ x: state.settingsCard.x, y: state.settingsCard.y, w: state.settingsCard.width, h: state.settingsCard.height });
+  }
+  if (state.marketplaceCard) {
+    rects.push({ x: state.marketplaceCard.x, y: state.marketplaceCard.y, w: state.marketplaceCard.width, h: state.marketplaceCard.height });
   }
   return rects;
 }
@@ -720,12 +735,14 @@ const dashboardLayoutSlice = createSlice({
       if (state.workflowsHub) tally(state.workflowsHub.zOrder);
       if (state.workflowsMonitorCard) tally(state.workflowsMonitorCard.zOrder);
       if (state.settingsCard) tally(state.settingsCard.zOrder);
+      if (state.marketplaceCard) tally(state.marketplaceCard.zOrder);
       if (type === 'agent') currentZ = state.cards[id]?.zOrder ?? 0;
       else if (type === 'view') currentZ = state.viewCards[id]?.zOrder ?? 0;
       else if (type === 'workflow') currentZ = state.workflowCards[id]?.zOrder ?? 0;
       else if (type === 'workflows-hub') currentZ = state.workflowsHub?.zOrder ?? 0;
       else if (type === 'workflows-monitor') currentZ = state.workflowsMonitorCard?.zOrder ?? 0;
       else if (type === 'settings') currentZ = state.settingsCard?.zOrder ?? 0;
+      else if (type === 'marketplace') currentZ = state.marketplaceCard?.zOrder ?? 0;
       else currentZ = state.browserCards[id]?.zOrder ?? 0;
       if (currentZ >= maxZ) return;  // Already on top: no-op.
 
@@ -745,6 +762,8 @@ const dashboardLayoutSlice = createSlice({
         if (state.workflowsMonitorCard) state.workflowsMonitorCard.zOrder = z;
       } else if (type === 'settings') {
         if (state.settingsCard) state.settingsCard.zOrder = z;
+      } else if (type === 'marketplace') {
+        if (state.marketplaceCard) state.marketplaceCard.zOrder = z;
       } else {
         const card = state.browserCards[id];
         if (card) card.zOrder = z;
@@ -812,7 +831,8 @@ const dashboardLayoutSlice = createSlice({
       const hub = state.workflowsHub;
       const mon = state.workflowsMonitorCard;
       const settings = state.settingsCard;
-      const total = agentCards.length + viewCards.length + bCards.length + wCards.length + (hub ? 1 : 0) + (mon ? 1 : 0) + (settings ? 1 : 0);
+      const market = state.marketplaceCard;
+      const total = agentCards.length + viewCards.length + bCards.length + wCards.length + (hub ? 1 : 0) + (mon ? 1 : 0) + (settings ? 1 : 0) + (market ? 1 : 0);
       if (total === 0) return;
 
       const allItems = [
@@ -823,6 +843,7 @@ const dashboardLayoutSlice = createSlice({
         ...(hub ? [{ kind: 'workflows-hub' as const, id: 'workflows-hub', x: hub.x, y: hub.y, storedW: hub.width, storedH: hub.height }] : []),
         ...(mon ? [{ kind: 'workflows-monitor' as const, id: 'workflows-monitor', x: mon.x, y: mon.y, storedW: mon.width, storedH: mon.height }] : []),
         ...(settings ? [{ kind: 'settings' as const, id: SETTINGS_CARD_ID, x: settings.x, y: settings.y, storedW: settings.width, storedH: settings.height }] : []),
+        ...(market ? [{ kind: 'marketplace' as const, id: MARKETPLACE_CARD_ID, x: market.x, y: market.y, storedW: market.width, storedH: market.height }] : []),
       ];
       allItems.sort((a, b) => a.y - b.y || a.x - b.x);
 
@@ -856,6 +877,8 @@ const dashboardLayoutSlice = createSlice({
           if (state.workflowsMonitorCard) { state.workflowsMonitorCard.x = pos.x; state.workflowsMonitorCard.y = pos.y; }
         } else if (item.kind === 'settings') {
           if (state.settingsCard) { state.settingsCard.x = pos.x; state.settingsCard.y = pos.y; }
+        } else if (item.kind === 'marketplace') {
+          if (state.marketplaceCard) { state.marketplaceCard.x = pos.x; state.marketplaceCard.y = pos.y; }
         } else {
           const card = state.browserCards[item.id];
           if (card) { card.x = pos.x; card.y = pos.y; }
@@ -1342,6 +1365,55 @@ const dashboardLayoutSlice = createSlice({
       state.settingsCard.height = Math.max(460, action.payload.height);
     },
 
+    // Marketplace mirrors the Settings window: an on-canvas singleton, opened or raised in place.
+    openMarketplaceCard(state, action: PayloadAction<{ tab?: string; expandedSessionIds?: string[] } | undefined>) {
+      state.marketplaceRequestedTab = action.payload?.tab ?? null;
+      if (state.marketplaceCard) {
+        state.marketplaceCard.zOrder = state.nextZOrder++;
+        delete state.minimizedCards[MARKETPLACE_CARD_ID];
+        state.pendingFocusMarketplaceCard = true;
+        return;
+      }
+      const rects = collectOccupiedRects(state, action.payload?.expandedSessionIds);
+      const pos = findOpenGridCell(rects, DEFAULT_MARKETPLACE_CARD_W, DEFAULT_MARKETPLACE_CARD_H);
+      state.marketplaceCard = {
+        x: pos.x,
+        y: pos.y,
+        width: DEFAULT_MARKETPLACE_CARD_W,
+        height: DEFAULT_MARKETPLACE_CARD_H,
+        zOrder: state.nextZOrder++,
+      };
+      state.pendingFocusMarketplaceCard = true;
+    },
+
+    closeMarketplaceCard(state) {
+      state.marketplaceCard = null;
+      state.marketplaceRequestedTab = null;
+      delete state.minimizedCards[MARKETPLACE_CARD_ID];
+      delete state.tiledCards[MARKETPLACE_CARD_ID];
+      state.pendingFocusMarketplaceCard = false;
+    },
+
+    clearPendingFocusMarketplaceCard(state) {
+      state.pendingFocusMarketplaceCard = false;
+    },
+
+    clearMarketplaceRequestedTab(state) {
+      state.marketplaceRequestedTab = null;
+    },
+
+    setMarketplaceCardPosition(state, action: PayloadAction<{ x: number; y: number }>) {
+      if (!state.marketplaceCard) return;
+      state.marketplaceCard.x = action.payload.x;
+      state.marketplaceCard.y = action.payload.y;
+    },
+
+    setMarketplaceCardSize(state, action: PayloadAction<{ width: number; height: number }>) {
+      if (!state.marketplaceCard) return;
+      state.marketplaceCard.width = Math.max(760, action.payload.width);
+      state.marketplaceCard.height = Math.max(520, action.payload.height);
+    },
+
     pasteBrowserCard(
       state,
       action: PayloadAction<{
@@ -1600,6 +1672,11 @@ const dashboardLayoutSlice = createSlice({
             state.settingsCard.x += dx;
             state.settingsCard.y += dy;
           }
+        } else if (item.type === 'marketplace') {
+          if (state.marketplaceCard) {
+            state.marketplaceCard.x += dx;
+            state.marketplaceCard.y += dy;
+          }
         } else {
           const card = state.browserCards[item.id];
           if (card) {
@@ -1747,6 +1824,9 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsHub = null;
       state.settingsCard = null;
       state.pendingFocusSettingsCard = false;
+      state.marketplaceCard = null;
+      state.pendingFocusMarketplaceCard = false;
+      state.marketplaceRequestedTab = null;
       state.closedCardPositions = {};
       state.glowingBrowserCards = {};
       state.glowingAgentCards = {};
@@ -1983,6 +2063,12 @@ export const {
   clearPendingFocusWorkflowsHub,
   openSettingsCard,
   closeSettingsCard,
+  openMarketplaceCard,
+  closeMarketplaceCard,
+  clearPendingFocusMarketplaceCard,
+  clearMarketplaceRequestedTab,
+  setMarketplaceCardPosition,
+  setMarketplaceCardSize,
   clearPendingFocusSettingsCard,
   setSettingsCardPosition,
   setSettingsCardSize,
@@ -2019,7 +2105,8 @@ export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayout
   const id = entry[0];
   // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
   const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards
-    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard);
+    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard)
+    || (id === MARKETPLACE_CARD_ID && !!s.marketplaceCard);
   return exists && !s.minimizedCards[id] ? id : null;
 };
 

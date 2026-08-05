@@ -17,7 +17,7 @@ import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 import TopLayerPortal from '@/shared/TopLayerPortal';
-import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
+import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 
 interface Props {
   open: boolean;

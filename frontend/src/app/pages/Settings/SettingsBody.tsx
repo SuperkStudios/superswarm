@@ -22,7 +22,7 @@ import SettingsRail, { railLabelFor } from './sections/SettingsRail';
 import { makeSettingsStyles } from './sections/settingsStyles';
 import { useSettingsForm } from './useSettingsForm';
 import NotificationsSection from './sections/general/NotificationsSection';
-import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
+import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 import { PROVIDER_COLORS, OPENSWARM_GRADIENT, useModelOptions } from './settingsModelOptions';
 
 // Module-scope: remember the last open tab across closes (System Settings style).
@@ -86,17 +86,23 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
   const styles = makeSettingsStyles(c);
 
   return (
-    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden', bgcolor: c.bg.page }}>
-      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
-
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 1.75, pb: 0.75, flexShrink: 0 }}>
-        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
-          {railLabelFor(activeTab)}
+    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: c.bg.surface }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', px: 3.5, pt: 2.5, pb: 1.5, flexShrink: 0 }}>
+        <Typography sx={{ fontSize: '1.75rem', fontWeight: 600, color: c.text.primary, fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.15 }}>
+          Settings
         </Typography>
         <IconButton onClick={handleRequestClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
           <X size={18} />
         </IconButton>
+      </Box>
+      <Box sx={{ display: 'flex', flexDirection: 'row', flex: 1, minHeight: 0 }}>
+      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
+
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', px: 3, pt: 0.5, pb: 0.75, flexShrink: 0 }}>
+        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
+          {railLabelFor(activeTab)}
+        </Typography>
       </Box>
 
       <Box sx={{
@@ -161,6 +167,7 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
         <CommandsContent />
       </Box>
       )}
+      </Box>
       </Box>
       </Box>
 

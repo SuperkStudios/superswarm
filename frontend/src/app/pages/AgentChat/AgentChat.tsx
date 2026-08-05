@@ -83,7 +83,7 @@ import { shallowEqual } from 'react-redux';
 import { useClaudeTokens, useThemeMode } from '@/shared/styles/ThemeContext';
 import { parseMcpToolName, getMcpInputSummary } from '@/shared/mcpToolMeta';
 import { isNarration } from './parsing/isNarration';
-import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
+import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 
 const CONTEXT_WINDOWS: Record<string, number> = {
   'opus-4-8': 1_000_000,
