@@ -225,6 +225,17 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     }
   }, [toolbarOpen, toolbarPrefill, toolbarPrefillMode]);
 
+  // Dictation with no field focused lands HERE instead of vanishing: the composer opens with the transcript typed in, unsent.
+  useEffect(() => {
+    if (!isActive) return;
+    const onDictation = (e: Event): void => {
+      const text = (e as CustomEvent).detail?.text;
+      if (typeof text === 'string' && text.trim()) handleStarter(text);
+    };
+    window.addEventListener('openswarm:dictation-fallback', onDictation);
+    return () => window.removeEventListener('openswarm:dictation-fallback', onDictation);
+  }, [isActive, handleStarter]);
+
   useDashboardClipboard({
     isActive,
     dashboardId,
