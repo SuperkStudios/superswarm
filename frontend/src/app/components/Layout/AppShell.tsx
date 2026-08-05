@@ -281,6 +281,7 @@ const AppShell: React.FC = () => {
     return w.openswarm.onBrowserShortcut((payload: { action: string; webContentsId: number }) => {
       // Reopen-last-closed is global (no target browser), so handle it before the per-browser id guard.
       if (payload.action === 'reopen-closed') { dispatch(reopenLastClosed()); return; }
+      if (payload.action === 'new-agent') { window.dispatchEvent(new CustomEvent('openswarm:new-agent')); return; }
       const id = findBrowserByWebContentsId(payload.webContentsId) ?? getLastInteractedBrowser();
       if (!id) return;
       switch (payload.action) {

@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   setWindowButtonsVisible: (visible) => ipcRenderer.invoke('set-window-buttons-visible', visible),
   // Native window bg tracks the theme so a live resize never paints the boot-dark color behind a light UI.
   setWindowBackground: (color) => ipcRenderer.invoke('set-window-background', color),
+  setNewAgentShortcut: (combo) => ipcRenderer.send('set-new-agent-shortcut', combo),
 
   // Phase 2 provenance: { sha, shortSha, builtAt, channel } for the About panel.
   getBuildInfo: () => ipcRenderer.invoke('get-build-info'),

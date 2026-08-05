@@ -2252,6 +2252,14 @@ function routeReloadShortcut(event, input) {
 // guest never reach the host renderer, so we catch them here and forward the intent + the guest's
 // webContents id so the renderer can target that exact browser. Attached to guests ONLY: on the host
 // the renderer's own keydown handles canvas-vs-browser, and intercepting there would eat canvas zoom.
+// The renderer registers the user's new-agent combo so it still fires while a guest webview holds focus (host keydown never sees those).
+let newAgentCombo = { primary: true, shift: false, key: 'l' };
+ipcMain.on('set-new-agent-shortcut', (_e, combo) => {
+  if (combo && typeof combo.key === 'string' && combo.key) {
+    newAgentCombo = { primary: !!combo.primary, shift: !!combo.shift, key: combo.key.toLowerCase() };
+  }
+});
+
 function routeBrowserShortcut(event, input, webContentsId) {
   if (input.type !== 'keyDown' || input.alt) return;
   const mod = input.meta || input.control;
@@ -2263,6 +2271,7 @@ function routeBrowserShortcut(event, input, webContentsId) {
   else if (mod && !input.shift && key === 'f') action = 'find';
   else if (mod && input.shift && key === 't') action = 'reopen-closed';
   else if (input.control && !input.meta && key === 'tab') action = input.shift ? 'tab-prev' : 'tab-next';
+  else if (mod === newAgentCombo.primary && input.shift === newAgentCombo.shift && key === newAgentCombo.key) action = 'new-agent';
   if (!action) return;
   event.preventDefault();
   try {
