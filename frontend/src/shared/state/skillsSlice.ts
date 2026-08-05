@@ -16,6 +16,10 @@ export interface Skill {
   source?: string;
   folder?: string;
   version?: string;
+  /** Folder skill with files beyond SKILL.md; the detail page offers a file picker for those. */
+  has_supporting_files?: boolean;
+  /** Detail-page toggle: disabled skills stay installed but leave the agent's skill list. */
+  enabled?: boolean;
 }
 
 interface SkillsState {

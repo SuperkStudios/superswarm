@@ -2,19 +2,15 @@ import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
-import MenuItem from '@mui/material/MenuItem';
 import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
-import Menu from '@mui/material/Menu';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import AddIcon from '@mui/icons-material/Add';
 import BuildIcon from '@mui/icons-material/Build';
 import LockIcon from '@mui/icons-material/Lock';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import HourglassEmptyIcon from '@mui/icons-material/HourglassEmpty';
-import StorefrontIcon from '@mui/icons-material/Storefront';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import {
   fetchTools,
@@ -35,10 +31,8 @@ import ToolSection from './cards/ToolSection';
 import BrowserPermissionCard from './cards/BrowserPermissionCard';
 import AgentWorkflowsSection from './cards/AgentWorkflowsSection';
 import RegistryBrowserDialog from './dialogs/RegistryBrowserDialog';
+import ToolsAddMenu from './dialogs/ToolsAddMenu';
 import ToolDialogs from './dialogs/ToolDialogs';
-import DirectoryDialog from '../Directory/DirectoryDialog';
-import AddCustomConnectorDialog from '../Directory/AddCustomConnectorDialog';
-import AddLinkIcon from '@mui/icons-material/AddLink';
 import CustomToolCard from './cards/CustomToolCard';
 import IntegrationGalleryCard from './cards/IntegrationGalleryCard';
 import { useToolsActions } from './hooks/useToolsActions';
@@ -72,9 +66,6 @@ const Tools: React.FC = () => {
   const [browserSectionOpen, setBrowserSectionOpen] = useState(false);
   const [browserCollapsed, setBrowserCollapsed] = useState<Record<string, boolean>>({ browser_delegation: true, browser_action: true });
   const [builtinSectionOpen, setBuiltinSectionOpen] = useState(true);
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [directoryOpen, setDirectoryOpen] = useState(false);
-  const [customConnectorOpen, setCustomConnectorOpen] = useState(false);
   // claude.ai's Connectors page tabs: All / Connected / Not connected.
   const [connFilter, setConnFilter] = useState<'all' | 'connected' | 'not-connected'>('all');
   const visibleTools = useMemo(() => {
@@ -82,10 +73,7 @@ const Tools: React.FC = () => {
     if (connFilter === 'not-connected') return tools.filter((t) => t.enabled === false);
     return tools;
   }, [tools, connFilter]);
-  const visibleGallery = useMemo(
-    () => (connFilter === 'connected' ? [] : uninstalledIntegrations),
-    [uninstalledIntegrations, connFilter],
-  );
+  const visibleGallery = useMemo(() => (connFilter === 'connected' ? [] : uninstalledIntegrations), [uninstalledIntegrations, connFilter]);
 
   useEffect(() => {
     dispatch(fetchTools());
@@ -100,11 +88,8 @@ const Tools: React.FC = () => {
 
   const toggleCategory = (cat: string) => setCollapsedCategories((p) => ({ ...p, [cat]: !p[cat] }));
   const toggleBuiltinExpand = (name: string) => setExpandedBuiltin((p) => (p === name ? null : name));
-
-  const handleMenuOpen = (e: React.MouseEvent<HTMLElement>) => setMenuAnchor(e.currentTarget);
-  const handleMenuClose = () => setMenuAnchor(null);
-
-  const a = useToolsActions({ items, allTools, regServersRaw, closeMenu: handleMenuClose });
+  // The Add menu closes itself now (ToolsAddMenu), so the hook's closeMenu hook-in is a no-op.
+  const a = useToolsActions({ items, allTools, regServersRaw, closeMenu: () => {} });
 
   // Curated whitelist matches the MCPSearch alias map in main.py (mcp-meta).
   const CURATED_MCP_NAMES = useMemo(() => new Set([
@@ -123,43 +108,13 @@ const Tools: React.FC = () => {
     <Box sx={{ px: 3, pt: 1, pb: 3, height: '100%', overflow: 'auto' }}>
       {/* The pane header already says "Tools"; a slim action row beats a second page title. */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mb: 1.5 }}>
-        <Box>
-          <Button
-            size="small"
-            variant="contained"
-            startIcon={<AddIcon sx={{ fontSize: 16 }} />}
-            endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16 }} />}
-            onClick={handleMenuOpen}
-            sx={{ bgcolor: c.accent.primary, '&:hover': { bgcolor: c.accent.pressed }, textTransform: 'none', borderRadius: 2, fontSize: '0.8125rem' }}
-          >
-            Add
-          </Button>
-          <Menu
-            anchorEl={menuAnchor}
-            open={!!menuAnchor}
-            onClose={handleMenuClose}
-            PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: 2, mt: 0.5, minWidth: 200 } }}
-          >
-            <MenuItem onClick={() => { handleMenuClose(); setDirectoryOpen(true); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
-              <StorefrontIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
-              Browse connectors
-            </MenuItem>
-            <MenuItem onClick={() => { handleMenuClose(); setCustomConnectorOpen(true); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
-              <AddLinkIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
-              Add custom connector
-            </MenuItem>
-            <MenuItem onClick={a.openCreate} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
-              <BuildIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
-              Create Custom
-            </MenuItem>
-            {devMode && (
-              <MenuItem onClick={a.openRegistryBrowser} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
-                <StorefrontIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
-                Browse MCP Registry
-              </MenuItem>
-            )}
-          </Menu>
-        </Box>
+        <ToolsAddMenu
+          devMode={!!devMode}
+          onOpenCreate={a.openCreate}
+          onOpenRegistry={a.openRegistryBrowser}
+          onOpenInstalledConnector={(toolId) => a.setExpandedToolId(toolId)}
+          onSnackbar={(message, severity) => a.setSnackbar({ open: true, message, severity: severity === 'error' ? 'error' : undefined })}
+        />
       </Box>
 
       <Box sx={{ mb: 3 }}>
@@ -296,22 +251,6 @@ const Tools: React.FC = () => {
         onCredentialsSave={a.handleCredentialsSave}
       />
 
-      <DirectoryDialog
-        open={directoryOpen}
-        initialTab="connectors"
-        onClose={() => setDirectoryOpen(false)}
-        onOpenInstalledConnector={(toolId) => {
-          setDirectoryOpen(false);
-          a.setExpandedToolId(toolId);
-        }}
-      />
-
-      <AddCustomConnectorDialog
-        open={customConnectorOpen}
-        onClose={() => setCustomConnectorOpen(false)}
-        onBrowsePrebuilt={() => setDirectoryOpen(true)}
-        onAdded={(message, severity) => a.setSnackbar({ open: true, message, severity: severity === 'error' ? 'error' : undefined })}
-      />
 
       <RegistryBrowserDialog
         open={a.registryOpen}

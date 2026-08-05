@@ -15,10 +15,11 @@ import Collapse from '@mui/material/Collapse';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
 import InputAdornment from '@mui/material/InputAdornment';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
+import Switch from '@mui/material/Switch';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ShareIcon from '@mui/icons-material/Share';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import TerminalIcon from '@mui/icons-material/Terminal';
@@ -55,7 +56,8 @@ import {
   RegistrySkillDetail,
 } from '@/shared/state/skillRegistrySlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
-import ShareButton from '@/app/components/share/ShareButton';
+import { requestShare } from '@/app/components/share/ShareRequestHost';
+import { API_BASE } from '@/shared/config';
 import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
@@ -108,6 +110,7 @@ const Skills: React.FC = () => {
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
+  const [detailMenuAnchor, setDetailMenuAnchor] = useState<null | HTMLElement>(null);
 
   const handleBuilderPreview = useCallback((data: SkillPreviewData | null) => {
     setBuilderPreview(data);
@@ -246,29 +249,89 @@ const Skills: React.FC = () => {
     return selection.type === 'local' && selection.id === key;
   };
 
-  const ContentPreview: React.FC<{ content: string }> = ({ content }) => (
+  // claude.ai's content card header: [SKILL.md v] file picker + "N files" + eye/code toggles. Single-file skills hide the picker.
+  const ContentPreview: React.FC<{ content: string; skillId?: string; multiFile?: boolean }> = ({ content, skillId, multiFile }) => {
+    const [files, setFiles] = useState<{ path: string; content: string }[]>([]);
+    const [selectedPath, setSelectedPath] = useState('SKILL.md');
+    const [fileMenuAnchor, setFileMenuAnchor] = useState<null | HTMLElement>(null);
+    useEffect(() => {
+      setFiles([]);
+      setSelectedPath('SKILL.md');
+      if (!skillId || !multiFile) return;
+      let stale = false;
+      void fetch(`${API_BASE}/skills/${skillId}/files`)
+        .then((res) => (res.ok ? res.json() : { files: [] }))
+        .then((data: { files?: { path: string; content: string }[] }) => { if (!stale) setFiles(data.files ?? []); })
+        .catch(() => { /* picker quietly falls back to SKILL.md */ });
+      return () => { stale = true; };
+    }, [skillId, multiFile]);
+    const selected = files.find((f) => f.path === selectedPath);
+    const shownContent = selected ? selected.content : content;
+    const isMarkdown = selectedPath.toLowerCase().endsWith('.md');
+    const view = isMarkdown ? contentView : 'raw';
+    const iconBtnSx = (active: boolean) => ({
+      color: active ? c.text.primary : c.text.tertiary,
+      bgcolor: active ? c.bg.secondary : 'transparent',
+      borderRadius: `${c.radius.sm}px`,
+      '&:hover': { color: c.text.primary },
+    });
+    return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1, flexShrink: 0 }}>
-        <ToggleButtonGroup
-          value={contentView}
-          exclusive
-          onChange={(_, v) => { if (v) setContentView(v); }}
-          size="small"
-          sx={{
-            '& .MuiToggleButton-root': {
-              color: c.text.tertiary, border: `1px solid ${c.border.medium}`,
-              textTransform: 'none', fontSize: '0.75rem', py: 0.25, px: 1.2, lineHeight: 1.4,
-              '&.Mui-selected': { bgcolor: c.bg.secondary, color: c.text.primary, borderColor: c.border.strong },
-              '&:hover': { bgcolor: 'rgba(0,0,0,0.03)' },
-            },
-          }}
-        >
-          <ToggleButton value="preview"><VisibilityIcon sx={{ fontSize: 14, mr: 0.5 }} />Preview</ToggleButton>
-          <ToggleButton value="raw"><CodeIcon sx={{ fontSize: 14, mr: 0.5 }} />Raw</ToggleButton>
-        </ToggleButtonGroup>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {files.length > 1 ? (
+            <>
+              <Button
+                size="small"
+                endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 15 }} />}
+                onClick={(e: React.MouseEvent<HTMLElement>) => setFileMenuAnchor(e.currentTarget)}
+                sx={{
+                  textTransform: 'none', fontSize: '0.75rem', fontWeight: 600, px: 1.25, py: 0.3,
+                  color: c.text.primary, bgcolor: c.bg.secondary, borderRadius: `${c.radius.md}px`,
+                  fontFamily: c.font.mono, '&:hover': { bgcolor: c.bg.elevated },
+                }}
+              >
+                {selectedPath}
+              </Button>
+              <Menu
+                anchorEl={fileMenuAnchor}
+                open={!!fileMenuAnchor}
+                onClose={() => setFileMenuAnchor(null)}
+                PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 200 } }}
+              >
+                {files.map((f) => (
+                  <MenuItem
+                    key={f.path}
+                    onClick={() => { setSelectedPath(f.path); setFileMenuAnchor(null); }}
+                    sx={{ fontSize: '0.8125rem', fontFamily: c.font.mono, color: f.path === selectedPath ? c.text.primary : c.text.secondary, '&:hover': { bgcolor: c.bg.secondary } }}
+                  >
+                    {f.path}
+                  </MenuItem>
+                ))}
+              </Menu>
+              <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost }}>
+                {files.length} files
+              </Typography>
+            </>
+          ) : null}
+        </Box>
+        <Box sx={{ display: 'flex', gap: 0.25 }}>
+          <Tooltip title="Preview">
+            <span>
+              <IconButton size="small" disabled={!isMarkdown} onClick={() => setContentView('preview')} sx={iconBtnSx(view === 'preview')}>
+                <VisibilityIcon sx={{ fontSize: 15 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Raw">
+            <IconButton size="small" onClick={() => setContentView('raw')} sx={iconBtnSx(view === 'raw')}>
+              <CodeIcon sx={{ fontSize: 15 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
 
-      {contentView === 'raw' ? (
+      {view === 'raw' ? (
         <Box sx={{
           flex: 1, minHeight: 0,
           bgcolor: c.bg.secondary,
@@ -281,7 +344,7 @@ const Skills: React.FC = () => {
             color: c.text.secondary, fontSize: '0.8125rem', fontFamily: c.font.mono,
             whiteSpace: 'pre-wrap', wordBreak: 'break-word', m: 0, lineHeight: 1.65,
           }}>
-            {content}
+            {shownContent}
           </Typography>
         </Box>
       ) : (
@@ -305,11 +368,12 @@ const Skills: React.FC = () => {
           '& a': { color: c.accent.primary, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } },
           '& strong': { fontWeight: 600, color: c.text.primary },
         }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{shownContent}</ReactMarkdown>
         </Box>
       )}
     </Box>
-  );
+    );
+  };
 
   const SidebarRow: React.FC<{
     label: string;
@@ -656,77 +720,69 @@ const Skills: React.FC = () => {
           ) : null
         ) : selectedLocal ? (
           <Box sx={{ p: 4, pb: 3, maxWidth: 1100, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexShrink: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography sx={{ fontSize: '1.375rem', fontWeight: 700, color: c.text.primary, fontFamily: c.font.sans }}>
-                  {selectedLocal.name}
+            {/* claude.ai detail chrome: title + info, byline underneath, enable toggle + kebab on the right. */}
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1, flexShrink: 0 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography sx={{ fontSize: '1.375rem', fontWeight: 700, color: c.text.primary, fontFamily: c.font.sans }}>
+                    {selectedLocal.name}
+                  </Typography>
+                  {selectedLocal.command && (
+                    <Tooltip title={`Slash command: /${selectedLocal.command}`}>
+                      <InfoOutlinedIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+                    </Tooltip>
+                  )}
+                  {regOutdated.includes(selectedLocal.id) && (
+                    <Chip
+                      label="Update available"
+                      size="small"
+                      sx={{ bgcolor: `${c.status.warning}22`, color: c.status.warning, fontWeight: 600, fontSize: '0.6875rem', height: 20 }}
+                    />
+                  )}
+                </Box>
+                <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost, mt: 0.25 }}>
+                  by {selectedLocal.built_in ? 'OpenSwarm' : /anthropic/i.test(selectedLocal.source || '') ? 'Anthropic' : selectedLocal.source ? selectedLocal.source.split('/')[0] : 'You'}
                 </Typography>
-                {selectedLocal.built_in && (
-                  <Chip
-                    label="Built-in"
-                    size="small"
-                    sx={{
-                      bgcolor: 'rgba(174,86,48,0.12)',
-                      color: c.accent.primary,
-                      fontWeight: 600,
-                      fontSize: '0.6875rem',
-                      height: 20,
-                    }}
-                  />
-                )}
-                {regOutdated.includes(selectedLocal.id) && (
-                  <Chip
-                    label="Update available"
-                    size="small"
-                    sx={{ bgcolor: `${c.status.warning}22`, color: c.status.warning, fontWeight: 600, fontSize: '0.6875rem', height: 20 }}
-                  />
-                )}
               </Box>
-              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                {regOutdated.includes(selectedLocal.id) && (
-                  <Button
+              <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexShrink: 0 }}>
+                <Tooltip title={selectedLocal.enabled === false ? 'Enable skill' : 'Disable skill'}>
+                  <Switch
                     size="small"
-                    variant="contained"
-                    startIcon={<DownloadIcon sx={{ fontSize: 16 }} />}
-                    disabled={updatingId === selectedLocal.id}
-                    onClick={() => handleUpdate(selectedLocal)}
-                    sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.3, bgcolor: c.status.warning, '&:hover': { bgcolor: c.status.warning } }}
-                  >
-                    {updatingId === selectedLocal.id ? 'Updating...' : 'Update'}
-                  </Button>
-                )}
-                <ShareButton target={{ kind: 'skill', id: selectedLocal.id, name: selectedLocal.name }} />
-                <Tooltip title="Edit">
-                  <IconButton size="small" onClick={() => openEdit(selectedLocal)} sx={{ color: c.text.tertiary, '&:hover': { color: c.accent.primary } }}>
-                    <EditIcon sx={{ fontSize: 18 }} />
-                  </IconButton>
+                    checked={selectedLocal.enabled !== false}
+                    onChange={() => { void dispatch(updateSkill({ id: selectedLocal.id, enabled: selectedLocal.enabled === false })); }}
+                  />
                 </Tooltip>
-                {!selectedLocal.built_in && (
-                  <Tooltip title="Delete">
-                    <IconButton size="small" onClick={() => handleDelete(selectedLocal.id)} sx={{ color: c.text.tertiary, '&:hover': { color: c.status.error } }}>
-                      <DeleteIcon sx={{ fontSize: 18 }} />
-                    </IconButton>
-                  </Tooltip>
-                )}
+                <IconButton size="small" onClick={(e: React.MouseEvent<HTMLElement>) => setDetailMenuAnchor(e.currentTarget)} sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
+                  <MoreHorizIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+                <Menu
+                  anchorEl={detailMenuAnchor}
+                  open={!!detailMenuAnchor}
+                  onClose={() => setDetailMenuAnchor(null)}
+                  PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 180 } }}
+                >
+                  <MenuItem onClick={() => { setDetailMenuAnchor(null); openEdit(selectedLocal); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+                    <EditIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+                    Edit
+                  </MenuItem>
+                  <MenuItem onClick={() => { setDetailMenuAnchor(null); requestShare({ kind: 'skill', id: selectedLocal.id, name: selectedLocal.name }); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+                    <ShareIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+                    Share as .swarm…
+                  </MenuItem>
+                  {regOutdated.includes(selectedLocal.id) && (
+                    <MenuItem disabled={updatingId === selectedLocal.id} onClick={() => { setDetailMenuAnchor(null); void handleUpdate(selectedLocal); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+                    <DownloadIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+                      {updatingId === selectedLocal.id ? 'Updating…' : 'Update to latest'}
+                    </MenuItem>
+                  )}
+                  {!selectedLocal.built_in && (
+                    <MenuItem onClick={() => { setDetailMenuAnchor(null); void handleDelete(selectedLocal.id); }} sx={{ fontSize: '0.875rem', color: c.status.error, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+                      <DeleteIcon sx={{ fontSize: 16, color: c.status.error }} />
+                      Delete
+                    </MenuItem>
+                  )}
+                </Menu>
               </Box>
-            </Box>
-
-            {selectedLocal.command && (
-              <Box sx={{ mb: 1.5, flexShrink: 0 }}>
-                <Chip
-                  icon={<TerminalIcon sx={{ fontSize: 14 }} />}
-                  label={`/${selectedLocal.command}`}
-                  size="small"
-                  sx={{
-                    bgcolor: 'rgba(174,86,48,0.08)', color: c.accent.primary,
-                    fontWeight: 500, fontSize: '0.75rem', height: 26,
-                  }}
-                />
-              </Box>
-            )}
-
-            <Box sx={{ mb: 1, flexShrink: 0 }}>
-              <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost }}>Added by <strong style={{ color: c.text.secondary, fontWeight: 600 }}>You</strong></Typography>
             </Box>
 
             {selectedLocal.description && (
@@ -737,7 +793,7 @@ const Skills: React.FC = () => {
               </Box>
             )}
 
-            <ContentPreview content={selectedLocal.content} />
+            <ContentPreview content={selectedLocal.content} skillId={selectedLocal.id} multiFile={selectedLocal.has_supporting_files} />
           </Box>
         ) : null}
       </Box>
