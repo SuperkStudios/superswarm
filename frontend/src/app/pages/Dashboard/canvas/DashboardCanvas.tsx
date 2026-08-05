@@ -226,16 +226,40 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
 
   // Stable identities for the memoized shell children: an inline closure or Array.from() here would hand them a fresh prop every render, and a card drag re-renders this component per frame (liveDragInfo), which is exactly when they must bail.
   const selectedIdList = React.useMemo(() => Array.from(selection.selectedIds.keys()) as string[], [selection.selectedIds]);
+  // The STORED rect is the collapsed footprint; an expanded chat paints far wider, so fitting the stored rect left half the chat off-screen. Fit what actually rendered, falling back to the stored rect only if the card never mounts.
+  const fitRenderedCard = React.useCallback((cardId: string, fallback: { x: number; y: number; width: number; height: number }) => {
+    const attemptFit = (attempt: number): void => {
+      const el = document.querySelector(`[data-select-id="${cardId}"]`);
+      const vp = canvas.viewportRef.current;
+      if (el && vp) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) {
+          const cam = canvas.actions.getLiveState();
+          const vr = vp.getBoundingClientRect();
+          canvas.actions.fitToCards([{
+            x: (r.left - vr.left - cam.panX) / cam.zoom,
+            y: (r.top - vr.top - cam.panY) / cam.zoom,
+            width: r.width / cam.zoom,
+            height: r.height / cam.zoom,
+          }], 1.15, true);
+          return;
+        }
+      }
+      if (attempt < 3) { window.setTimeout(() => attemptFit(attempt + 1), 90); return; }
+      canvas.actions.fitToCards([fallback], 1.15, true);
+    };
+    window.setTimeout(() => attemptFit(0), 60);
+  }, [canvas.actions, canvas.viewportRef]);
   const handleRestoreCard = React.useCallback((cardId: string, rect: { x: number; y: number; width: number; height: number }) => {
-    canvas.actions.fitToCards([rect], 1.15, true);
+    fitRenderedCard(cardId, rect);
     onHighlightCard?.(cardId);
-  }, [canvas.actions, onHighlightCard]);
+  }, [fitRenderedCard, onHighlightCard]);
   const handleFocusCard = React.useCallback((cardId: string, rect: { x: number; y: number; width: number; height: number }) => {
     // A parked card sits off-canvas, so flying to its stored rect would land on empty space; unpark it first.
     if (minimizedCards[cardId]) dispatch(toggleMinimizeCard({ cardId }));
-    canvas.actions.fitToCards([rect], 1.15, true);
+    fitRenderedCard(cardId, rect);
     onHighlightCard?.(cardId);
-  }, [minimizedCards, dispatch, canvas.actions, onHighlightCard]);
+  }, [minimizedCards, dispatch, fitRenderedCard, onHighlightCard]);
   const handleToggleApps = React.useCallback(() => setAppsWindowOpen((v) => !v), []);
   const handleDeleteSelected = React.useCallback(() => {
     deleteSelectedCards(selection.selectedIds, dispatch);
