@@ -258,6 +258,7 @@ const BrowserCard: React.FC<Props> = ({
     let scrollRaf = 0;
     const onScroll = (): void => { if (!scrollRaf) scrollRaf = requestAnimationFrame(() => { scrollRaf = 0; measure(); }); };
     const ro = new ResizeObserver(() => measure());
+    const mo = new MutationObserver(() => onScroll());
     const measure = (): void => {
       const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
       const layer = rootElRef.current?.parentElement;
@@ -271,6 +272,9 @@ const BrowserCard: React.FC<Props> = ({
         scrollHost?.removeEventListener('scroll', onScroll);
         scrollHost = slot.closest('[data-chat-transcript]');
         scrollHost?.addEventListener('scroll', onScroll, { passive: true });
+        // Streaming appends move/remount the slot without resizing or scrolling anything observed; the mutation observer is what keeps the mini glued during a live turn.
+        mo.disconnect();
+        if (scrollHost) mo.observe(scrollHost, { childList: true, subtree: true });
         hookedSlot = slot;
       }
       const z = getCanvasState().zoom || 1;
@@ -305,10 +309,11 @@ const BrowserCard: React.FC<Props> = ({
     window.addEventListener('openswarm:canvas-pan-changed', measure);
     document.addEventListener('visibilitychange', measure);
     const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
-    // Self-heal: the slot lives in the WINDOWED transcript and remounts without firing any of the events above, which left the mini scaled against a stale rect (visibly overflowing its frame) until the next pan. 500ms bounds how long any staleness can survive.
-    const heal = window.setInterval(measure, 500);
+    // Self-heal: the slot lives in the WINDOWED transcript and remounts without firing any of the events above, which left the mini scaled against a stale rect (visibly overflowing its frame) until the next pan. 150ms bounds how long any staleness can survive.
+    const heal = window.setInterval(measure, 150);
     return () => {
       ro.disconnect();
+      mo.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('openswarm:canvas-pan-changed', measure);
       document.removeEventListener('visibilitychange', measure);
