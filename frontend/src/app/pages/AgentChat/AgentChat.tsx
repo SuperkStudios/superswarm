@@ -283,6 +283,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     borderRadius: '12px',
     overflow: 'hidden',
     border: `1px solid ${c.border.medium}`,
+    // The live overlay stamps data-mini-live; while it paints, the frozen-shot backdrop must not (the clamped overlay leaves margins where a misaligned second copy of the page peeked through).
+    '&[data-mini-live="1"] img': { opacity: 0 },
   } as const;
   // A live webview cannot be clipped by the scroller, so the OVERLAY only shows while fully in view; this frozen shot is what scrolls and clips underneath it, ChatGPT-style.
   const dockedShot = dockedSurfaceId ? getMinimizedShot(dockedSurfaceId) : undefined;

@@ -318,6 +318,22 @@ const BrowserCard: React.FC<Props> = ({
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
   const dockParentZ = dockParentCard?.zOrder ?? 0;
 
+  // The slot's frozen-shot backdrop and the live overlay must never BOTH paint (the clamped overlay leaves margins where a misaligned copy of the page peeks through), so the card stamps its live state onto the slot and the slot's CSS hides the shot while live.
+  const overlayLiveRef = useRef(false);
+  useEffect(() => {
+    if (!dockedTo) return undefined;
+    const stamp = (): void => {
+      const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
+      slot?.setAttribute('data-mini-live', overlayLiveRef.current ? '1' : '0');
+    };
+    stamp();
+    const t = window.setInterval(stamp, 400);
+    return () => {
+      window.clearInterval(t);
+      document.querySelector(`[data-browser-slot="${dockedTo}"]`)?.setAttribute('data-mini-live', '0');
+    };
+  }, [dockedTo]);
+
   // The chat drags on a per-frame compositor transform, but dock geometry only re-measures at settle; ride the same drag channel imperatively or the mini visibly trails its own chat.
   const hasDockRect = !!dockRect;
   useEffect(() => {
