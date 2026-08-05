@@ -43,7 +43,7 @@ interface CanvasWindowCardProps {
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   isSelected?: boolean; isHighlighted?: boolean;
   multiDragDelta?: { dx: number; dy: number } | null;
-  onCardSelect?: (id: string, type: CardType, shiftKey: boolean) => void;
+  onCardSelect?: (id: string, type: CardType, shiftKey: boolean, originTarget?: EventTarget | null) => void;
   onDragStart?: (id: string, type: CardType) => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
   onDragEnd?: (dx: number, dy: number, didDrag: boolean) => void;
@@ -183,7 +183,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         if (justDraggedRef.current) return;
         const target = e.target as HTMLElement;
         if (target.closest('[data-no-drag]')) return;
-        onCardSelect?.(cardId, cardType, e.shiftKey);
+        onCardSelect?.(cardId, cardType, e.shiftKey, e.target);
       }}
       onContextMenu={(e: React.MouseEvent) => {
         // Same grammar as every other card; typing surfaces keep the OS menu, content with its own menu stopPropagates before this.
