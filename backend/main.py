@@ -938,9 +938,9 @@ async def ui_request_respond(request: Request):
         return JSONResponse({"error": "session_id, component_id and response object are required"}, status_code=400)
     from backend.apps.agents.ui_request_bridge import respond_to_ui_request
     delivered = respond_to_ui_request(session_id, component_id, response)
-    if not delivered:
-        return JSONResponse({"error": "no pending request for that component"}, status_code=404)
-    return JSONResponse({"ok": True})
+    # A consumed/expired request is a normal outcome (replayed transcript, agent moved on), not an
+    # error; 200 + gone keeps Chromium's console free of red 404 noise while the UI shows its orphaned state.
+    return JSONResponse({"ok": delivered, "gone": not delivered})
 
 
 @app.post("/api/invoke-agent/run")
