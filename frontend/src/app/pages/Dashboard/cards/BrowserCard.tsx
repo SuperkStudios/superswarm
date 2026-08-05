@@ -260,7 +260,8 @@ const BrowserCard: React.FC<Props> = ({
     const measure = (): void => {
       const slot = document.querySelector(`[data-browser-slot="${dockedTo}"]`);
       const layer = rootElRef.current?.parentElement;
-      if (!slot || !layer) { setDockRect(null); return; }
+      // The slot lives in the transcript's virtualized window, so it can UNMOUNT while scrolled far away; keep the last rect and hide, because nulling it here popped the card back to its stale canvas home.
+      if (!slot || !layer) { setDockVisible(false); return; }
       // The slot mounts a beat after docking (and remounts with chat re-renders), so observers hook the live node whenever it changes; a one-shot hookup at effect time reliably missed it and froze the rect.
       if (slot !== hookedSlot) {
         ro.disconnect();
@@ -1030,6 +1031,8 @@ const BrowserCard: React.FC<Props> = ({
             : c.shadow.md;
 
   const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
+  // Docked in intent but no slot rect yet (slot not mounted, or windowed out before first measure): hide rather than flash the card at its stale canvas home.
+  const dockPending = !!dockedTo && !!dockParentCard && dockParentExpanded && !dockRect && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
   // An agent can only SEE a page the compositor is drawing, and Chromium draws nothing at all for a
   // guest parked at left:-100000. Measured in one window: a card on screen captured in 58ms while
   // the same card parked timed out on guest capturePage, on host capturePage AND on CDP
@@ -1114,7 +1117,7 @@ const BrowserCard: React.FC<Props> = ({
       sx={{
         position: 'absolute',
         // Kept-alive card from another dashboard: parked far off-screen so its webview surface can't bleed onto the dashboard you're viewing; click-through, webContents stays mounted. A dock-hidden mini (slot scrolled away) is click-through too.
-        pointerEvents: keepAliveHidden || isMinimized || dockParked || (dockActive && !dockVisible) ? 'none' : undefined,
+        pointerEvents: keepAliveHidden || isMinimized || dockParked || dockPending || (dockActive && !dockVisible) ? 'none' : undefined,
         // contain: webview repaints don't shake neighbor cards.
         contain: 'layout style',
         // Own compositor layer so hover/paint invalidations stay contained to this card. See AgentCard for full rationale.
@@ -1137,7 +1140,7 @@ const BrowserCard: React.FC<Props> = ({
         flexDirection: 'column',
         zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
         // The inline slot scrolls with the transcript; a webview can't be clipped by the scroller, so the mini fades out when its slot is mostly out of view instead of floating over unrelated messages.
-        opacity: dockActive && !dockVisible ? 0 : 1,
+        opacity: (dockActive && !dockVisible) || dockPending ? 0 : 1,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease, opacity 0.14s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

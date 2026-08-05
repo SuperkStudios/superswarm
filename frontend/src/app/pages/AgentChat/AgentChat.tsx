@@ -1248,6 +1248,19 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     return items;
   }, [activeBranchMessages, sessionRunning]);
 
+  // The docked browser anchors at the LAST browser-agent tool row (one live browser, latest work site wins); no row yet falls back to the end-of-transcript slot.
+  const browserAnchorItemId = useMemo((): string | null => {
+    const isBrowserCall = (m: AgentMessage): boolean =>
+      m.role === 'tool_call' && typeof m.content === 'object' && String((m.content as { tool?: string })?.tool || '').toLowerCase().endsWith('browseragent');
+    let anchor: string | null = null;
+    for (const item of renderItems) {
+      if (isToolGroup(item)) { if (item.pairs.some((p) => isBrowserCall(p.call))) anchor = item.id; }
+      else if (isToolPair(item)) { if (isBrowserCall(item.call)) anchor = item.id; }
+      else if (isBrowserCall(item as AgentMessage)) anchor = item.id;
+    }
+    return anchor;
+  }, [renderItems]);
+
   React.useLayoutEffect(() => {
     const total = renderItems.length;
     renderItemsLengthRef.current = total;
@@ -1701,6 +1714,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               <Box aria-hidden data-window-spacer="top" sx={{ height: topSpacerHeight, flexShrink: 0, overflowAnchor: 'none' }} />
             )}
             {renderedVisibleItems.map((item, itemIdx) => {
+              const rendered = ((): React.ReactNode => {
               const isLastVisibleItem = itemIdx === renderedVisibleItems.length - 1;
               const isCompactionAnchor = !!session.compacted_through_msg_id && item.id === session.compacted_through_msg_id;
               const compactionChip = isCompactionAnchor ? (
@@ -1841,6 +1855,17 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 </Box>
                 </Box>
               );
+              })();
+              // The live browser anchors AT the browser tool row (ChatGPT-agent model): the view sits where the work happened, above the answer that follows it.
+              if (hasDockedBrowser && browserAnchorItemId && item.id === browserAnchorItemId) {
+                return (
+                  <React.Fragment key={`${item.id}-with-browser`}>
+                    {rendered}
+                    <Box data-browser-slot={id} sx={{ height: 'min(360px, 38vh)', minHeight: 180, mt: 1, mb: 0.5 }} />
+                  </React.Fragment>
+                );
+              }
+              return rendered;
             })}
             {/* Stand-in for items unmounted BELOW the window (newer items not yet
                 scrolled into view). Zero while following the live tail. */}
@@ -1987,8 +2012,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 </Box>
               </Box>
             )}
-            {/* Inline dock slot: the agent's browser rides HERE, in the transcript flow like a tool output (the real card overlays this rect geometrically, so the webview never remounts). It scrolls with the conversation; the mini hides itself when this scrolls mostly out of view, since a live webview can't be clipped by the scroller. */}
-            {hasDockedBrowser && (
+            {/* Fallback dock slot for a browser that docked before any browser tool row exists (or whose row was compacted away); once a row appears the slot anchors at it instead (see browserAnchorItemId). The real card overlays this rect geometrically, so the webview never remounts; the mini hides itself when its slot scrolls mostly out of view, since a live webview can't be clipped by the scroller. */}
+            {hasDockedBrowser && !browserAnchorItemId && (
               <Box
                 data-browser-slot={id}
                 sx={{ height: 'min(360px, 38vh)', minHeight: 180, mt: 1, mb: 0.5 }}
