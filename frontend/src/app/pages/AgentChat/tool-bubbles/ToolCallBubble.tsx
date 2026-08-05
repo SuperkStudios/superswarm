@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { AgentMessage, expandSession, collapseSession, fetchSession } from '@/shared/state/agentsSlice';
-import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { placeCard, removeCard, setGlowingAgentCard, clearGlowingAgentCard, DEFAULT_CARD_W, DEFAULT_CARD_H, EXPANDED_CARD_MIN_H, GRID_GAP } from '@/shared/state/dashboardLayoutSlice';
+import { AgentMessage } from '@/shared/state/agentsSlice';
+import { useAppDispatch } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { revealSubAgent } from './revealSubAgent';
 import { ensureToolCallKeyframes } from '../parsing/toolBubbleChrome';
 import {
   getToolData,
@@ -61,7 +61,6 @@ const ToolCallBubble: React.FC<ToolCallBubbleProps> = React.memo(
 
     const c = useClaudeTokens();
     const dispatch = useAppDispatch();
-    const cards = useAppSelector((s) => s.dashboardLayout.cards);
     const [expanded, setExpanded] = useState(false);
     const bubbleRef = useRef<HTMLDivElement>(null);
 
@@ -121,73 +120,14 @@ const ToolCallBubble: React.FC<ToolCallBubbleProps> = React.memo(
 
     const revealTargetSessionId = invokedSessionId || createAgentSessionId;
 
-    const sessions = useAppSelector((s) => s.agents.sessions);
-    const expandedSessionIds = useAppSelector((s) => s.agents.expandedSessionIds);
-
     const handleRevealAgent = useCallback(
       (e: React.MouseEvent) => {
         e.stopPropagation();
         if (!revealTargetSessionId || !sessionId) return;
-
-        if (cards[revealTargetSessionId]) {
-          dispatch(collapseSession(revealTargetSessionId));
-          dispatch(removeCard(revealTargetSessionId));
-          setTimeout(() => {
-            dispatch(clearGlowingAgentCard(revealTargetSessionId));
-          }, 500);
-          return;
-        }
-
-        let sourceYRatio: number | undefined;
-        if (bubbleRef.current) {
-          const bubbleEl = bubbleRef.current;
-          const cardEl = bubbleEl.closest('[data-select-type="agent-card"]') as HTMLElement | null;
-          if (cardEl) {
-            const cardRect = cardEl.getBoundingClientRect();
-            const bubbleRect = bubbleEl.getBoundingClientRect();
-            const bubbleCenterY = bubbleRect.top + bubbleRect.height / 2;
-            const ratio = (bubbleCenterY - cardRect.top) / cardRect.height;
-            sourceYRatio = Math.max(0, Math.min(1, ratio));
-          }
-        }
-
-        const doPlace = () => {
-          const parentCard = cards[sessionId];
-          const targetX = parentCard
-            ? parentCard.x + parentCard.width + GRID_GAP * 12
-            : 40;
-          let targetY = parentCard ? parentCard.y : 100;
-          if (parentCard) {
-            const columnCards = Object.values(cards).filter(
-              (c) => Math.abs(c.x - targetX) < 50 && c.session_id !== revealTargetSessionId,
-            );
-            if (columnCards.length > 0) {
-              const lowestBottom = Math.max(
-                ...columnCards.map((c) => c.y + Math.max(EXPANDED_CARD_MIN_H, c.height)),
-              );
-              targetY = lowestBottom + GRID_GAP;
-            }
-          }
-          dispatch(placeCard({
-            sessionId: revealTargetSessionId,
-            x: targetX,
-            y: targetY,
-            width: DEFAULT_CARD_W,
-            height: DEFAULT_CARD_H,
-            expandedSessionIds,
-          }));
-          dispatch(expandSession(revealTargetSessionId));
-          const label = isCreateAgent ? 'Create Agent' : isInvokeAgent ? 'Invoke Agent' : 'Agent';
-          dispatch(setGlowingAgentCard({ sessionId: revealTargetSessionId, sourceId: sessionId, sourceYRatio, label }));
-        };
-
-        if (!sessions[revealTargetSessionId]) {
-          dispatch(fetchSession(revealTargetSessionId)).then(doPlace);
-        } else {
-          doPlace();
-        }
+        const label = isCreateAgent ? 'Create Agent' : isInvokeAgent ? 'Invoke Agent' : 'Agent';
+        revealSubAgent(dispatch, sessionId, revealTargetSessionId, bubbleRef.current, label);
       },
-      [revealTargetSessionId, sessionId, cards, sessions, dispatch],
+      [revealTargetSessionId, sessionId, dispatch, isCreateAgent, isInvokeAgent],
     );
 
     const toggle = useCallback(() => {

@@ -41,7 +41,9 @@ type ListRow =
 export default function ScheduleCalendar({ view, density, onSelectWorkflow, refDate }: Props) {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
-  const workflows = useAppSelector((s) => Object.values(s.workflows.items));
+  const workflowItems = useAppSelector((s) => s.workflows.items);
+  // Object.values inside the selector returned a fresh array per store notification; derive once per items identity.
+  const workflows = useMemo(() => Object.values(workflowItems), [workflowItems]);
   const allPaused = useAppSelector((s) => s.workflows.paused);
   // Live clock for the "now" line; a snapshot would drift and refDate may be a navigated week, so it can't double as the current moment.
   const [now, setNow] = useState<Date>(() => new Date());
