@@ -2426,11 +2426,12 @@ app.on('web-contents-created', (_event, contents) => {
     contents !== mainWindow.webContents
   ) {
     console.log('[diag][main] spoofing UA for popup webContents id=', contents.id);
+    // Pinned to the RUNTIME Chrome version, never a hardcoded one: Slack started rejecting the old hardcoded Chrome/131 as an outdated browser.
     const OAUTH_POPUP_UA = process.platform === 'win32'
       ? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-        '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        `(KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`
       : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
-        '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+        `(KHTML, like Gecko) Chrome/${process.versions.chrome} Safari/537.36`;
     contents.setUserAgent(OAUTH_POPUP_UA);
   }
 
