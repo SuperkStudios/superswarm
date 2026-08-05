@@ -12,24 +12,41 @@ interface ApplicationsWindowProps {
   onClose: () => void;
 }
 
+// Stable per-app hue so icon-less apps are told apart at a glance; the old shared orange made every fallback tile an identical twin.
+function hueFor(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
 function AppTile({ output }: { output: Output }): React.ReactElement {
   const tile = {
-    width: 52,
-    height: 52,
-    borderRadius: '12px',
+    width: 64,
+    height: 64,
+    borderRadius: '15px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    // Hairline inset so screenshots and light tiles read as crafted app icons on the glass, not raw pasted images.
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 14px rgba(0,0,0,0.28)',
   } as const;
   if (output.thumbnail) {
     return <Box component="img" src={output.thumbnail} alt="" sx={{ ...tile, objectFit: 'cover' }} />;
   }
-  // The icon field holds an emoji for most apps; anything longer is not a glyph, so fall back to the app symbol.
   const glyph = (output.icon || '').trim();
+  const h = hueFor(output.name || '?');
   return (
-    <Box sx={{ ...tile, background: 'linear-gradient(135deg, #ef9552, #d96a2b)', fontSize: '1.375rem' }}>
-      {glyph && glyph.length <= 3 ? glyph : <GridViewRoundedIcon sx={{ fontSize: 26, color: '#fff' }} />}
+    <Box
+      sx={{
+        ...tile,
+        background: `linear-gradient(160deg, hsl(${h}, 42%, 52%), hsl(${(h + 24) % 360}, 48%, 34%))`,
+        fontSize: glyph && glyph.length <= 3 ? '1.5rem' : '1.375rem',
+        fontWeight: 590,
+        color: 'rgba(255,255,255,0.94)',
+      }}
+    >
+      {glyph && glyph.length <= 3 ? glyph : (output.name || '?').trim().charAt(0).toUpperCase()}
     </Box>
   );
 }
@@ -70,10 +87,12 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
           p: 2.5,
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
-          <Typography sx={{ fontSize: '1.125rem' }}>🐙</Typography>
-          <Typography sx={{ fontSize: '1rem', fontWeight: 600, color: 'rgba(255,255,255,0.75)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 2, px: 0.5 }}>
+          <Typography sx={{ fontSize: '0.9375rem', fontWeight: 590, letterSpacing: '-0.01em', color: 'rgba(255,255,255,0.92)' }}>
             Applications
+          </Typography>
+          <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.42)' }}>
+            {Object.keys(outputs).length > 0 ? Object.keys(outputs).length : ''}
           </Typography>
         </Box>
 
@@ -116,7 +135,7 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
             </DarkTokensScope>
           )}
           {apps.length > 0 && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(78px, 1fr))', gap: 1.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 1, pb: 0.5 }}>
               {apps.map((output) => (
                 <Box
                   key={output.id}
@@ -126,15 +145,20 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: 0.75,
-                    py: 0.75,
-                    borderRadius: '10px',
+                    gap: 1,
+                    py: 1.25,
+                    borderRadius: '12px',
                     cursor: 'pointer',
-                    '&:hover': { background: 'rgba(255,255,255,0.08)' },
+                    transition: 'background-color 0.15s ease',
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.07)' },
+                    '&:hover .osw-app-tile': { transform: 'scale(1.05)' },
+                    '&:active .osw-app-tile': { transform: 'scale(0.97)' },
                   }}
                 >
-                  <AppTile output={output} />
-                  <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.82)', textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <Box className="osw-app-tile" sx={{ transition: 'transform 0.16s ease', display: 'flex' }}>
+                    <AppTile output={output} />
+                  </Box>
+                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: 'rgba(255,255,255,0.86)', textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.5 }}>
                     {output.name}
                   </Typography>
                 </Box>
