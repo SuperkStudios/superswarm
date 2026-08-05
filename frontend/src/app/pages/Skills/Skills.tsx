@@ -177,7 +177,7 @@ const Skills: React.FC<SkillsProps> = ({ onBrowseDirectory, focusSkillId }) => {
     const flagged = result?.secret_findings?.length
       ? ` (heads up: the update ships ${result.secret_findings.length} file(s) with secret-shaped content)`
       : '';
-    setSnackbar({ open: true, message: `Updated "${skill.name}" to the latest version${flagged}` });
+    setSnackbar({ open: true, message: `Updated "${skillSlug(skill.name)}" to the latest version${flagged}` });
   };
 
   // claude.ai's content card header: [SKILL.md v] file picker + "N files" + eye/code toggles. Single-file skills hide the picker.
@@ -414,7 +414,7 @@ const Skills: React.FC<SkillsProps> = ({ onBrowseDirectory, focusSkillId }) => {
           ) : filteredLocal.length === 0 ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 8, gap: 1.5, color: c.text.ghost }}>
               <DescriptionIcon sx={{ fontSize: 40, opacity: 0.3 }} />
-              <Typography sx={{ fontSize: '0.875rem' }}>No skills yet. Browse the directory or add your own.</Typography>
+              <Typography sx={{ fontSize: '0.875rem' }}>No skills yet. Browse the marketplace or add your own.</Typography>
             </Box>
           ) : filteredLocal.map((sk) => (
             <Box
