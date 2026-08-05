@@ -17,6 +17,7 @@ import { openSettingsModal } from '@/shared/state/settingsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 import TopLayerPortal from '@/shared/TopLayerPortal';
+import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
 
 interface Props {
   open: boolean;
@@ -150,8 +151,8 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
       case 'settings': dispatch(openSettingsModal()); break;
       case 'settings-models': dispatch(openSettingsModal('models')); break;
       // Skills/Actions live in Settings now (the sidebar Customization section moved there).
-      case 'go-skills': dispatch(openSettingsModal('skills')); break;
-      case 'go-actions': dispatch(openSettingsModal('tools')); break;
+      case 'go-skills': openMarketplace('my-skills'); break;
+      case 'go-actions': openMarketplace('my-connectors'); break;
       case 'all-dashboards': navigate('/'); break;
     }
   }, [dispatch, navigate]);

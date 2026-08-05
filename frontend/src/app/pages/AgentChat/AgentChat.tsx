@@ -83,6 +83,7 @@ import { shallowEqual } from 'react-redux';
 import { useClaudeTokens, useThemeMode } from '@/shared/styles/ThemeContext';
 import { parseMcpToolName, getMcpInputSummary } from '@/shared/mcpToolMeta';
 import { isNarration } from './parsing/isNarration';
+import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
 
 const CONTEXT_WINDOWS: Record<string, number> = {
   'opus-4-8': 1_000_000,
@@ -1981,7 +1982,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                             setActivateError(`Activation failed (${r.status})`);
                           } else if (body?.status === 'unknown_server') {
                             // Not yet connected; jump to Actions so the user can finish OAuth.
-                            dispatch(openSettingsModal('tools'));
+                            openMarketplace('my-connectors');
                           } else if (id) {
                             dispatch(clearMcpSuggestions({ sessionId: id }));
                           }
@@ -2465,7 +2466,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                                     setActivateError(`Activation failed (${r.status})`);
                                   } else if (body?.status === 'unknown_server') {
                                     // Not yet connected; jump straight to Actions so the user can finish OAuth. Nothing here can do it on their behalf.
-                                    dispatch(openSettingsModal('tools'));
+                                    openMarketplace('my-connectors');
                                   } else if (id) {
                                     // Activation succeeded; clear the banner so the user gets visual confirmation the click did something.
                                     dispatch(clearMcpSuggestions({ sessionId: id }));

@@ -97,7 +97,6 @@ const DirectoryConnectorsTab: React.FC<Props> = ({ onOpenInstalled }) => {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
       <DirectoryFilterBar
         searchPlaceholder="Search connectors..."
-        chipLabel="Anthropic & Partners"
         query={query}
         onQuery={setQuery}
         filterSections={[

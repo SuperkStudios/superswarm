@@ -50,7 +50,6 @@ import { API_BASE } from '@/shared/config';
 import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
-import DirectoryDialog from '../Directory/DirectoryDialog';
 import UploadSkillDialog from '../Directory/dialogs/UploadSkillDialog';
 import DriveFolderUploadOutlinedIcon from '@mui/icons-material/DriveFolderUploadOutlined';
 
@@ -68,7 +67,14 @@ type Selection =
 
 const emptyForm: SkillForm = { name: '', description: '', content: '', command: '' };
 
-const Skills: React.FC = () => {
+interface SkillsProps {
+  /** Provided when hosted inside the Marketplace: Browse switches the view in place instead of opening a nested dialog. */
+  onBrowseDirectory?: () => void;
+  /** Skill to land on when returning from the Marketplace browse grid. */
+  focusSkillId?: string | null;
+}
+
+const Skills: React.FC<SkillsProps> = ({ onBrowseDirectory, focusSkillId }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const { items, loading } = useAppSelector((s) => s.skills);
@@ -85,10 +91,13 @@ const Skills: React.FC = () => {
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({ open: false, message: '' });
   const [builderPreview, setBuilderPreview] = useState<SkillPreviewData | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
   const [detailMenuAnchor, setDetailMenuAnchor] = useState<null | HTMLElement>(null);
+
+  useEffect(() => {
+    if (focusSkillId) setSelection({ type: 'local', id: focusSkillId });
+  }, [focusSkillId]);
 
   const handleBuilderPreview = useCallback((data: SkillPreviewData | null) => {
     setBuilderPreview(data);
@@ -317,7 +326,7 @@ const Skills: React.FC = () => {
           </Tooltip>
           <Button
             size="small"
-            onClick={() => setDirectoryOpen(true)}
+            onClick={() => onBrowseDirectory?.()}
             sx={{
               textTransform: 'none', fontSize: '0.8125rem', fontWeight: 600, px: 1.5, py: 0.4,
               color: c.text.primary, bgcolor: c.bg.secondary, borderRadius: `${c.radius.md}px`,
@@ -646,17 +655,6 @@ const Skills: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <DirectoryDialog
-        open={directoryOpen}
-        initialTab="skills"
-        onClose={() => setDirectoryOpen(false)}
-        onOpenInstalledSkill={(skillId) => {
-          setDirectoryOpen(false);
-          onboardingBus.emit('skill:installed');
-          setSelection({ type: 'local', id: skillId });
-        }}
-      />
 
       <UploadSkillDialog
         open={uploadOpen}

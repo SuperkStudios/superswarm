@@ -167,7 +167,6 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
       <DirectoryFilterBar
         searchPlaceholder="Search skills..."
-        chipLabel={filterSelected.includes('community') ? (filterSelected.includes('anthropic') ? 'Anthropic & Community' : 'Community') : 'Anthropic'}
         query={query}
         onQuery={setQuery}
         filterSections={[

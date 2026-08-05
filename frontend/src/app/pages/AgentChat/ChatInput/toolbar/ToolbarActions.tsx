@@ -19,6 +19,7 @@ import { useVoice } from '@/shared/voice/voiceContext';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { ComposerPlusMenu, ActiveTogglePills, PlusMenuItem } from './ComposerPlusMenu';
+import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
 
 // Stable empty: minting [] inside the selector re-rendered the toolbar on every store commit.
 const EMPTY_MCPS: string[] = [];
@@ -136,13 +137,13 @@ export const ToolbarActions: React.FC<Props> = ({
         label: name,
         icon: <ExtensionOutlinedIcon sx={{ fontSize: 15 }} />,
         hint: 'active',
-        onSelect: () => dispatch(openSettingsModal('tools')),
+        onSelect: () => openMarketplace('my-connectors'),
       })),
       {
         key: 'manage-tools',
         label: 'Manage tools',
         icon: <TuneRoundedIcon sx={{ fontSize: 15 }} />,
-        onSelect: () => dispatch(openSettingsModal('tools')),
+        onSelect: () => openMarketplace('my-connectors'),
       },
     ],
   });

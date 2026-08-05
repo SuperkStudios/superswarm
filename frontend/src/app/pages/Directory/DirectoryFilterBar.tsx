@@ -95,7 +95,6 @@ const SortPill: React.FC<{ options: PickerOption[]; value: string; onChange: (va
 
 interface Props {
   searchPlaceholder: string;
-  chipLabel: string;
   query: string;
   onQuery: (q: string) => void;
   filterSections: FilterSection[];
@@ -108,7 +107,7 @@ interface Props {
 
 // The Directory's search row + chip/filter row, shared by both tabs (same chrome on claude.ai).
 const DirectoryFilterBar: React.FC<Props> = ({
-  searchPlaceholder, chipLabel, query, onQuery,
+  searchPlaceholder, query, onQuery,
   filterSections, filterSelected, onToggleFilter, sortOptions, sortValue, onSort,
 }) => {
   const c = useClaudeTokens();
@@ -136,10 +135,7 @@ const DirectoryFilterBar: React.FC<Props> = ({
           },
         }}
       />
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1.75, py: 0.9, borderRadius: 999, bgcolor: c.bg.secondary }}>
-          <Typography sx={{ fontSize: '0.9375rem', fontWeight: 500, color: c.text.primary, whiteSpace: 'nowrap' }}>{chipLabel}</Typography>
-        </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1 }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <FilterPill sections={filterSections} selected={filterSelected} onToggle={onToggleFilter} />
           <SortPill options={sortOptions} value={sortValue} onChange={onSort} />

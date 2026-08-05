@@ -37,8 +37,16 @@ import CustomToolCard from './cards/CustomToolCard';
 import IntegrationGalleryCard from './cards/IntegrationGalleryCard';
 import { useToolsActions } from './hooks/useToolsActions';
 import { useBuiltinSections } from './hooks/useBuiltinSections';
+import { useCuratedRegistry } from './hooks/useCuratedRegistry';
 
-const Tools: React.FC = () => {
+interface ToolsProps {
+  /** Provided when hosted inside the Marketplace: Browse connectors switches the view in place. */
+  onBrowseConnectors?: () => void;
+  /** Connector to expand when returning from the Marketplace browse grid. */
+  expandToolId?: string | null;
+}
+
+const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const { items, builtinTools, builtinPermissions, loading } = useAppSelector((s) => s.tools);
@@ -91,18 +99,9 @@ const Tools: React.FC = () => {
   // The Add menu closes itself now (ToolsAddMenu), so the hook's closeMenu hook-in is a no-op.
   const a = useToolsActions({ items, allTools, regServersRaw, closeMenu: () => {} });
 
-  // Curated whitelist matches the MCPSearch alias map in main.py (mcp-meta).
-  const CURATED_MCP_NAMES = useMemo(() => new Set([
-    'google-workspace', 'microsoft-365', 'slack', 'discord',
-    'notion', 'airtable', 'hubspot', 'reddit', 'youtube',
-  ]), []);
-  const regServers = useMemo(() => {
-    if (a.regSource !== 'curated') return regServersRaw;
-    return regServersRaw.filter((srv: any) => {
-      const id = (srv?.name || srv?.id || '').toLowerCase();
-      return CURATED_MCP_NAMES.has(id);
-    });
-  }, [regServersRaw, a.regSource, CURATED_MCP_NAMES]);
+  useEffect(() => { if (expandToolId) a.setExpandedToolId(expandToolId); }, [expandToolId]);
+
+  const regServers = useCuratedRegistry(regServersRaw, a.regSource);
 
   return (
     <Box sx={{ px: 3, pt: 1, pb: 3, height: '100%', overflow: 'auto' }}>
@@ -110,9 +109,9 @@ const Tools: React.FC = () => {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', mb: 1.5 }}>
         <ToolsAddMenu
           devMode={!!devMode}
+          onBrowseConnectors={onBrowseConnectors}
           onOpenCreate={a.openCreate}
           onOpenRegistry={a.openRegistryBrowser}
-          onOpenInstalledConnector={(toolId) => a.setExpandedToolId(toolId)}
           onSnackbar={(message, severity) => a.setSnackbar({ open: true, message, severity: severity === 'error' ? 'error' : undefined })}
         />
       </Box>

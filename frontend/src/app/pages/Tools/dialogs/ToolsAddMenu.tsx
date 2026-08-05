@@ -8,23 +8,20 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
-import DirectoryDialog from '../../Directory/DirectoryDialog';
 import AddCustomConnectorDialog from '../../Directory/dialogs/AddCustomConnectorDialog';
 
 interface Props {
   devMode: boolean;
+  onBrowseConnectors?: () => void;
   onOpenCreate: () => void;
   onOpenRegistry: () => void;
-  onOpenInstalledConnector: (toolId: string) => void;
   onSnackbar: (message: string, severity: 'success' | 'error') => void;
 }
 
-// The Tools page's Add button (claude.ai's Connectors-page grammar) plus the Directory and
-// custom-connector dialogs it opens.
-const ToolsAddMenu: React.FC<Props> = ({ devMode, onOpenCreate, onOpenRegistry, onOpenInstalledConnector, onSnackbar }) => {
+// The Tools page's Add button (claude.ai's Connectors-page grammar) plus the custom-connector dialog it opens.
+const ToolsAddMenu: React.FC<Props> = ({ devMode, onBrowseConnectors, onOpenCreate, onOpenRegistry, onSnackbar }) => {
   const c = useClaudeTokens();
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
-  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [customConnectorOpen, setCustomConnectorOpen] = useState(false);
   const closeMenu = () => setMenuAnchor(null);
 
@@ -46,7 +43,7 @@ const ToolsAddMenu: React.FC<Props> = ({ devMode, onOpenCreate, onOpenRegistry, 
         onClose={closeMenu}
         PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: 2, mt: 0.5, minWidth: 200 } }}
       >
-        <MenuItem onClick={() => { closeMenu(); setDirectoryOpen(true); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+        <MenuItem onClick={() => { closeMenu(); onBrowseConnectors?.(); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
           <StorefrontIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
           Browse connectors
         </MenuItem>
@@ -66,20 +63,10 @@ const ToolsAddMenu: React.FC<Props> = ({ devMode, onOpenCreate, onOpenRegistry, 
         )}
       </Menu>
 
-      <DirectoryDialog
-        open={directoryOpen}
-        initialTab="connectors"
-        onClose={() => setDirectoryOpen(false)}
-        onOpenInstalledConnector={(toolId) => {
-          setDirectoryOpen(false);
-          onOpenInstalledConnector(toolId);
-        }}
-      />
-
       <AddCustomConnectorDialog
         open={customConnectorOpen}
         onClose={() => setCustomConnectorOpen(false)}
-        onBrowsePrebuilt={() => setDirectoryOpen(true)}
+        onBrowsePrebuilt={() => { setCustomConnectorOpen(false); onBrowseConnectors?.(); }}
         onAdded={onSnackbar}
       />
     </>
