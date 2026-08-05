@@ -651,7 +651,9 @@ function DataTableBody() {
 
   React.useEffect(() => {
     if (hasWarnedRowKeyRef.current) return;
-    if (process.env.NODE_ENV !== "production" && !rowIdKey && data.length > 0) {
+    // Only nag when the data actually CARRIES an id-like field the caller forgot to point at; model payloads usually have none, and the warning was pure console noise for them.
+    const hasIdLikeField = data.length > 0 && ["id", "uuid", "key", "symbol"].some((k) => k in (data[0] as Record<string, unknown>));
+    if (process.env.NODE_ENV !== "production" && !rowIdKey && hasIdLikeField) {
       hasWarnedRowKeyRef.current = true;
       console.warn(
         "[DataTable] Missing `rowIdKey` prop. Falling back to inferred/content-derived row keys. " +

@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useThemeMode } from '@/shared/styles/ThemeContext';
 import { TOOL_UI_REGISTRY } from './registry';
 
@@ -90,6 +90,8 @@ function VendoredToolUi({ name, props, extraProps, quietFail = false }: Vendored
   const { mode } = useThemeMode();
   const entry = TOOL_UI_REGISTRY[name];
   const [gate, setGate] = useState<Gate>({ state: 'pending' });
+  // Parents rebuild the props object every render; keying the validation on identity re-ran an async zod parse per transcript render (real typing-lag cost in table-bearing chats). Content is the real dependency.
+  const propsKey = useMemo(() => { try { return JSON.stringify(props); } catch { return String(Math.random()); } }, [props]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,12 +103,17 @@ function VendoredToolUi({ name, props, extraProps, quietFail = false }: Vendored
       })
       .catch(() => { if (!cancelled) setGate({ state: 'bad', problem: 'component failed to load' }); });
     return () => { cancelled = true; };
-  }, [entry, props]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry, propsKey]);
 
+  const warnedRef = useRef<string | null>(null);
   if (!entry) return null;
   if (gate.state === 'bad') {
-    // Schema jargon is for the console; the transcript gets one quiet human line.
-    console.warn(`[tool-ui] ${name} payload didn't validate:`, gate.problem);
+    // Schema jargon is for the console; the transcript gets one quiet human line. Once per payload, not per render.
+    if (warnedRef.current !== propsKey) {
+      warnedRef.current = propsKey;
+      console.warn(`[tool-ui] ${name} payload didn't validate:`, gate.problem);
+    }
     if (quietFail) return null;
     return (
       <div style={{ fontSize: '0.75rem', opacity: 0.45, padding: '4px 0', fontStyle: 'italic' }}>
