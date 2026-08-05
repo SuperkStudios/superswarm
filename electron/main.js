@@ -2397,6 +2397,8 @@ app.on('web-contents-created', (_event, contents) => {
   }
   if (contents.getType() === 'webview') {
     const wcId = contents.id;
+    // Chrome parity for trackpad pinch: Electron DROPS macOS pinch gestures at the default (1,1) visual-zoom limits, so Figma/Miro/Maps never received the ctrl+wheel their canvas zoom listens for. With limits widened, the guest synthesizes ctrl+wheel first (a preventDefault-ing page like Figma owns the zoom), and plain pages get Chrome's pinch magnify.
+    try { contents.setVisualZoomLevelLimits(1, 3); } catch (_) { /* older Electron */ }
     contents.on('before-input-event', (event, input) => routeBrowserShortcut(event, input, wcId));
     contents.on('context-menu', (_e, params) => buildBrowserContextMenu(contents, params, wcId));
   }
