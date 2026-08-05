@@ -32,7 +32,10 @@ import {
   clearGlowingAgentCard,
   removeCard,
   recordClosedCard,
+  setBrowserDocked,
+  keepBrowserCardOpen,
 } from '@/shared/state/dashboardLayoutSlice';
+import { store } from '@/shared/state/store';
 import WindowControls, { ARC_CHIP_SX } from './WindowControls';
 import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
@@ -659,6 +662,14 @@ const AgentCard: React.FC<Props> = ({
     e?.preventDefault();
     if (linkedWorkflowSidecarId) {
       dispatch(setCardSidecar({ workflowId: linkedWorkflowSidecarId, sessionId: null, kind: null }));
+    }
+    // Closing the CHAT must not take the browser with it: its browser undocks to the canvas and is pinned open (keep_open exempts it from the finished-agent auto-reap). The user closes it separately.
+    if (!glowEntry) {
+      for (const bc of Object.values(store.getState().dashboardLayout.browserCards)) {
+        if (bc.docked_to !== session.id && bc.spawned_by !== session.id) continue;
+        if (bc.docked_to === session.id) dispatch(setBrowserDocked({ browserId: bc.browser_id, dockedTo: null }));
+        dispatch(keepBrowserCardOpen(bc.browser_id));
+      }
     }
     // Record for Cmd+Shift+T BEFORE removeCard wipes the position, but only on a real close (the glow branch just clears a tether, it doesn't close the session).
     if (!glowEntry) dispatch(recordClosedCard({ kind: 'agent', id: session.id }));

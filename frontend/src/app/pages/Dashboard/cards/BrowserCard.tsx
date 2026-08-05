@@ -1098,6 +1098,7 @@ const BrowserCard: React.FC<Props> = ({
   const dockActive = !!dockRect && isDockOwner && !dragging && !localResize && !isTiled && !keepAliveHidden && !isMinimized;
   // Docked in intent but no slot rect yet (slot not mounted, or windowed out before first measure), OR docked but out-elected by a newer dock owner: hide rather than flash the card at its stale canvas home.
   const dockPending = !!dockedTo && !!dockParentCard && (!isDockOwner || (dockParentExpanded && !dockRect)) && !dragging && !isTiled && !isMinimized && !keepAliveHidden;
+  overlayLiveRef.current = dockActive && dockVisible && !dockPending;
   // An agent can only SEE a page the compositor is drawing, and Chromium draws nothing at all for a
   // guest parked at left:-100000. Measured in one window: a card on screen captured in 58ms while
   // the same card parked timed out on guest capturePage, on host capturePage AND on CDP
