@@ -76,6 +76,27 @@ const GeneralInterface: React.FC<{
         </Box>
       </Box>
 
+      <Box sx={rowSx} {...settingSelectAttrs('accent_color', 'Accent color', 'Interface', 'The accent color used across the app.')}>
+        <Typography sx={labelSx}>Accent color</Typography>
+        <Typography sx={{ ...descSx, mb: 1.5 }}>
+          Pick any color; buttons, highlights, and glows follow it. Add a second dot for a canvas gradient. Reset returns the stock accent.
+        </Typography>
+        <AccentColorPad
+          c={c}
+          stops={form.accent_gradient ?? (form.accent_color ? [form.accent_color] : [])}
+          onChange={(next) => setForm({ ...form, accent_color: next?.[0] ?? null, accent_gradient: next && next.length > 1 ? next : null })}
+          height={120}
+          wash={{ opacity: washOpacity, grain, onOpacity: setWashOpacity, onGrain: setGrain }}
+          scheme={{
+            value: form.theme === 'dark' ? 'dark' : 'light',
+            onPick: (v) => setForm({ ...form, theme: v === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : v }),
+          }}
+        />
+      </Box>
+
+
+      <Typography sx={sectionSx}>Dictation</Typography>
+
       <Box sx={inlineRowSx} {...settingSelectAttrs('voice_hold_to_talk', 'Dictation', 'Interface', 'Hold to talk, or tap to start and stop.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Dictation</Typography>
@@ -121,23 +142,7 @@ const GeneralInterface: React.FC<{
         />
       </Box>
 
-      <Box sx={rowSx} {...settingSelectAttrs('accent_color', 'Accent color', 'Interface', 'The accent color used across the app.')}>
-        <Typography sx={labelSx}>Accent color</Typography>
-        <Typography sx={{ ...descSx, mb: 1.5 }}>
-          Pick any color; buttons, highlights, and glows follow it. Add a second dot for a canvas gradient. Reset returns the stock accent.
-        </Typography>
-        <AccentColorPad
-          c={c}
-          stops={form.accent_gradient ?? (form.accent_color ? [form.accent_color] : [])}
-          onChange={(next) => setForm({ ...form, accent_color: next?.[0] ?? null, accent_gradient: next && next.length > 1 ? next : null })}
-          height={120}
-          wash={{ opacity: washOpacity, grain, onOpacity: setWashOpacity, onGrain: setGrain }}
-          scheme={{
-            value: form.theme === 'dark' ? 'dark' : 'light',
-            onPick: (v) => setForm({ ...form, theme: v === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : v }),
-          }}
-        />
-      </Box>
+      <Typography sx={sectionSx}>Canvas</Typography>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('mouse_wheel_action', 'Mouse wheel', 'Interface', 'What a mouse wheel does on the dashboard canvas.')}>
         <Box sx={{ mr: 3 }}>
@@ -185,6 +190,8 @@ const GeneralInterface: React.FC<{
           />
         </Box>
       </Box>
+
+      <Typography sx={sectionSx}>Agents</Typography>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('new_agent_shortcut', 'New agent shortcut', 'Interface', 'Keyboard shortcut to create an agent.')}>
         <Box sx={{ mr: 3 }}>
