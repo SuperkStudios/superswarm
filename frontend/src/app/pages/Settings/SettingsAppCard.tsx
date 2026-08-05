@@ -96,7 +96,7 @@ const SettingsAppCard: React.FC<Props> = ({
             onLostPointerCapture={header.onLostPointerCapture}
             style={{
               height: 42, flex: 'none', display: 'flex', alignItems: 'center', gap: 14,
-              padding: '0 16px', borderBottom: `1px solid ${c.border.subtle}`, background: c.bg.surface,
+              padding: '0 16px', background: c.bg.surface,
               cursor: header.dragging ? 'grabbing' : 'grab', touchAction: 'none', userSelect: 'none',
             }}
           >

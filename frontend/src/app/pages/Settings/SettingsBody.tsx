@@ -86,23 +86,17 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) =
   const styles = makeSettingsStyles(c);
 
   return (
-    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: c.bg.surface }}>
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', px: 3.5, pt: 2.5, pb: 1.5, flexShrink: 0 }}>
-        <Typography sx={{ fontSize: '1.75rem', fontWeight: 600, color: c.text.primary, fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.15 }}>
-          Settings
+    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden', bgcolor: c.bg.surface, pt: 1.5 }}>
+      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
+
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 0.5, pb: 0.75, flexShrink: 0 }}>
+        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
+          {railLabelFor(activeTab)}
         </Typography>
         <IconButton onClick={handleRequestClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
           <X size={18} />
         </IconButton>
-      </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'row', flex: 1, minHeight: 0 }}>
-      <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
-
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', px: 3, pt: 0.5, pb: 0.75, flexShrink: 0 }}>
-        <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
-          {railLabelFor(activeTab)}
-        </Typography>
       </Box>
 
       <Box sx={{
@@ -167,7 +161,6 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) =
         <CommandsContent />
       </Box>
       )}
-      </Box>
       </Box>
       </Box>
 

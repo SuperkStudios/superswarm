@@ -25,13 +25,13 @@ export const DEFAULT_WORKFLOW_CARD_H = 520;
 // Open at the same default footprint as a browser/view card so it lands at a comfortable size automatically.
 export const DEFAULT_WORKFLOWS_HUB_W = DEFAULT_BROWSER_CARD_W;
 export const DEFAULT_WORKFLOWS_HUB_H = DEFAULT_BROWSER_CARD_H;
-export const DEFAULT_SETTINGS_CARD_W = 900;
-export const DEFAULT_SETTINGS_CARD_H = 640;
+export const DEFAULT_SETTINGS_CARD_W = DEFAULT_BROWSER_CARD_W;
+export const DEFAULT_SETTINGS_CARD_H = DEFAULT_BROWSER_CARD_H;
 // The two singleton windows have no card map to key off, so they own these fixed ids everywhere (selection, minimize, z-order).
 export const SETTINGS_CARD_ID = 'settings';
 export const MARKETPLACE_CARD_ID = 'marketplace';
-export const DEFAULT_MARKETPLACE_CARD_W = 1080;
-export const DEFAULT_MARKETPLACE_CARD_H = 720;
+export const DEFAULT_MARKETPLACE_CARD_W = DEFAULT_BROWSER_CARD_W;
+export const DEFAULT_MARKETPLACE_CARD_H = DEFAULT_BROWSER_CARD_H;
 export const WORKFLOWS_HUB_ID = 'workflows-hub';
 export const EXPANDED_CARD_MIN_H = 620;
 export const GRID_GAP = 24;

@@ -78,12 +78,7 @@ const MarketplaceBody: React.FC = () => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, bgcolor: c.bg.surface }}>
-      <Box sx={{ px: 3.5, pt: 2.5, pb: 1.5, flexShrink: 0 }}>
-        <Typography sx={{ fontSize: '1.75rem', fontWeight: 600, color: c.text.primary, fontFamily: 'Georgia, "Times New Roman", serif', lineHeight: 1.15 }}>
-          Marketplace
-        </Typography>
-      </Box>
-      <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0, pt: 1.5 }}>
         <Box sx={{ width: 210, minWidth: 210, px: 2, pt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           {railRow('skills', 'Skills', <DescriptionOutlinedIcon sx={{ fontSize: 19, color: c.text.secondary }} />)}
           {railRow('connectors', 'Connectors', <GridViewOutlinedIcon sx={{ fontSize: 19, color: c.text.secondary }} />)}
