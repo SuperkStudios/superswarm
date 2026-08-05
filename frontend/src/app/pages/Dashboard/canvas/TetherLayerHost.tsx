@@ -9,7 +9,12 @@ import TetherLayer from './TetherLayer';
 // whole dashboard tree (the ENG-88 input delay).
 const TetherLayerHost: React.FC<{ inputs: TetherInputs; c: ClaudeTokens }> = ({ inputs, c }) => {
   const [liveDrag, setLiveDrag] = useState<LiveDragInfo | null>(null);
-  useEffect(() => subscribeLiveDrag(setLiveDrag), []);
+  // Tethers only exist while something glows; on an idle canvas a drag frame should cost zero React work, so don't even subscribe.
+  const hasTethers = Object.keys(inputs.glowingAgentCards).length > 0 || Object.keys(inputs.glowingBrowserCards).length > 0;
+  useEffect(() => {
+    if (!hasTethers) { setLiveDrag(null); return undefined; }
+    return subscribeLiveDrag(setLiveDrag);
+  }, [hasTethers]);
   const tethers = useTethers(inputs, liveDrag);
   return <TetherLayer tethers={tethers} c={c} />;
 };

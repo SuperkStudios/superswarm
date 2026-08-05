@@ -5,6 +5,7 @@ import { moveCards } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
 import type { CanvasActions } from './useCanvasControls';
 import { publishLiveDrag } from './liveDragChannel';
+import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
 
@@ -98,6 +99,8 @@ export function useCardDrag({
     }
     // Arm the webview shield on the first real MOVE, not on pointerdown: a plain click also arms the drag machinery, and shielding then made the click-to-focus camera fit skip (it saw a "drag in progress"), so focusing a card took two clicks. On a real drag the shield still goes up before the pointer travels, so the webview neutralization + no-nudge + release-over-webview fixes all hold. Idempotent add.
     document.body.classList.add('dashboard-marquee-active');
+    // Card drags count as canvas interaction: without this, a mid-drag transcript resize re-rendered the whole controller per change (the ResizeObserver bail never engaged).
+    setCanvasInteractionActive(true);
     // Start edge panning only once actual dragging begins; a live frame handle means the loop is already running.
     if (edgePanFrameRef.current === null) {
       edgePanFrameRef.current = requestAnimationFrame(tickEdgePan);
@@ -116,6 +119,7 @@ export function useCardDrag({
     canvasActions.commit();
     activeDragCardRef.current = null;
     document.body.classList.remove('dashboard-marquee-active');
+    setCanvasInteractionActive(false);
     isMultiDragRef.current = false;
     setMultiDragDelta(null);
     publishLiveDrag(null);

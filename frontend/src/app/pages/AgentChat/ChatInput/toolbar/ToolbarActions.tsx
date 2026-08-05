@@ -20,6 +20,9 @@ import { useElementSelection } from '@/app/components/editor/ElementSelectionCon
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { ComposerPlusMenu, ActiveTogglePills, PlusMenuItem } from './ComposerPlusMenu';
 
+// Stable empty: minting [] inside the selector re-rendered the toolbar on every store commit.
+const EMPTY_MCPS: string[] = [];
+
 interface Props {
   c: ClaudeTokens;
   elementSelection: ReturnType<typeof useElementSelection>;
@@ -48,7 +51,7 @@ export const ToolbarActions: React.FC<Props> = ({
   // Lazy-load the skills list the first time the menu could need it; cheap and cached in the slice.
   const skills = useAppSelector((s) => s.skills.items);
   const skillsLoaded = useAppSelector((s) => s.skills.loaded);
-  const activeMcps = useAppSelector((s) => (sessionId ? s.agents.sessions[sessionId]?.active_mcps : undefined) ?? []);
+  const activeMcps = useAppSelector((s) => (sessionId ? s.agents.sessions[sessionId]?.active_mcps : undefined) ?? EMPTY_MCPS);
   React.useEffect(() => { if (!skillsLoaded) dispatch(fetchSkills()); }, [skillsLoaded, dispatch]);
   // Every composer action collapses into one "+" so the bar reads empty at rest; active toggles
   // (web search, selecting) still surface as a pill so their state stays visible. New capabilities
