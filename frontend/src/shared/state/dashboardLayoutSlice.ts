@@ -589,13 +589,9 @@ function addMissingCards<T extends { x: number; y: number; width: number; height
 function clearOtherDocks(state: { browserCards: Record<string, BrowserCardPosition>; viewCards: Record<string, ViewCardPosition> }, sessionId: string, keepBrowserId?: string): void {
   for (const bc of Object.values(state.browserCards)) {
     if (bc.docked_to !== sessionId) continue;
-    // The card being (re-)docked must survive its own clear: layout sync re-asserts docks, and deleting the assertee would vanish a live browser.
+    // The card being (re-)docked must survive its own clear: layout sync re-asserts docks.
     if (bc.browser_id === keepBrowserId) continue;
-    // An agent-owned browser displaced by its replacement is a corpse (the agent spins a fresh one when a tab dies); releasing it to the canvas painted dead stacked windows next to the chat.
-    if (bc.spawned_by === sessionId) {
-      delete state.browserCards[bc.browser_id];
-      continue;
-    }
+    // Corpse cleanup happens in WebSocketManager via removeBrowserCardCleanly, NOT here: a bare store delete gets resurrected by the backend layout sync as a free card.
     bc.docked_to = null;
   }
   for (const vc of Object.values(state.viewCards)) {

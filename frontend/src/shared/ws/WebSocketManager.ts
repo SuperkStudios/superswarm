@@ -843,6 +843,12 @@ class WebSocketManager {
               let glowLabel = 'Use Browser';
               if (parentCard) {
                 pos = placeBrowserBesideChat(layoutState, parentCard, parentId, browserCard.width, browserCard.height, browserCard.browser_id);
+                // A replacement browser buries its predecessor: the agent spins a fresh card when a tab dies, and the displaced spawned sibling must be torn down through the FULL path (a bare store delete gets resurrected by the backend layout sync as a free stacked window).
+                for (const old of Object.values(layoutState.browserCards)) {
+                  if (old.browser_id !== browserCard.browser_id && old.spawned_by === parentId && !old.keep_open) {
+                    void import('@/shared/browserTeardown').then(({ removeBrowserCardCleanly }) => removeBrowserCardCleanly(old.browser_id, store.dispatch));
+                  }
+                }
                 // Default home is INSIDE the chat: the card overlays the chat's dock slot while the
                 // chat is expanded; the beside-chat spot stays the undock/collapse fallback.
                 store.dispatch(setBrowserDocked({ browserId: browserCard.browser_id, dockedTo: parentId }));
