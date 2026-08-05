@@ -66,6 +66,19 @@ function hostHasBorrowedSession(url) {
   return false;
 }
 
+// Sites whose browser-support wall PARSES the UA and allowlists browsers: an unknown "openswarm/x" product token reads as an unsupported browser and their sign-in becomes unreachable ("We're very sorry, but your browser is not supported").
+const p_bareUaDomains = ['slack.com', 'slack-edge.com'];
+
+function hostWantsBareUa(url) {
+  if (hostHasBorrowedSession(url)) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return p_bareUaDomains.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
+}
+
 // E2E flag: when OPENSWARM_E2E=1, append a Chromium command-line switch the
 // renderer reads at startup to set window.__OPENSWARM_E2E__ = true BEFORE any
 // page script parses, so the production-build store-on-window gate fires
@@ -2003,7 +2016,7 @@ app.whenReady().then(async () => {
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
       const headers = { ...(details.requestHeaders || {}) };
-      const borrowed = hostHasBorrowedSession(details.url);
+      const borrowed = hostWantsBareUa(details.url);
       for (const k of Object.keys(headers)) {
         const lk = k.toLowerCase();
         if (lk === 'sec-ch-ua' || lk === 'sec-ch-ua-full-version-list') {
@@ -2604,7 +2617,7 @@ app.on('web-contents-created', (_event, contents) => {
     // product token we removed, and plenty of anti-bot scripts compare exactly those two.
     contents.on('dom-ready', () => {
       let borrowed = false;
-      try { borrowed = hostHasBorrowedSession(contents.getURL()); } catch { borrowed = false; }
+      try { borrowed = hostWantsBareUa(contents.getURL()); } catch { borrowed = false; }
       if (!borrowed) return;
       const bare = bareChromeUserAgent(contents.getUserAgent());
       contents.executeJavaScript(`
