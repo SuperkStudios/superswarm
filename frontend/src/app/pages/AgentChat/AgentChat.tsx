@@ -1661,6 +1661,11 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               // Top-aligned natural flow: messages start at the top and grow down (standard chat). The earlier flex-column + mt:auto bottom-anchor clustered short chats at the bottom under a big void, reading broken.
               px: 2,
               py: 1,
+              // Fullscreen: the scroller breaks OUT of the reading column so its scrollbar rides the window edge; matching padding keeps the content at the 760px measure.
+              ...(fullscreenChat && {
+                mr: `min(0px, calc((${FULLSCREEN_READING_MAX_W}px - 100vw) / 2))`,
+                pr: `max(16px, calc((100vw - ${FULLSCREEN_READING_MAX_W}px) / 2))`,
+              }),
               // Smoothness bundle (perf-only, no behavior change): 1. overflow-anchor: auto, Chromium's native scroll anchoring keeps the viewport pinned to the user's visible content as siblings above/below resize. Eliminates the "transcript snaps back" feel during streaming and parallel tool fan-outs. Runs on the compositor thread, free. 2. contain: layout, tells the browser layout shifts inside this scroll container don't affect siblings outside it. Prevents reflow from cascading up to the dashboard layout when bubbles grow. 3. overscroll-behavior: contain, keeps over-scroll gestures from leaking up to the dashboard pan/zoom when the user hits the chat top/bottom.
               overflowAnchor: 'auto',
               contain: 'layout',
