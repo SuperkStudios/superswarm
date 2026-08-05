@@ -158,7 +158,7 @@ const UsageStats: React.FC = () => {
           <Typography sx={valueSx}>{formatCost(stats.total_cost_usd)}</Typography>
           <Typography sx={subSx}>
             {isSubscription
-              ? `${formatCost(stats.avg_cost_per_session)} avg, saved with your subscription`
+              ? `API value of all routed requests, covered by your subscription`
               : costSourceLabel ? `${formatCost(stats.avg_cost_per_session)} avg, ${costSourceLabel}` : 'no cost data'}
           </Typography>
         </Box>
@@ -201,12 +201,12 @@ const UsageStats: React.FC = () => {
           <Typography sx={valueSx}>
             {stats.total_prompt_tokens || stats.total_completion_tokens
               ? formatTokens((stats.total_prompt_tokens || 0) + (stats.total_completion_tokens || 0))
-              : Object.keys(stats.providers_used || {}).length}
+              : '0'}
           </Typography>
           <Typography sx={subSx}>
             {stats.total_prompt_tokens || stats.total_completion_tokens
-              ? `${formatTokens(stats.total_prompt_tokens || 0)} in, ${formatTokens(stats.total_completion_tokens || 0)} out`
-              : providerEntries.map(([p]) => p).join(', ') || 'none'}
+              ? `${formatTokens(stats.total_prompt_tokens || 0)} in, ${formatTokens(stats.total_completion_tokens || 0)} out, all routed requests`
+              : 'no token data'}
           </Typography>
         </Box>
       </Box>
