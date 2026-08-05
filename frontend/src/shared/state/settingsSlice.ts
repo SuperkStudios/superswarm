@@ -3,23 +3,6 @@ import { API_BASE } from '@/shared/config';
 
 const SETTINGS_API = `${API_BASE}/settings`;
 
-export const DEFAULT_SYSTEM_PROMPT =
-  `You are a personal AI assistant running inside OpenSwarm.\n\n` +
-  `## Tool Priority\n` +
-  `When a dedicated MCP tool exists for a task, use it directly. Do not use the browser for things MCP tools can handle.\n` +
-  `Priority order:\n` +
-  `1. MCP tools first (Reddit, Google Workspace, etc.); fastest and most reliable\n` +
-  `2. WebSearch / WebFetch for general web lookups without a dedicated MCP\n` +
-  `3. BrowserAgent only when you need to visually interact with a website, fill forms, or do something no other tool can handle\n\n` +
-  `## Tool Call Style\n` +
-  `Default: do not narrate routine tool calls. Just call the tool.\n` +
-  `Narrate only when it helps: multi-step work, complex problems, or when the user explicitly asks.\n` +
-  `Keep narration brief. Use plain language.\n\n` +
-  `## Interaction Style\n` +
-  `Be direct and action-oriented. Do not ask clarifying questions unless genuinely ambiguous; ` +
-  `make reasonable assumptions and act. If you need to ask, use the AskUserQuestion tool.\n` +
-  `Do not over-explain what you are about to do. Just do it and show the results.`;
-
 export interface CustomProvider {
   name: string;
   base_url: string;
@@ -163,11 +146,13 @@ interface SettingsState {
   latestWriteId: string | null;
   /** False until the boot free-trial mint attempt settles; gates the no-model banner. */
   freeTrialArmSettled: boolean;
+  /** The backend's shipped default prompt, fetched on demand; null until it lands. */
+  defaultSystemPrompt: string | null;
 }
 
 /** Baseline for every required settings field. Spread under any backend payload so an older saved shape that predates a newer field (e.g. new_agent_shortcut) can't surface as undefined and crash a consumer. */
 export const DEFAULT_SETTINGS: AppSettings = {
-  default_system_prompt: DEFAULT_SYSTEM_PROMPT,
+  default_system_prompt: null,
   default_folder: null,
   default_model: 'opus-5',
   default_mode: 'agent',
@@ -202,6 +187,7 @@ const initialState: SettingsState = {
   draftTab: null,
   latestWriteId: null,
   freeTrialArmSettled: false,
+  defaultSystemPrompt: null,
 };
 
 export const fetchSettings = createAsyncThunk('settings/fetch', async () => {
@@ -220,6 +206,16 @@ export const updateSettingsPatch = createAsyncThunk(
     });
     const data = await res.json();
     return data.settings as AppSettings;
+  }
+);
+
+// The default lives in ONE place (the backend); shipping a frontend copy rotted once already and made Reset show forever.
+export const fetchDefaultSystemPrompt = createAsyncThunk(
+  'settings/fetchDefaultSystemPrompt',
+  async () => {
+    const res = await fetch(`${SETTINGS_API}/default-system-prompt`);
+    const data = await res.json();
+    return data.default_system_prompt as string;
   }
 );
 
@@ -371,6 +367,9 @@ const settingsSlice = createSlice({
         state.data = { ...DEFAULT_SETTINGS, ...action.payload };
         state.draft = null;
         state.draftTab = null;
+      })
+      .addCase(fetchDefaultSystemPrompt.fulfilled, (state, action) => {
+        state.defaultSystemPrompt = action.payload;
       })
       .addCase(resetSystemPrompt.fulfilled, (state, action) => {
         state.latestWriteId = action.meta.requestId;
