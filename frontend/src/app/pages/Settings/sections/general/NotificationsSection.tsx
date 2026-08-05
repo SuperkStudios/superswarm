@@ -16,7 +16,7 @@ const NotificationsSection: React.FC<Props> = ({ form, setForm }) => {
   const row = (title: string, body: string, key: 'notify_agent_completion' | 'notify_workflow_runs'): React.ReactElement => (
     <Box sx={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2,
-      px: 2, py: 1.75, bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`,
+      px: 0.5, py: 2, borderBottom: `1px solid ${c.border.subtle}`, '&:last-of-type': { borderBottom: 'none' },
     }}>
       <Box sx={{ minWidth: 0 }}>
         <Typography sx={{ fontSize: '0.875rem', fontWeight: 600, color: c.text.primary }}>{title}</Typography>
@@ -30,10 +30,10 @@ const NotificationsSection: React.FC<Props> = ({ form, setForm }) => {
     </Box>
   );
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, maxWidth: 720 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
       {row('Agent completion', 'Native notification when an agent finishes or errors while the window is in the background.', 'notify_agent_completion')}
       {row('Workflow runs', 'Notification Center alert when a scheduled workflow run finishes, with quick actions.', 'notify_workflow_runs')}
-      <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost, px: 0.5 }}>
+      <Typography sx={{ fontSize: '0.8125rem', color: c.text.ghost, px: 0.5, pt: 2 }}>
         Email alerts are not available yet.
       </Typography>
     </Box>
