@@ -305,6 +305,8 @@ const BrowserCard: React.FC<Props> = ({
     window.addEventListener('openswarm:canvas-pan-changed', measure);
     document.addEventListener('visibilitychange', measure);
     const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
+    // Self-heal: the slot lives in the WINDOWED transcript and remounts without firing any of the events above, which left the mini scaled against a stale rect (visibly overflowing its frame) until the next pan. 500ms bounds how long any staleness can survive.
+    const heal = window.setInterval(measure, 500);
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', measure);
@@ -313,6 +315,7 @@ const BrowserCard: React.FC<Props> = ({
       scrollHost?.removeEventListener('scroll', onScroll);
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
       timers.forEach((tm) => window.clearTimeout(tm));
+      window.clearInterval(heal);
     };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
