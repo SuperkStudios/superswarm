@@ -247,6 +247,7 @@ def p_build_skill(skill_id: str, content: str, md_path: str, kind: str, index: d
         source=meta.get("source", ""),
         folder=meta.get("folder", ""),
         version=meta.get("version", ""),
+        enabled=bool(meta.get("enabled", True)),
     )
 
 
@@ -321,7 +322,9 @@ async def load_skill(body: SkillLoadRequest):
     skills_list = sync_skills()
     target = p_resolve_skill(body.id, skills_list)
     if target is None:
-        return {"ok": False, "error": "unknown_skill", "available": [s.id for s in skills_list]}
+        return {"ok": False, "error": "unknown_skill", "available": [s.id for s in skills_list if s.enabled]}
+    if not target.enabled:
+        return {"ok": False, "error": "skill_disabled", "available": [s.id for s in skills_list if s.enabled]}
     folder = target.dir_path if (target.dir_path and target.has_supporting_files) else None
     return {"ok": True, "text": format_skill_for_prompt(target.name, target.content, folder)}
 
@@ -477,6 +480,33 @@ def write_folder_skill(skill_id: str, files: dict[str, str], meta: dict) -> Skil
     return p_build_skill(slug, content, md_path, kind, index)
 
 
+@skills.router.get("/{skill_id}/files")
+async def list_skill_files(skill_id: str):
+    """The detail page's file picker: every text file in a folder skill, SKILL.md first."""
+    md_path, kind = skill_md_path(skill_id)
+    if not md_path:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    if kind != "folder":
+        with open(md_path, encoding="utf-8") as f:
+            return {"files": [{"path": "SKILL.md", "content": f.read()}]}
+    base_abs = os.path.abspath(os.path.join(SKILLS_DIR, skill_id))
+    out: list[dict] = []
+    for root, dirs, names in os.walk(base_abs):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for n in sorted(names):
+            path = os.path.join(root, n)
+            rel = os.path.relpath(path, base_abs)
+            if n.startswith(".") or os.path.getsize(path) > 512_000:
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    out.append({"path": rel, "content": f.read()})
+            except (UnicodeDecodeError, OSError):
+                continue
+    out.sort(key=lambda e: (e["path"] != "SKILL.md", e["path"]))
+    return {"files": out}
+
+
 @skills.router.post("/upload")
 async def upload_skill(body: SkillUpload):
     """The Directory's Upload skill drop zone: a bare SKILL .md, or a .zip/.skill archive
@@ -555,6 +585,8 @@ async def update_skill(skill_id: str, body: SkillUpdate):
         meta["description"] = body.description
     if body.command is not None:
         meta["command"] = body.command
+    if body.enabled is not None:
+        meta["enabled"] = body.enabled
     index[skill_id] = meta
     save_index(index)
 

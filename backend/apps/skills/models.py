@@ -19,6 +19,8 @@ class Skill(BaseModel):
     source: str = ""
     folder: str = ""
     version: str = ""
+    # The detail-page toggle: a disabled skill stays installed but leaves the agent's skill list, the Skill tool refuses to load it, and cloud runs skip it.
+    enabled: bool = True
 
 
 class SkillCreate(BaseModel):
@@ -33,6 +35,7 @@ class SkillUpdate(BaseModel):
     description: Optional[str] = None
     content: Optional[str] = None
     command: Optional[str] = None
+    enabled: Optional[bool] = None
 
 
 class SkillLoadRequest(BaseModel):
