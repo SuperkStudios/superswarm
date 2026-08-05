@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import CircularProgress from '@mui/material/CircularProgress';
 import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
 import { X } from 'lucide-react';
@@ -22,16 +21,14 @@ import UsageStats from './sections/usage/UsageStats';
 import SettingsRail, { railLabelFor } from './sections/SettingsRail';
 import { makeSettingsStyles } from './sections/settingsStyles';
 import { useSettingsForm } from './useSettingsForm';
+import NotificationsSection from './sections/general/NotificationsSection';
+import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
 import { PROVIDER_COLORS, OPENSWARM_GRADIENT, useModelOptions } from './settingsModelOptions';
-
-// Skills/Tools moved here from the old sidebar Customization section; lazy since both pull heavy deps and Settings opens nearly every session.
-const SkillsTab = React.lazy(() => import('@/app/pages/Skills/Skills'));
-const ToolsTab = React.lazy(() => import('@/app/pages/Tools/Tools'));
 
 // Module-scope: remember the last open tab across closes (System Settings style).
 let lastOpenTab: string | null = null;
 
-const TAB_VALUES = ['account', 'general', 'appearance', 'privacy', 'advanced', 'models', 'skills', 'tools', 'commands', 'usage'] as const;
+const TAB_VALUES = ['account', 'general', 'appearance', 'notifications', 'privacy', 'advanced', 'models', 'commands', 'usage'] as const;
 type SettingsTab = typeof TAB_VALUES[number];
 const isValidTab = (t: string | null | undefined): t is SettingsTab =>
   !!t && (TAB_VALUES as readonly string[]).includes(t);
@@ -67,6 +64,11 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
 
   // Switch to the requested tab (e.g. from the "Configure models" banner link); without one, restore the last open tab.
   useEffect(() => {
+    // Skills/Tools management moved to the Marketplace; forward any straggler deep-links there.
+    if (requestedTab === 'skills' || requestedTab === 'tools') {
+      openMarketplace(requestedTab === 'skills' ? 'my-skills' : 'my-connectors');
+      return;
+    }
     if (isValidTab(requestedTab)) setActiveTab(requestedTab);
     else if (active) setActiveTab(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,17 +152,9 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
       <Box sx={{ display: 'flex', flexDirection: 'column', pt: 2.5, pb: 1, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
         <UsageStats />
       </Box>
-      ) : activeTab === 'skills' ? (
-      <Box sx={{ height: '100%', mx: -3, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
-        <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress size={24} /></Box>}>
-          <SkillsTab />
-        </React.Suspense>
-      </Box>
-      ) : activeTab === 'tools' ? (
-      <Box sx={{ height: '100%', mx: -3, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
-        <React.Suspense fallback={<Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}><CircularProgress size={24} /></Box>}>
-          <ToolsTab />
-        </React.Suspense>
+      ) : activeTab === 'notifications' ? (
+      <Box sx={{ pt: 2, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+        <NotificationsSection form={form} setForm={setForm} />
       </Box>
       ) : (
       <Box sx={{ pt: 2.5, pb: 1, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>

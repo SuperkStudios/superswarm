@@ -1,7 +1,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { User, Settings2, Palette, ShieldCheck, Wrench, Boxes, Sparkles, Hammer, SquareSlash, BarChart3 } from 'lucide-react';
+import { User, Settings2, Palette, ShieldCheck, Wrench, Boxes, SquareSlash, BarChart3, Bell } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 
@@ -25,13 +25,12 @@ export const RAIL_GROUPS: RailGroup[] = [
   { header: 'App', sections: [
     { value: 'general', label: 'General', Icon: Settings2 },
     { value: 'appearance', label: 'Appearance', Icon: Palette },
+    { value: 'notifications', label: 'Notifications', Icon: Bell },
     { value: 'privacy', label: 'Privacy', Icon: ShieldCheck },
     { value: 'advanced', label: 'Advanced', Icon: Wrench },
   ] },
   { header: 'Capabilities', sections: [
     { value: 'models', label: 'Models', Icon: Boxes },
-    { value: 'skills', label: 'Skills', Icon: Sparkles },
-    { value: 'tools', label: 'Tools', Icon: Hammer },
     { value: 'commands', label: 'Commands', Icon: SquareSlash },
     { value: 'usage', label: 'Usage', Icon: BarChart3 },
   ] },

@@ -14,8 +14,8 @@ import { useClaudeTokens, useThemeWash } from '@/shared/styles/ThemeContext';
 import AccentColorPad from '@/app/components/theme/AccentColorPad';
 import type { SettingsStyles } from '../settingsStyles';
 import { settingSelectAttrs } from '../settingSelect';
-import ShortcutRecorderChip, { dictationDefaultCombo, comboDisplay } from './ShortcutRecorderChip';
-import DictationModelPicker from './DictationModelPicker';
+import ShortcutRecorderChip, { dictationDefaultCombo, comboDisplay } from './parts/ShortcutRecorderChip';
+import DictationModelPicker from './parts/DictationModelPicker';
 
 const GeneralInterface: React.FC<{
   form: AppSettings;
