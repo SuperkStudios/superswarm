@@ -189,9 +189,19 @@ export function useVoiceDictation() {
         if (sres?.ok && sres.text && !sres.degraded) res = { ok: true, text: sres.text };
       }
       if (!res) {
-        const wav = encodeWav(samples);
-        res = await window.openswarm?.voiceTranscribe?.(wav);
+        // Whisper hallucinates plausible punctuation on near-silence; a clip whose level never beat the streaming RMS gate gets "didn't catch that", never a decode.
+        let sumSq = 0;
+        for (let i = 0; i < samples.length; i += 4) sumSq += samples[i] * samples[i];
+        const rms = Math.sqrt(sumSq / Math.max(1, Math.floor(samples.length / 4)));
+        if (rms < 0.002) {
+          res = { ok: true, text: '' };
+        } else {
+          const wav = encodeWav(samples);
+          res = await window.openswarm?.voiceTranscribe?.(wav);
+        }
       }
+      // A transcript with no letter or digit in it is a hallucination artifact (the lone comma), not dictation.
+      if (res?.ok && res.text && !/[\p{L}\p{N}]/u.test(res.text)) res = { ok: true, text: '' };
       if (res?.ok && res.text) {
         // WhisperFlow-style cleanup: punctuation + filler words via the cheap aux tier, fail-open to
         // the raw transcript on any error/timeout so dictation never breaks with the aux down.
