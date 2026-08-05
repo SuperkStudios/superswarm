@@ -75,6 +75,17 @@ const Tools: React.FC = () => {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [customConnectorOpen, setCustomConnectorOpen] = useState(false);
+  // claude.ai's Connectors page tabs: All / Connected / Not connected.
+  const [connFilter, setConnFilter] = useState<'all' | 'connected' | 'not-connected'>('all');
+  const visibleTools = useMemo(() => {
+    if (connFilter === 'connected') return tools.filter((t) => t.enabled !== false);
+    if (connFilter === 'not-connected') return tools.filter((t) => t.enabled === false);
+    return tools;
+  }, [tools, connFilter]);
+  const visibleGallery = useMemo(
+    () => (connFilter === 'connected' ? [] : uninstalledIntegrations),
+    [uninstalledIntegrations, connFilter],
+  );
 
   useEffect(() => {
     dispatch(fetchTools());
@@ -121,7 +132,7 @@ const Tools: React.FC = () => {
             onClick={handleMenuOpen}
             sx={{ bgcolor: c.accent.primary, '&:hover': { bgcolor: c.accent.pressed }, textTransform: 'none', borderRadius: 2, fontSize: '0.8125rem' }}
           >
-            New Tool
+            Add
           </Button>
           <Menu
             anchorEl={menuAnchor}
@@ -202,6 +213,24 @@ const Tools: React.FC = () => {
           </Typography>
           <Typography sx={{ color: c.text.ghost, fontSize: '0.6875rem', fontWeight: 600 }}>{tools.length + uninstalledIntegrations.length}</Typography>
           {customSectionOpen ? <KeyboardArrowDownIcon className="section-arrow" sx={{ fontSize: 15, color: c.text.ghost, transition: 'color 0.15s' }} /> : <KeyboardArrowRightIcon className="section-arrow" sx={{ fontSize: 15, color: c.text.ghost, transition: 'color 0.15s' }} />}
+          <Box sx={{ display: 'flex', gap: 0.5, ml: 1 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            {([['all', 'All'], ['connected', 'Connected'], ['not-connected', 'Not connected']] as const).map(([value, label]) => (
+              <Box
+                key={value}
+                role="button"
+                onClick={() => setConnFilter(value)}
+                sx={{
+                  px: 1.25, py: 0.3, borderRadius: 999, cursor: 'pointer', userSelect: 'none',
+                  fontSize: '0.75rem', fontWeight: 600, lineHeight: 1.6,
+                  color: connFilter === value ? c.text.primary : c.text.tertiary,
+                  bgcolor: connFilter === value ? c.bg.secondary : 'transparent',
+                  '&:hover': { color: c.text.primary },
+                }}
+              >
+                {label}
+              </Box>
+            ))}
+          </Box>
         </Box>
         <Collapse in={customSectionOpen} timeout={0} unmountOnExit>
           {loading ? (
@@ -217,7 +246,7 @@ const Tools: React.FC = () => {
             </Box>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pl: 1 }}>
-              {uninstalledIntegrations.map((ig) => (
+              {visibleGallery.map((ig) => (
                 <IntegrationGalleryCard
                   key={ig.id}
                   integration={ig}
@@ -225,7 +254,7 @@ const Tools: React.FC = () => {
                   onToggle={a.handleIntegrationToggle}
                 />
               ))}
-              {tools.map((tool) => (
+              {visibleTools.map((tool) => (
                 <CustomToolCard
                   key={tool.id}
                   tool={tool}

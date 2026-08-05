@@ -49,9 +49,10 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
   const localSkills = useAppSelector((s) => s.skills.items);
 
   const [query, setQuery] = useState('');
-  // Defaults to the Anthropic set, mirroring claude.ai's Directory landing view.
-  const [filter, setFilter] = useState('anthropic');
+  // claude.ai grammar: Filter by is checkable sections. Community starts unchecked so the landing view is the Anthropic set, same as claude.ai's.
+  const [filterSelected, setFilterSelected] = useState<string[]>(['installed', 'not-installed', 'anthropic']);
   const [sort, setSort] = useState('popular');
+  const toggleFilter = (value: string) => setFilterSelected((p) => (p.includes(value) ? p.filter((v) => v !== value) : [...p, value]));
   const [community, setCommunity] = useState<CommunitySkill[]>([]);
   const [communityLoading, setCommunityLoading] = useState(false);
   const [installingKey, setInstallingKey] = useState<string | null>(null);
@@ -98,7 +99,7 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
     // Join curated skills to their skills.sh twin (source anthropics/skills) so Anthropic cards get real install counts.
     const communityByName = new Map(community.map((cs) => [cs.name.trim().toLowerCase(), cs]));
     const out: SkillCardModel[] = [];
-    if (filter !== 'community') {
+    if (filterSelected.includes('anthropic')) {
       for (const sk of curated) {
         if (q && !sk.name.toLowerCase().includes(q) && !sk.description.toLowerCase().includes(q)) continue;
         const twin = communityByName.get(sk.name.trim().toLowerCase());
@@ -113,7 +114,7 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
         });
       }
     }
-    if (filter !== 'anthropic') {
+    if (filterSelected.includes('community')) {
       const curatedNames = new Set(curated.map((sk) => sk.name.trim().toLowerCase()));
       for (const cs of community) {
         // Anthropic-sourced twins already render as curated cards; listing them twice reads as duplicates.
@@ -131,10 +132,16 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
         });
       }
     }
-    if (sort === 'name') out.sort((a, b) => a.slug.localeCompare(b.slug));
-    else out.sort((a, b) => (b.installs ?? -1) - (a.installs ?? -1));
-    return out;
-  }, [curated, community, query, filter, sort]);
+    const statusOk = (installed: boolean): boolean => (installed ? filterSelected.includes('installed') : filterSelected.includes('not-installed'));
+    const withStatus = out.filter((card) => statusOk(installedNames.has((card.curated?.name ?? card.community?.name ?? '').trim().toLowerCase())));
+    if (sort === 'name') withStatus.sort((a, b) => a.slug.localeCompare(b.slug));
+    else {
+      // claude.ai's landing order: installed first, then popularity descending.
+      const rank = (card: SkillCardModel): number => (installedNames.has((card.curated?.name ?? card.community?.name ?? '').trim().toLowerCase()) ? 1 : 0);
+      withStatus.sort((a, b) => rank(b) - rank(a) || (b.installs ?? -1) - (a.installs ?? -1));
+    }
+    return withStatus;
+  }, [curated, community, query, filterSelected, sort, installedNames]);
 
   const handleInstallCurated = async (card: SkillCardModel) => {
     if (!card.curated) return;
@@ -160,19 +167,18 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>
       <DirectoryFilterBar
         searchPlaceholder="Search skills..."
-        chipLabel={filter === 'community' ? 'Community' : filter === 'all' ? 'All skills' : 'Anthropic'}
+        chipLabel={filterSelected.includes('community') ? (filterSelected.includes('anthropic') ? 'Anthropic & Community' : 'Community') : 'Anthropic'}
         query={query}
         onQuery={setQuery}
-        filterOptions={[
-          { value: 'all', label: 'All skills' },
-          { value: 'anthropic', label: 'Anthropic' },
-          { value: 'community', label: 'Community' },
+        filterSections={[
+          { label: 'Status', options: [{ value: 'installed', label: 'Installed' }, { value: 'not-installed', label: 'Not installed' }] },
+          { label: 'Source', options: [{ value: 'anthropic', label: 'Anthropic' }, { value: 'community', label: 'Community' }] },
         ]}
-        filterValue={filter}
-        onFilter={setFilter}
+        filterSelected={filterSelected}
+        onToggleFilter={toggleFilter}
         sortOptions={[
-          { value: 'popular', label: 'Popular' },
-          { value: 'name', label: 'Name' },
+          { value: 'popular', label: 'Most popular' },
+          { value: 'name', label: 'Name A-Z' },
         ]}
         sortValue={sort}
         onSort={setSort}

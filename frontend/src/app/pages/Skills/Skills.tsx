@@ -17,7 +17,8 @@ import Alert from '@mui/material/Alert';
 import InputAdornment from '@mui/material/InputAdornment';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import AddIcon from '@mui/icons-material/Add';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import TerminalIcon from '@mui/icons-material/Terminal';
@@ -60,7 +61,6 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
 import DirectoryDialog from '../Directory/DirectoryDialog';
 import UploadSkillDialog from '../Directory/UploadSkillDialog';
-import StorefrontOutlinedIcon from '@mui/icons-material/StorefrontOutlined';
 import DriveFolderUploadOutlinedIcon from '@mui/icons-material/DriveFolderUploadOutlined';
 
 interface SkillForm {
@@ -107,6 +107,7 @@ const Skills: React.FC = () => {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null);
 
   const handleBuilderPreview = useCallback((data: SkillPreviewData | null) => {
     setBuilderPreview(data);
@@ -350,88 +351,63 @@ const Skills: React.FC = () => {
           bgcolor: c.bg.secondary,
         }}
       >
-        {/* The Settings pane header already says Skills; this row is just the action strip. */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', px: 2, pt: 1.5, pb: 0.5 }}>
-          <Box sx={{ display: 'flex', gap: 0.25 }}>
-            <Tooltip title="Import .swarm">
-              <IconButton
-                size="small"
-                onClick={() => window.dispatchEvent(new CustomEvent(IMPORT_OPEN_EVENT))}
-                sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
-              >
-                <UploadFileIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Search">
-              <IconButton
-                size="small"
-                onClick={() => setSearchFilter((p) => (p === '' ? ' ' : ''))}
-                sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
-              >
-                <SearchIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Upload skill">
-              <IconButton
-                size="small"
-                onClick={() => setUploadOpen(true)}
-                sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
-              >
-                <DriveFolderUploadOutlinedIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Create skill">
-              <IconButton size="small" onClick={openCreate} sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
-                <AddIcon sx={{ fontSize: 18 }} />
-              </IconButton>
-            </Tooltip>
-          </Box>
-        </Box>
-        <Box sx={{ px: 1.5, pb: 0.5 }}>
+        {/* claude.ai's Skills header grammar: search icon, Browse, Add menu (Create with Claude / Write skill instructions / Upload a skill), plus our Import .swarm row. */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, px: 1.5, pt: 1.5, pb: 1 }}>
+          <Tooltip title="Search">
+            <IconButton
+              size="small"
+              onClick={() => setSearchFilter((p) => (p === '' ? ' ' : ''))}
+              sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
+            >
+              <SearchIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
           <Button
             size="small"
-            startIcon={<AutoFixHighIcon sx={{ fontSize: 14 }} />}
-            onClick={() => setBuilderOpen(true)}
-            fullWidth
-            sx={{
-              textTransform: 'none',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: c.accent.primary,
-              justifyContent: 'center',
-              gap: 0.5,
-              py: 0.8,
-              px: 1.5,
-              borderRadius: 999,
-              border: `1px solid ${c.accent.primary}40`,
-              '&:hover': { bgcolor: `${c.accent.primary}10`, borderColor: c.accent.primary },
-            }}
-          >
-            Build with AI
-          </Button>
-        </Box>
-        <Box sx={{ px: 1.5, pb: 0.5 }}>
-          <Button
-            size="small"
-            startIcon={<StorefrontOutlinedIcon sx={{ fontSize: 14 }} />}
             onClick={() => setDirectoryOpen(true)}
-            fullWidth
             sx={{
-              textTransform: 'none',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              color: c.bg.surface,
-              bgcolor: c.text.primary,
-              justifyContent: 'center',
-              gap: 0.5,
-              py: 0.8,
-              px: 1.5,
-              borderRadius: 999,
-              '&:hover': { bgcolor: c.text.secondary },
+              textTransform: 'none', fontSize: '0.8125rem', fontWeight: 600, px: 1.5, py: 0.4,
+              color: c.text.primary, bgcolor: c.bg.secondary, borderRadius: `${c.radius.md}px`,
+              '&:hover': { bgcolor: c.bg.elevated },
             }}
           >
-            Browse directory
+            Browse
           </Button>
+          <Button
+            size="small"
+            endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16 }} />}
+            onClick={(e: React.MouseEvent<HTMLElement>) => setAddMenuAnchor(e.currentTarget)}
+            sx={{
+              textTransform: 'none', fontSize: '0.8125rem', fontWeight: 600, px: 1.5, py: 0.4,
+              color: c.text.primary, bgcolor: c.bg.secondary, borderRadius: `${c.radius.md}px`,
+              '&:hover': { bgcolor: c.bg.elevated },
+            }}
+          >
+            Add
+          </Button>
+          <Menu
+            anchorEl={addMenuAnchor}
+            open={!!addMenuAnchor}
+            onClose={() => setAddMenuAnchor(null)}
+            PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 220 } }}
+          >
+            <MenuItem onClick={() => { setAddMenuAnchor(null); setBuilderOpen(true); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+              <AutoFixHighIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+              Create with Claude
+            </MenuItem>
+            <MenuItem onClick={() => { setAddMenuAnchor(null); openCreate(); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+              <DescriptionIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+              Write skill instructions
+            </MenuItem>
+            <MenuItem onClick={() => { setAddMenuAnchor(null); setUploadOpen(true); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+              <DriveFolderUploadOutlinedIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+              Upload a skill
+            </MenuItem>
+            <MenuItem onClick={() => { setAddMenuAnchor(null); window.dispatchEvent(new CustomEvent(IMPORT_OPEN_EVENT)); }} sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
+              <UploadFileIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
+              Import .swarm
+            </MenuItem>
+          </Menu>
         </Box>
 
         <Collapse in={searchFilter !== ''} timeout={0} unmountOnExit>
@@ -776,15 +752,16 @@ const Skills: React.FC = () => {
         }}
       >
         <DialogTitle sx={{ color: c.text.primary, fontWeight: 600, fontFamily: c.font.sans }}>
-          {editingId ? 'Edit Skill' : 'New Skill'}
+          {editingId ? 'Edit skill' : 'Write skill instructions'}
         </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
           <TextField
-            label="Name"
+            label="Skill name"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             fullWidth
             size="small"
+            placeholder="weekly-status-report"
             sx={{ '& .MuiOutlinedInput-root': { bgcolor: c.bg.secondary } }}
           />
           <TextField
@@ -793,6 +770,7 @@ const Skills: React.FC = () => {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             fullWidth
             size="small"
+            placeholder="Generate weekly status reports from recent work. Use when asked for updates or progress summaries."
             sx={{ '& .MuiOutlinedInput-root': { bgcolor: c.bg.secondary } }}
           />
           <TextField
@@ -805,13 +783,14 @@ const Skills: React.FC = () => {
             sx={{ '& .MuiOutlinedInput-root': { bgcolor: c.bg.secondary } }}
           />
           <TextField
-            label="Content (Markdown)"
+            label="Instructions"
             value={form.content}
             onChange={(e) => setForm({ ...form, content: e.target.value })}
             fullWidth
             multiline
             minRows={12}
             maxRows={24}
+            placeholder="Summarize my recent work in three sections: wins, blockers, and next steps. Keep the tone professional but not stiff..."
             sx={{
               '& .MuiOutlinedInput-root': {
                 bgcolor: c.bg.secondary, fontFamily: c.font.mono, fontSize: '0.875rem',
@@ -832,7 +811,7 @@ const Skills: React.FC = () => {
               textTransform: 'none', borderRadius: `${c.radius.md}px`,
             }}
           >
-            {editingId ? 'Save Changes' : 'Create Skill'}
+            {editingId ? 'Save Changes' : 'Create'}
           </Button>
         </DialogActions>
       </Dialog>

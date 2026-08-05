@@ -28,8 +28,9 @@ const DirectoryConnectorsTab: React.FC<Props> = ({ onOpenInstalled }) => {
   const dispatch = useAppDispatch();
   const tools = useAppSelector((s) => s.tools.items);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filterSelected, setFilterSelected] = useState<string[]>(['installed', 'not-installed']);
   const [sort, setSort] = useState('popular');
+  const toggleFilter = (value: string) => setFilterSelected((p) => (p.includes(value) ? p.filter((v) => v !== value) : [...p, value]));
   const [installingId, setInstallingId] = useState<string | null>(null);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
 
@@ -45,11 +46,10 @@ const DirectoryConnectorsTab: React.FC<Props> = ({ onOpenInstalled }) => {
     const q = query.trim().toLowerCase();
     let out = INTEGRATIONS.filter((ig) =>
       !q || ig.name.toLowerCase().includes(q) || ig.description.toLowerCase().includes(q));
-    if (filter === 'installed') out = out.filter((ig) => !!installedToolByName[ig.name]);
-    else if (filter === 'not-installed') out = out.filter((ig) => !installedToolByName[ig.name]);
+    out = out.filter((ig) => (installedToolByName[ig.name] ? filterSelected.includes('installed') : filterSelected.includes('not-installed')));
     if (sort === 'name') out = [...out].sort((a, b) => a.name.localeCompare(b.name));
     return out;
-  }, [query, filter, sort, installedToolByName]);
+  }, [query, filterSelected, sort, installedToolByName]);
 
   const popular = useMemo(
     () => POPULAR_IDS.map((id) => INTEGRATIONS.find((ig) => ig.id === id)).filter((ig): ig is Integration => !!ig),
@@ -100,16 +100,14 @@ const DirectoryConnectorsTab: React.FC<Props> = ({ onOpenInstalled }) => {
         chipLabel="Anthropic & Partners"
         query={query}
         onQuery={setQuery}
-        filterOptions={[
-          { value: 'all', label: 'All connectors' },
-          { value: 'installed', label: 'Installed' },
-          { value: 'not-installed', label: 'Not installed' },
+        filterSections={[
+          { label: 'Status', options: [{ value: 'installed', label: 'Installed' }, { value: 'not-installed', label: 'Not installed' }] },
         ]}
-        filterValue={filter}
-        onFilter={setFilter}
+        filterSelected={filterSelected}
+        onToggleFilter={toggleFilter}
         sortOptions={[
-          { value: 'popular', label: 'Popular' },
-          { value: 'name', label: 'Name' },
+          { value: 'popular', label: 'Default' },
+          { value: 'name', label: 'Alphabetical' },
         ]}
         sortValue={sort}
         onSort={setSort}
@@ -120,7 +118,7 @@ const DirectoryConnectorsTab: React.FC<Props> = ({ onOpenInstalled }) => {
         '&::-webkit-scrollbar': { width: 6 },
         '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 3 },
       }}>
-        {!query.trim() && filter === 'all' && (
+        {!query.trim() && filterSelected.length === 2 && (
           <>
             <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.06em', color: c.text.tertiary, textTransform: 'uppercase', mb: 1.25 }}>
               Popular

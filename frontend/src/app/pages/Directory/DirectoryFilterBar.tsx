@@ -15,48 +15,77 @@ export interface PickerOption {
   label: string;
 }
 
-interface PickerProps {
+export interface FilterSection {
   label: string;
   options: PickerOption[];
-  value: string;
-  onChange: (value: string) => void;
 }
 
-const DropdownPill: React.FC<PickerProps> = ({ label, options, value, onChange }) => {
+const pillSx = (c: ReturnType<typeof useClaudeTokens>) => ({
+  display: 'flex', alignItems: 'center', gap: 0.75, px: 1.75, py: 0.9,
+  borderRadius: `${c.radius.md}px`, border: `1px solid ${c.border.medium}`,
+  cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+  '&:hover': { borderColor: c.border.strong, bgcolor: c.bg.elevated },
+});
+
+// claude.ai's Filter pill: always reads "Filter by"; state lives in the menu as checkable rows under section headers.
+const FilterPill: React.FC<{ sections: FilterSection[]; selected: string[]; onToggle: (value: string) => void }> = ({ sections, selected, onToggle }) => {
   const c = useClaudeTokens();
   const [anchor, setAnchor] = useState<null | HTMLElement>(null);
-  const active = options.find((o) => o.value === value);
   return (
     <>
-      <Box
-        role="button"
-        onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)}
-        sx={{
-          display: 'flex', alignItems: 'center', gap: 0.75, px: 1.75, py: 0.9,
-          borderRadius: `${c.radius.md}px`, border: `1px solid ${c.border.medium}`,
-          cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
-          '&:hover': { borderColor: c.border.strong, bgcolor: c.bg.elevated },
-        }}
-      >
-        <Typography sx={{ fontSize: '0.9375rem', color: c.text.primary }}>
-          {active && active.value !== options[0].value ? active.label : label}
-        </Typography>
+      <Box role="button" onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)} sx={pillSx(c)}>
+        <Typography sx={{ fontSize: '0.9375rem', color: c.text.primary }}>Filter by</Typography>
         <KeyboardArrowDownIcon sx={{ fontSize: 18, color: c.text.tertiary }} />
       </Box>
       <Menu
         anchorEl={anchor}
         open={!!anchor}
         onClose={() => setAnchor(null)}
-        PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 170 } }}
+        PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 190 } }}
+      >
+        {sections.flatMap((section, i) => [
+          <Typography key={`h-${section.label}`} sx={{ px: 2, pt: i === 0 ? 0.75 : 1.25, pb: 0.25, fontSize: '0.75rem', color: c.text.tertiary }}>
+            {section.label}
+          </Typography>,
+          ...section.options.map((o) => (
+            <MenuItem
+              key={o.value}
+              onClick={() => onToggle(o.value)}
+              sx={{ fontSize: '0.875rem', color: c.text.primary, display: 'flex', justifyContent: 'space-between', gap: 2, '&:hover': { bgcolor: c.bg.secondary } }}
+            >
+              {o.label}
+              <CheckIcon sx={{ fontSize: 16, color: '#3b82f6', visibility: selected.includes(o.value) ? 'visible' : 'hidden' }} />
+            </MenuItem>
+          )),
+        ])}
+      </Menu>
+    </>
+  );
+};
+
+const SortPill: React.FC<{ options: PickerOption[]; value: string; onChange: (value: string) => void }> = ({ options, value, onChange }) => {
+  const c = useClaudeTokens();
+  const [anchor, setAnchor] = useState<null | HTMLElement>(null);
+  return (
+    <>
+      <Box role="button" onClick={(e: React.MouseEvent<HTMLElement>) => setAnchor(e.currentTarget)} sx={pillSx(c)}>
+        <Typography sx={{ fontSize: '0.9375rem', color: c.text.primary }}>Sort by</Typography>
+        <KeyboardArrowDownIcon sx={{ fontSize: 18, color: c.text.tertiary }} />
+      </Box>
+      <Menu
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={() => setAnchor(null)}
+        PaperProps={{ sx: { bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: `${c.radius.md}px`, mt: 0.5, minWidth: 190 } }}
       >
         {options.map((o) => (
           <MenuItem
             key={o.value}
             onClick={() => { onChange(o.value); setAnchor(null); }}
-            sx={{ fontSize: '0.875rem', color: c.text.primary, gap: 1, '&:hover': { bgcolor: c.bg.secondary } }}
+            sx={{ fontSize: '0.875rem', color: c.text.primary, display: 'flex', justifyContent: 'space-between', gap: 2, '&:hover': { bgcolor: c.bg.secondary } }}
           >
-            <Box sx={{ width: 18, display: 'flex' }}>{o.value === value && <CheckIcon sx={{ fontSize: 16, color: c.text.secondary }} />}</Box>
             {o.label}
+            <CheckIcon sx={{ fontSize: 16, color: '#3b82f6', visibility: o.value === value ? 'visible' : 'hidden' }} />
           </MenuItem>
         ))}
       </Menu>
@@ -69,9 +98,9 @@ interface Props {
   chipLabel: string;
   query: string;
   onQuery: (q: string) => void;
-  filterOptions: PickerOption[];
-  filterValue: string;
-  onFilter: (v: string) => void;
+  filterSections: FilterSection[];
+  filterSelected: string[];
+  onToggleFilter: (value: string) => void;
   sortOptions: PickerOption[];
   sortValue: string;
   onSort: (v: string) => void;
@@ -80,7 +109,7 @@ interface Props {
 // The Directory's search row + chip/filter row, shared by both tabs (same chrome on claude.ai).
 const DirectoryFilterBar: React.FC<Props> = ({
   searchPlaceholder, chipLabel, query, onQuery,
-  filterOptions, filterValue, onFilter, sortOptions, sortValue, onSort,
+  filterSections, filterSelected, onToggleFilter, sortOptions, sortValue, onSort,
 }) => {
   const c = useClaudeTokens();
   return (
@@ -112,8 +141,8 @@ const DirectoryFilterBar: React.FC<Props> = ({
           <Typography sx={{ fontSize: '0.9375rem', fontWeight: 500, color: c.text.primary, whiteSpace: 'nowrap' }}>{chipLabel}</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <DropdownPill label="Filter by" options={filterOptions} value={filterValue} onChange={onFilter} />
-          <DropdownPill label="Sort by" options={sortOptions} value={sortValue} onChange={onSort} />
+          <FilterPill sections={filterSections} selected={filterSelected} onToggle={onToggleFilter} />
+          <SortPill options={sortOptions} value={sortValue} onChange={onSort} />
         </Box>
       </Box>
     </Box>
