@@ -291,7 +291,8 @@ const BrowserCard: React.FC<Props> = ({
       if (scrollHost) {
         const cr = scrollHost.getBoundingClientRect();
         const overlap = Math.min(sr.bottom, cr.bottom) - Math.max(sr.top, cr.top);
-        setDockVisible(overlap / Math.max(1, sr.height) >= 0.35);
+        // A webview can't be clipped, so anything short of fully-in-view would lap the composer or header; the slot's frozen-shot backdrop is what shows (and clips) while partial.
+        setDockVisible(overlap >= sr.height - 24);
       } else {
         setDockVisible(true);
       }
@@ -1148,10 +1149,11 @@ const BrowserCard: React.FC<Props> = ({
         transformOrigin: tiledSize || dockActive ? '0 0' : undefined,
         width: tiledSize ? tiledSize.width : displayW,
         height: tiledSize ? tiledSize.height : displayH,
-        borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '10px' : `${c.radius.lg}px`,
-        border: agentBorder,
+        borderRadius: tileZone === 'fullscreen' ? '12px' : dockActive ? '12px' : `${c.radius.lg}px`,
+        // Docked = an embedded block, not a floating window: a drop shadow and heavy accent frame read as a detached card pasted over the chat.
+        border: dockActive ? `1px solid ${c.border.medium}` : agentBorder,
         bgcolor: c.bg.surface,
-        boxShadow: agentShadow,
+        boxShadow: dockActive ? 'none' : agentShadow,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',

@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import TextField from '@mui/material/TextField';
 import ClickAwayListener from '@mui/material/ClickAwayListener';
+import { getMinimizedShot } from '@/app/pages/Dashboard/desktop/minimizedShots';
 import Fade from '@mui/material/Fade';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -262,8 +263,11 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.width ?? 0);
   const dockedSurfaceH = useAppSelector((st) =>
     Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.height ?? 0);
+  const dockedSurfaceId = useAppSelector((st) =>
+    Object.values(st.dashboardLayout.browserCards).find((bc) => bc.docked_to === (sessionIdProp || routeId))?.browser_id ?? null);
   // Shared by the anchor slot and the fallback slot so both read as the same framed block.
   const browserSlotSx = {
+    position: 'relative',
     width: '100%',
     aspectRatio: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `${dockedSurfaceW} / ${dockedSurfaceH}` : undefined,
     height: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? 'auto' : 'min(360px, 38vh)',
@@ -271,7 +275,15 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     minHeight: 140,
     mt: 1,
     mb: 0.5,
+    borderRadius: '12px',
+    overflow: 'hidden',
+    border: `1px solid ${c.border.medium}`,
   } as const;
+  // A live webview cannot be clipped by the scroller, so the OVERLAY only shows while fully in view; this frozen shot is what scrolls and clips underneath it, ChatGPT-style.
+  const dockedShot = dockedSurfaceId ? getMinimizedShot(dockedSurfaceId) : undefined;
+  const browserSlotBody = dockedShot ? (
+    <Box component="img" src={dockedShot} alt="" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+  ) : null;
   // A card linked as a workflow sidecar (Test Agent, or a watched run) swaps its composer for a Force Stop button: continuing the chat is meaningless, but killing the run is the common need. Once a Test Agent finishes, the button flips to a green "close" (see workflow_test_state + ForceStopAgentBar).
   const linkedSidecar = useAppSelector((s) => {
     const found = Object.values(s.workflows.openCards).find(
@@ -1876,7 +1888,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 return (
                   <React.Fragment key={`${item.id}-with-browser`}>
                     {rendered}
-                    <Box data-browser-slot={id} sx={browserSlotSx} />
+                    <Box data-browser-slot={id} sx={browserSlotSx}>{browserSlotBody}</Box>
                   </React.Fragment>
                 );
               }
@@ -2029,7 +2041,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             )}
             {/* Fallback dock slot for a browser that docked before any browser tool row exists (or whose row was compacted away); once a row appears the slot anchors at it instead (see browserAnchorItemId). The real card overlays this rect geometrically, so the webview never remounts; the mini hides itself when its slot scrolls mostly out of view, since a live webview can't be clipped by the scroller. */}
             {hasDockedBrowser && !browserAnchorItemId && (
-              <Box data-browser-slot={id} sx={browserSlotSx} />
+              <Box data-browser-slot={id} sx={browserSlotSx}>{browserSlotBody}</Box>
             )}
             </Box>
           </Box>
