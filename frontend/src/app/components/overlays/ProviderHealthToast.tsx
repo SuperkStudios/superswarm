@@ -9,7 +9,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { hideProviderHealthToast } from '@/shared/state/subscriptionsSlice';
-import { openSettingsModal } from '@/shared/state/settingsSlice';
+import { openSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 
 export default function ProviderHealthToast() {
   const c = useClaudeTokens();
@@ -19,7 +19,7 @@ export default function ProviderHealthToast() {
   const cliMissing = useAppSelector((s) => s.subscriptions.healthCliMissing);
 
   const onReconnect = React.useCallback(() => {
-    dispatch(openSettingsModal('models'));
+    dispatch(openSettingsCard({ tab: 'models' }));
     dispatch(hideProviderHealthToast());
   }, [dispatch]);
 

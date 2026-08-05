@@ -178,6 +178,8 @@ export interface DashboardLayoutState {
   settingsCard: WorkflowsHubPosition | null;
   /** Transient: signals Dashboard to pan/zoom to the Settings window on open. */
   pendingFocusSettingsCard: boolean;
+  /** Transient deep-link: which settings tab to land on; SettingsBody consumes and clears it. */
+  settingsRequestedTab: string | null;
   /** Marketplace as an on-canvas window (singleton), same lifecycle as the Settings window. */
   marketplaceCard: WorkflowsHubPosition | null;
   /** Transient: signals Dashboard to pan/zoom to the Marketplace window on open. */
@@ -227,6 +229,7 @@ const initialState: DashboardLayoutState = {
   workflowsRunContext: null,
   settingsCard: null,
   pendingFocusSettingsCard: false,
+  settingsRequestedTab: null,
   marketplaceCard: null,
   pendingFocusMarketplaceCard: false,
   marketplaceRequestedTab: null,
@@ -1323,7 +1326,8 @@ const dashboardLayoutSlice = createSlice({
     },
 
     // Settings is an on-canvas window like the Workflows app, not a modal: opening it creates or raises that card and pans to it.
-    openSettingsCard(state, action: PayloadAction<{ expandedSessionIds?: string[] } | undefined>) {
+    openSettingsCard(state, action: PayloadAction<{ tab?: string; expandedSessionIds?: string[] } | undefined>) {
+      state.settingsRequestedTab = action.payload?.tab ?? null;
       if (state.settingsCard) {
         state.settingsCard.zOrder = state.nextZOrder++;
         delete state.minimizedCards[SETTINGS_CARD_ID];
@@ -1344,6 +1348,7 @@ const dashboardLayoutSlice = createSlice({
 
     closeSettingsCard(state) {
       state.settingsCard = null;
+      state.settingsRequestedTab = null;
       delete state.minimizedCards[SETTINGS_CARD_ID];
       delete state.tiledCards[SETTINGS_CARD_ID];
       state.pendingFocusSettingsCard = false;
@@ -1351,6 +1356,10 @@ const dashboardLayoutSlice = createSlice({
 
     clearPendingFocusSettingsCard(state) {
       state.pendingFocusSettingsCard = false;
+    },
+
+    clearSettingsRequestedTab(state) {
+      state.settingsRequestedTab = null;
     },
 
     setSettingsCardPosition(state, action: PayloadAction<{ x: number; y: number }>) {
@@ -1824,6 +1833,7 @@ const dashboardLayoutSlice = createSlice({
       state.workflowsHub = null;
       state.settingsCard = null;
       state.pendingFocusSettingsCard = false;
+      state.settingsRequestedTab = null;
       state.marketplaceCard = null;
       state.pendingFocusMarketplaceCard = false;
       state.marketplaceRequestedTab = null;
@@ -2070,6 +2080,7 @@ export const {
   setMarketplaceCardPosition,
   setMarketplaceCardSize,
   clearPendingFocusSettingsCard,
+  clearSettingsRequestedTab,
   setSettingsCardPosition,
   setSettingsCardSize,
   recordClosedCard,

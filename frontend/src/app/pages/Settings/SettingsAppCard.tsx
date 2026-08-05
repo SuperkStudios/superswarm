@@ -12,6 +12,7 @@ import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 import CanvasWindowCard from '@/app/pages/Dashboard/cards/CanvasWindowCard';
 import WindowControls from '@/app/pages/Dashboard/cards/WindowControls';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import SettingsBody from './SettingsBody';
 
 const MIN_W = 640;
@@ -51,7 +52,8 @@ const SettingsAppCard: React.FC<Props> = ({
   const commitSize = useCallback((width: number, height: number) => {
     dispatch(setSettingsCardSize({ width, height }));
   }, [dispatch]);
-  const close = useCallback(() => { dispatch(closeSettingsCard()); }, [dispatch]);
+  // The one close point for every path (X, traffic light, context menu), so onboarding's settings:closed always fires.
+  const close = useCallback(() => { onboardingBus.emit('settings:closed'); dispatch(closeSettingsCard()); }, [dispatch]);
   const minimize = useCallback(() => { dispatch(toggleMinimizeCard({ cardId: SETTINGS_CARD_ID })); }, [dispatch]);
 
   return (
@@ -112,7 +114,7 @@ const SettingsAppCard: React.FC<Props> = ({
               <span style={{ fontSize: 14, fontWeight: 600, color: c.text.primary, lineHeight: 1 }}>Settings</span>
             </div>
           </div>
-          <SettingsBody active requestedTab={null} onRequestClose={close} />
+          <SettingsBody active onRequestClose={close} />
         </>
       )}
     </CanvasWindowCard>

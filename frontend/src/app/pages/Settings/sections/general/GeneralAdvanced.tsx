@@ -5,7 +5,8 @@ import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Switch from '@mui/material/Switch';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { closeSettingsModal, AppSettings } from '@/shared/state/settingsSlice';
+import { AppSettings } from '@/shared/state/settingsSlice';
+import { closeSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { resetTour } from '@/shared/state/onboardingProgressSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
@@ -96,7 +97,7 @@ const GeneralAdvanced: React.FC<{
               window.localStorage.removeItem('openswarm.onboarding.v2');
             } catch { /* ignore */ }
             dispatch(resetTour());
-            dispatch(closeSettingsModal());
+            dispatch(closeSettingsCard());
             onboardingBus.emit('settings:closed');
             // In-place reset can't re-arm the welcome cursor's once-per-mount guard, so the tour never re-fired without a reload; reload from the now-cleared storage is the reliable restart (matches the workaround).
             window.location.reload();

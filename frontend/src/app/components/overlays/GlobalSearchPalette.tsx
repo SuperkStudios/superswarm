@@ -13,7 +13,7 @@ import { searchHistory, resumeSession, HistorySession } from '@/shared/state/age
 import { displaySessionName } from '@/shared/state/sessionDisplay';
 import { setPendingFocusAgentId } from '@/shared/state/tempStateSlice';
 import { createDashboard } from '@/shared/state/dashboardsSlice';
-import { openSettingsModal } from '@/shared/state/settingsSlice';
+import { openSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 import TopLayerPortal from '@/shared/TopLayerPortal';
@@ -148,8 +148,8 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
           if (createDashboard.fulfilled.match(res)) navigate(`/dashboard/${res.payload.id}`);
         });
         break;
-      case 'settings': dispatch(openSettingsModal()); break;
-      case 'settings-models': dispatch(openSettingsModal('models')); break;
+      case 'settings': dispatch(openSettingsCard()); break;
+      case 'settings-models': dispatch(openSettingsCard({ tab: 'models' })); break;
       // Skills/Actions live in Settings now (the sidebar Customization section moved there).
       case 'go-skills': openMarketplace('my-skills'); break;
       case 'go-actions': openMarketplace('my-connectors'); break;

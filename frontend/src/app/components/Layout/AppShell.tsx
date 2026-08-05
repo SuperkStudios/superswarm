@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, startTransition, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { openSettingsModal } from '@/shared/state/settingsSlice';
+import { openSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 import { getLastInteractedBrowser, getKeepAliveBrowserIds, setLastInteractedBrowser, clearLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
@@ -11,7 +11,6 @@ import Collapse from '@mui/material/Collapse';
 import { Clock } from 'lucide-react';
 
 // Settings modal lazy-loaded so its 2.3K LOC + Stripe/OAuth helpers don't ship on first paint.
-const Settings = React.lazy(() => import('@/app/pages/Settings/Settings'));
 import DynamicIsland from '@/app/components/overlays/DynamicIsland';
 import Dashboard from '@/app/pages/Dashboard/Dashboard';
 import DashboardHost from '@/app/components/Layout/DashboardHost';
@@ -157,7 +156,6 @@ const AppShell: React.FC = () => {
   useEffect(() => {
     const ric = (window as any).requestIdleCallback || ((cb: () => void) => setTimeout(cb, 1500));
     const handle = ric(() => {
-      import('@/app/pages/Settings/Settings').catch(() => {});
     }, { timeout: 3000 });
     return () => {
       const cic = (window as any).cancelIdleCallback || clearTimeout;
@@ -460,7 +458,7 @@ const AppShell: React.FC = () => {
                   No AI model connected.{' '}
                   <Box
                     component="span"
-                    onClick={() => dispatch(openSettingsModal('models'))}
+                    onClick={() => dispatch(openSettingsCard({ tab: 'models' }))}
                     sx={{
                       textDecoration: 'underline',
                       cursor: 'pointer',
@@ -486,7 +484,7 @@ const AppShell: React.FC = () => {
               : "Nice, you're rolling. "}
             <Box
               component="span"
-              onClick={() => dispatch(openSettingsModal('models'))}
+              onClick={() => dispatch(openSettingsCard({ tab: 'models' }))}
               sx={{ color: c.accent.primary, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
             >
               Connect the Claude or ChatGPT you already have
@@ -521,7 +519,7 @@ const AppShell: React.FC = () => {
           {proMaxed && (
             <Box
               component="span"
-              onClick={() => dispatch(openSettingsModal('models'))}
+              onClick={() => dispatch(openSettingsCard({ tab: 'models' }))}
               sx={{ color: c.accent.primary, cursor: 'pointer', fontSize: '0.8125rem', '&:hover': { textDecoration: 'underline' } }}
             >
               Upgrade
@@ -573,7 +571,6 @@ const AppShell: React.FC = () => {
       </Box>
 
       <React.Suspense fallback={null}>
-        <Settings />
       </React.Suspense>
 
       <ShareRequestHost />

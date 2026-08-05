@@ -21,6 +21,7 @@ import UsageStats from './sections/usage/UsageStats';
 import SettingsRail, { railLabelFor } from './sections/SettingsRail';
 import { makeSettingsStyles } from './sections/settingsStyles';
 import { useSettingsForm } from './useSettingsForm';
+import { clearSettingsRequestedTab } from '@/shared/state/dashboardLayoutSlice';
 import NotificationsSection from './sections/general/NotificationsSection';
 import { openMarketplace } from '@/app/pages/Directory/openMarketplace';
 import { PROVIDER_COLORS, OPENSWARM_GRADIENT, useModelOptions } from './settingsModelOptions';
@@ -36,19 +37,18 @@ const isValidTab = (t: string | null | undefined): t is SettingsTab =>
 interface SettingsBodyProps {
   /** The host is showing this body; gates the fetches, the live theme apply and the debounced save. */
   active: boolean;
-  /** Tab a programmatic caller asked for (openSettingsModal('models'), search palette, dock). */
-  requestedTab: string | null;
   onRequestClose: () => void;
 }
 
 // The settings UI itself: rail + section. Hosted by the modal (Settings.tsx) and by the on-canvas window (SettingsAppCard) with no forked copy between them.
-const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onRequestClose }) => {
+const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const modes = useAppSelector((s) => s.modes.items);
   const modesList = useMemo(() => Object.values(modes), [modes]);
   const modelOptions = useModelOptions();
   const { form, setForm, saveError, dismissSaveError, flushPendingSave } = useSettingsForm(active);
+  const requestedTab = useAppSelector((s) => s.dashboardLayout.settingsRequestedTab);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
   const [showApiKey, setShowApiKey] = useState(false);
@@ -62,17 +62,17 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, requestedTab, onReq
     if (active) dispatch(fetchModels());
   }, [active, dispatch]);
 
-  // Switch to the requested tab (e.g. from the "Configure models" banner link); without one, restore the last open tab.
+  // Switch to the requested tab (e.g. from the "Configure models" banner link), then clear the transient.
   useEffect(() => {
+    if (!requestedTab) return;
     // Skills/Tools management moved to the Marketplace; forward any straggler deep-links there.
     if (requestedTab === 'skills' || requestedTab === 'tools') {
       openMarketplace(requestedTab === 'skills' ? 'my-skills' : 'my-connectors');
-      return;
+    } else if (isValidTab(requestedTab)) {
+      setActiveTab(requestedTab);
     }
-    if (isValidTab(requestedTab)) setActiveTab(requestedTab);
-    else if (active) setActiveTab(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, requestedTab]);
+    dispatch(clearSettingsRequestedTab());
+  }, [requestedTab, dispatch]);
 
   useEffect(() => {
     lastOpenTab = activeTab;

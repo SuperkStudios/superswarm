@@ -134,9 +134,6 @@ interface SettingsState {
   /** The first fetch finished, either way. Only the paint gate wants this, so a dead backend shows a
    *  window with an honest error instead of a blank one. */
   settled: boolean;
-  modalOpen: boolean;
-  /** When non-null, Settings opens to this tab instead of 'general'. */
-  initialTab: string | null;
   /** In-flight form edits preserved across modal close/reopen; null = synced with `data`. */
   draft: AppSettings | null;
   /** Tab the user was on when they closed the modal with unsaved edits. */
@@ -181,8 +178,6 @@ const initialState: SettingsState = {
   loading: false,
   loaded: false,
   settled: false,
-  modalOpen: false,
-  initialTab: null,
   draft: null,
   draftTab: null,
   latestWriteId: null,
@@ -312,14 +307,6 @@ const settingsSlice = createSlice({
   name: 'settings',
   initialState,
   reducers: {
-    openSettingsModal(state, action: PayloadAction<string | undefined>) {
-      state.modalOpen = true;
-      state.initialTab = action.payload ?? null;
-    },
-    closeSettingsModal(state) {
-      state.modalOpen = false;
-      state.initialTab = null;
-    },
     /** Persist in-flight form edits + tab so they survive modal close; clearDraft drops the marker. */
     setDraft(state, action: PayloadAction<{ form: AppSettings; tab: string }>) {
       state.draft = action.payload.form;
@@ -384,5 +371,5 @@ const settingsSlice = createSlice({
   },
 });
 
-export const { openSettingsModal, closeSettingsModal, setDraft, clearDraft, markFreeTrialArmSettled } = settingsSlice.actions;
+export const { setDraft, clearDraft, markFreeTrialArmSettled } = settingsSlice.actions;
 export default settingsSlice.reducer;

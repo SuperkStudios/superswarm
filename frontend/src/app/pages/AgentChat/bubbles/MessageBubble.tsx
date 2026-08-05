@@ -27,7 +27,7 @@ import { estimateRenderedTextHeight, oversizedCharThreshold, RECHECK_VISIBILITY_
 import { THINKING_LABELS } from '../thinkingLabels';
 import { extractPlatformNote } from '../parsing/toolResultParsing';
 import { AgentMessage, retryLastUserMessage } from '@/shared/state/agentsSlice';
-import { openSettingsModal } from '@/shared/state/settingsSlice';
+import { openSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 import { fetchSubscriptionStatus } from '@/shared/state/subscriptionsSlice';
 import { shallowEqual } from 'react-redux';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
@@ -1229,7 +1229,7 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
                         if (openswarmError.ctaAction === 'upgrade') {
                           setPickerOpen(true);
                         } else if (openswarmError.ctaAction === 'settings') {
-                          dispatch(openSettingsModal('models'));
+                          dispatch(openSettingsCard({ tab: 'models' }));
                         } else if (openswarmError.ctaAction === 'retry_last') {
                           if (activeSessionId) dispatch(retryLastUserMessage({ sessionId: activeSessionId }));
                         } else if (openswarmError.ctaAction === 'waitlist') {

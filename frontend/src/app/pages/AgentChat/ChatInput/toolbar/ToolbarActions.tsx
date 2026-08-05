@@ -14,7 +14,7 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchSkills } from '@/shared/state/skillsSlice';
-import { openSettingsModal } from '@/shared/state/settingsSlice';
+
 import { useVoice } from '@/shared/voice/voiceContext';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';

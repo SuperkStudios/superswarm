@@ -22,7 +22,8 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { friendlyStatusLabel } from '@/shared/statusLabel';
 import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
-import { openSettingsModal, dismissMcpSuggestion } from '@/shared/state/settingsSlice';
+import { dismissMcpSuggestion } from '@/shared/state/settingsSlice';
+import { openSettingsCard } from '@/shared/state/dashboardLayoutSlice';
 import { API_BASE, getAuthToken } from '@/shared/config';
 import {
   sendMessage as sendMessageThunk,
@@ -1706,7 +1707,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 if (isOutOfTokens) {
                   if (id) dispatch(clearContextOverflow({ sessionId: id }));
                 } else if (isAuth) {
-                  dispatch(openSettingsModal('models'));
+                  dispatch(openSettingsCard({ tab: 'models' }));
                 } else {
                   const did = session?.dashboard_id;
                   window.location.hash = did ? `#/dashboard/${did}` : '#/';
