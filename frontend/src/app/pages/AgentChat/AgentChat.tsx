@@ -273,11 +273,12 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
   // Shared by the anchor slot and the fallback slot so both read as the same framed block.
   const browserSlotSx = {
     position: 'relative',
-    width: '100%',
+    // When the height cap bites, the WIDTH shrinks to keep the slot at the page's exact aspect (a maxHeight that broke the ratio left the live overlay letterboxed inside its own frame).
+    width: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `min(100%, calc(min(400px, 42vh) * ${dockedSurfaceW / dockedSurfaceH}))` : '100%',
     aspectRatio: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? `${dockedSurfaceW} / ${dockedSurfaceH}` : undefined,
     height: dockedSurfaceW > 0 && dockedSurfaceH > 0 ? 'auto' : 'min(360px, 38vh)',
-    maxHeight: 'min(400px, 42vh)',
     minHeight: 140,
+    mx: 'auto',
     mt: 1,
     mb: 0.5,
     borderRadius: '12px',
@@ -1764,7 +1765,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 const groupMeta = session.tool_group_meta?.[item.id];
                 return (
                   <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
-                    <ToolGroupBubble group={item} isSessionRunning={sessionRunning} meta={groupMeta} sessionId={session.id} />
+                    <ToolGroupBubble group={item} isSessionRunning={sessionRunning && itemIdx === renderedVisibleItems.length - 1} meta={groupMeta} sessionId={session.id} />
                     {compactionChip}
                   </Box>
                 );
