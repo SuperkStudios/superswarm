@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { setWorkflowsHubPosition, setWorkflowsHubSize, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
+import { setWorkflowsHubPosition, setWorkflowsHubSize, toggleMinimizeCard, closeWorkflowsHub, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import CanvasWindowCard from '@/app/pages/Dashboard/cards/CanvasWindowCard';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 import { useWC } from './uiKit';
@@ -45,6 +45,8 @@ const WorkflowsAppCard: React.FC<Props> = ({
   const commitSize = useCallback((width: number, height: number) => {
     dispatch(setWorkflowsHubSize({ width, height }));
   }, [dispatch]);
+  const minimize = useCallback(() => { dispatch(toggleMinimizeCard({ cardId: WORKFLOWS_HUB_ID })); }, [dispatch]);
+  const close = useCallback(() => { dispatch(closeWorkflowsHub()); }, [dispatch]);
 
   return (
     <CanvasWindowCard
@@ -73,6 +75,8 @@ const WorkflowsAppCard: React.FC<Props> = ({
       onBringToFront={onBringToFront}
       onCommitPosition={commitPosition}
       onCommitSize={commitSize}
+      onMinimize={minimize}
+      onClose={close}
     >
       {({ header, tileZone, onTileZone }) => (
         <WorkflowsAppContent header={header} tileZone={tileZone} onTileZone={onTileZone} />

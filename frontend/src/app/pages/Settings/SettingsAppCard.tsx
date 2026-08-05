@@ -81,6 +81,8 @@ const SettingsAppCard: React.FC<Props> = ({
       onBringToFront={onBringToFront}
       onCommitPosition={commitPosition}
       onCommitSize={commitSize}
+      onMinimize={minimize}
+      onClose={close}
     >
       {({ header, tileZone, onTileZone }) => (
         <>

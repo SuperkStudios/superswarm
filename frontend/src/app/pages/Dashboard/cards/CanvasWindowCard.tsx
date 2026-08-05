@@ -4,6 +4,8 @@ import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import { useCanvasWindowResize } from './useCanvasWindowResize';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
+import { openCardContextMenu, isNativeMenuTarget, type CardMenuRow } from '../desktop/openCardContextMenu';
+import { tileMenuRows } from './tileMenuRows';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
 
 const DRAG_THRESHOLD = 3;
@@ -48,6 +50,9 @@ interface CanvasWindowCardProps {
   onBringToFront?: (id: string, type: CardType) => void;
   onCommitPosition: (x: number, y: number) => void;
   onCommitSize: (width: number, height: number) => void;
+  /** ENG-148: right-click rows the window offers when the host wires them; the menu itself is standard chrome. */
+  onMinimize?: () => void;
+  onClose?: () => void;
   children: (chrome: CanvasWindowChrome) => React.ReactNode;
 }
 
@@ -62,6 +67,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   isSelected = false, isHighlighted = false, multiDragDelta = null,
   onCardSelect, onDragStart, onDragMove, onDragEnd, onBringToFront,
   onCommitPosition, onCommitSize,
+  onMinimize, onClose,
   children,
 }) => {
   const c = useClaudeTokens();
@@ -178,6 +184,22 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         const target = e.target as HTMLElement;
         if (target.closest('[data-no-drag]')) return;
         onCardSelect?.(cardId, cardType, e.shiftKey);
+      }}
+      onContextMenu={(e: React.MouseEvent) => {
+        // Same grammar as every other card; typing surfaces keep the OS menu, content with its own menu stopPropagates before this.
+        if (isNativeMenuTarget(e)) return;
+        const items: CardMenuRow[] = [
+          { kind: 'header', label: selectName },
+          { label: tiling.isFullscreen ? 'Exit Full Screen' : 'Full Screen', onClick: () => tiling.applyZone(tiling.isFullscreen ? 'restore' : 'fullscreen') },
+          { label: 'Tile to zone', submenu: tileMenuRows(tiling.applyZone, tiling.zone) },
+        ];
+        if (onMinimize) items.push({ label: minimized ? 'Restore' : 'Minimize', onClick: onMinimize });
+        if (onBringToFront) items.push({ label: 'Bring to front', onClick: () => onBringToFront(cardId, cardType) });
+        if (onClose) {
+          items.push({ kind: 'separator' });
+          items.push({ label: 'Close', onClick: onClose });
+        }
+        openCardContextMenu(e, { items });
       }}
       data-keepalive-hidden={minimized ? '1' : undefined}
       style={{

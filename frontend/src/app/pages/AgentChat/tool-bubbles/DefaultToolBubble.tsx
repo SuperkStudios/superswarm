@@ -1,4 +1,5 @@
 import React from 'react';
+import type { ToolSelectAttrs } from './ToolCallBubble';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Collapse from '@mui/material/Collapse';
@@ -49,7 +50,7 @@ interface DefaultToolBubbleProps {
   parsedResult: ParsedResult | null;
   isBrowserAgent: boolean;
   accentRgb: string;
-  selectAttrs: Record<string, string>;
+  selectAttrs: ToolSelectAttrs;
   suppressReveal?: boolean;
 }
 

@@ -6,7 +6,6 @@ import DashboardHeader from './DashboardHeader';
 import TetherLayerHost from './TetherLayerHost';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
-import CardContextMenu from '../desktop/CardContextMenu';
 import { useCanvasContextMenu } from './useCanvasContextMenu';
 import DashboardEmptyState from './DashboardEmptyState';
 import '../desktop/desktop.css';
@@ -537,9 +536,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       />
       </Box>
 
-      {/* Sibling of everything: the menu used to live inside the help pill's z:10 box (so any card
-          brought to front painted over it) and inside the fullscreen display:none wrapper. */}
-      <CardContextMenu />
     </Box>
     </>
   );

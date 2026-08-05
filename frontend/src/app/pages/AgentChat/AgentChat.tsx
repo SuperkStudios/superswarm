@@ -76,6 +76,7 @@ import ContextDrawer from './shell/ContextDrawer';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 import { ContextPath } from '@/app/components/editor/DirectoryBrowser';
 import { setGlowingBrowserCards, fadeGlowingBrowserCards, clearGlowingBrowserCards, removeCard } from '@/shared/state/dashboardLayoutSlice';
+import { openCardContextMenu, isNativeMenuTarget, type CardMenuRow } from '../Dashboard/desktop/openCardContextMenu';
 import type { WorkflowsRunContext } from '@/shared/state/dashboardLayoutSlice';
 import { setCardSidecar, commitDraft, updateWorkflowCard, controlWorkflowRun } from '@/shared/state/workflowsSlice';
 import { shallowEqual } from 'react-redux';
@@ -1834,6 +1835,21 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               return (
                 <Box key={msg.id} data-window-item-id={msg.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
                   <Box
+                  onContextMenu={(e: React.MouseEvent) => {
+                    // ENG-148: the hover action bar's verbs, reachable by right-click on any message; typing surfaces (the edit box) keep the OS menu.
+                    if (isEditing || isNativeMenuTarget(e)) return;
+                    const selection = window.getSelection()?.toString() ?? '';
+                    const items: CardMenuRow[] = [];
+                    if (selection) items.push({ label: 'Copy selection', onClick: () => { void navigator.clipboard.writeText(selection); } });
+                    items.push({ label: 'Copy message', onClick: () => { void navigator.clipboard.writeText(rawText); } });
+                    if (msg.role === 'user') items.push({ label: 'Edit message', onClick: () => setEditingMessageId(msg.id) });
+                    if (msg.role === 'assistant' && lastAssistantIdsInTurn.has(msg.id)) {
+                      items.push({ kind: 'separator' });
+                      items.push({ label: 'Regenerate', onClick: () => handleRegenerate(msg) });
+                      items.push({ label: 'Branch chat', onClick: () => handleBranchChat(msg.id) });
+                    }
+                    openCardContextMenu(e, { items });
+                  }}
                   sx={{
                     '&:hover .msg-actions': { opacity: 1 },
                     // Cheap virtualization: tells the browser to skip paint + layout for bubbles outside the scroll viewport. `contain-intrinsic-size: auto N` reserves a placeholder height so the scrollbar doesn't jump, and `auto` lets the browser remember the actual height after first render. Works alongside the container's overflow-anchor. Chrome 85+ (Electron covers this).

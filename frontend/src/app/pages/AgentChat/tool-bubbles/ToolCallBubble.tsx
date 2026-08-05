@@ -25,6 +25,7 @@ import { InvokeAgentBubble } from './InvokeAgentBubble';
 import { CreateAgentBubble } from './CreateAgentBubble';
 import { CompactMcpBubble } from './CompactMcpBubble';
 import { DefaultToolBubble } from './DefaultToolBubble';
+import { openCardContextMenu, isNativeMenuTarget, type CardMenuRow } from '../../Dashboard/desktop/openCardContextMenu';
 
 export { parseMcpToolName, getMcpShortAction } from '@/shared/mcpToolMeta';
 export type { McpToolInfo } from '@/shared/mcpToolMeta';
@@ -34,6 +35,14 @@ export interface ToolPair {
   id: string;
   call: AgentMessage;
   result: AgentMessage | null;
+}
+
+/** Spread onto every bubble variant's root: the select-frame data attrs plus the shared right-click menu. */
+export interface ToolSelectAttrs {
+  'data-select-type': 'tool-call';
+  'data-select-id': string;
+  'data-select-meta': string;
+  onContextMenu: (e: React.MouseEvent) => void;
 }
 
 interface ToolCallBubbleProps {
@@ -193,10 +202,25 @@ const ToolCallBubble: React.FC<ToolCallBubbleProps> = React.memo(
 
     const promptPrefix = getPromptPrefix(toolName);
 
-    const selectAttrs = {
+    // ENG-148: tool rows answer right-click with the shared grammar (copy the command/output, toggle details) instead of falling through to the OS text menu.
+    const handleContextMenu = useCallback((e: React.MouseEvent) => {
+      if (isNativeMenuTarget(e)) return;
+      const selection = window.getSelection()?.toString() ?? '';
+      const inputText = formattedInput || inputSummary || JSON.stringify(input, null, 2);
+      const items: CardMenuRow[] = [{ kind: 'header', label: mcpInfo.isMcp ? mcpInfo.displayName : toolName }];
+      if (selection) items.push({ label: 'Copy selection', onClick: () => { void navigator.clipboard.writeText(selection); } });
+      items.push({ label: toolName === 'Bash' ? 'Copy command' : 'Copy input', disabled: !inputText, onClick: () => { void navigator.clipboard.writeText(inputText); } });
+      items.push({ label: 'Copy output', disabled: !resultRawText, onClick: () => { void navigator.clipboard.writeText(resultRawText); } });
+      items.push({ kind: 'separator' });
+      items.push({ label: expanded ? 'Collapse details' : 'Expand details', disabled: isStreaming, onClick: toggle });
+      openCardContextMenu(e, { items });
+    }, [formattedInput, inputSummary, input, mcpInfo, toolName, resultRawText, expanded, isStreaming, toggle]);
+
+    const selectAttrs: ToolSelectAttrs = {
       'data-select-type': 'tool-call' as const,
       'data-select-id': call.id,
       'data-select-meta': JSON.stringify({ tool: toolName, inputSummary }),
+      onContextMenu: handleContextMenu,
     };
 
     if (isInvokeAgent) {

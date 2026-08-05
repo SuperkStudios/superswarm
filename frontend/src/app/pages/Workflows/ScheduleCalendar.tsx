@@ -368,7 +368,7 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
                   <Box
                     key={`${e.workflow.id}-${idx}`}
                     onClick={() => onSelectWorkflow?.(e.workflow.id, e.date)}
-                    onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
+                    onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
                     sx={{ mt: 0.3, display: 'flex', alignItems: 'center', gap: 0.5, fontSize: EVENT_FS, color: c.text.primary, cursor: 'pointer', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', '&:hover': { color: accent } }}>
                     <Box sx={{ width: 6, height: 6, borderRadius: '50%', boxSizing: 'border-box', bgcolor: accent, flexShrink: 0 }} />
                     <span style={{ color: c.text.muted, flexShrink: 0 }}>{formatTime(e.date.getHours(), e.date.getMinutes())}</span>
@@ -445,7 +445,7 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
             key={row.id}
             data-wl-id={row.id}
             onClick={() => onSelectWorkflow?.(e.workflow.id, e.date)}
-            onContextMenu={(ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
+            onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
             sx={{
               display: 'flex', alignItems: 'center', gap: 1.25,
               px: 2, py: 0.4,
