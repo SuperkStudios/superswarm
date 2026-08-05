@@ -248,7 +248,15 @@ def p_build_skill(skill_id: str, content: str, md_path: str, kind: str, index: d
         folder=meta.get("folder", ""),
         version=meta.get("version", ""),
         enabled=bool(meta.get("enabled", True)),
+        updated_at=p_mtime(md_path),
     )
+
+
+def p_mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0
 
 
 def sync_skills() -> list[Skill]:

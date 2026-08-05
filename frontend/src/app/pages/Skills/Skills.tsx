@@ -26,10 +26,8 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
-import FolderIcon from '@mui/icons-material/Folder';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
 import CodeIcon from '@mui/icons-material/Code';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -45,16 +43,7 @@ import {
   deleteSkill,
   Skill,
 } from '@/shared/state/skillsSlice';
-import {
-  fetchAllRegistrySkills,
-  fetchSkillRegistryStats,
-  fetchSkillDetail,
-  fetchSkillUpdates,
-  installCuratedSkill,
-  updateInstalledSkill,
-  RegistrySkill,
-  RegistrySkillDetail,
-} from '@/shared/state/skillRegistrySlice';
+import { fetchSkillUpdates, updateInstalledSkill } from '@/shared/state/skillRegistrySlice';
 import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { requestShare } from '@/app/components/share/ShareRequestHost';
 import { API_BASE } from '@/shared/config';
@@ -62,7 +51,7 @@ import { IMPORT_OPEN_EVENT } from '@/app/components/share/ImportEntryPoint';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import SkillBuilderChat, { SkillPreviewData } from './SkillBuilderChat';
 import DirectoryDialog from '../Directory/DirectoryDialog';
-import UploadSkillDialog from '../Directory/UploadSkillDialog';
+import UploadSkillDialog from '../Directory/dialogs/UploadSkillDialog';
 import DriveFolderUploadOutlinedIcon from '@mui/icons-material/DriveFolderUploadOutlined';
 
 interface SkillForm {
@@ -73,32 +62,21 @@ interface SkillForm {
 }
 
 type Selection =
-  | { type: 'registry'; name: string }
   | { type: 'local'; id: string }
   | { type: 'builder-preview' }
   | null;
 
 const emptyForm: SkillForm = { name: '', description: '', content: '', command: '' };
 
-const SIDEBAR_W = 260;
-
 const Skills: React.FC = () => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const { items, loading } = useAppSelector((s) => s.skills);
-  const {
-    skills: regSkills,
-    loading: regLoading,
-    stats: regStats,
-    detail: regDetail,
-    detailLoading: regDetailLoading,
-    outdated: regOutdated,
-  } = useAppSelector((s) => s.skillRegistry);
+  const regOutdated = useAppSelector((s) => s.skillRegistry.outdated);
   const localSkills = Object.values(items);
 
   const [selection, setSelection] = useState<Selection>(null);
   const [searchFilter, setSearchFilter] = useState('');
-  const [collapsedCats, setCollapsedCats] = useState<Record<string, boolean>>({});
 
   const [contentView, setContentView] = useState<'preview' | 'raw'>('preview');
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -128,22 +106,8 @@ const Skills: React.FC = () => {
 
   useEffect(() => {
     dispatch(fetchSkills());
-    dispatch(fetchSkillRegistryStats());
-    dispatch(fetchAllRegistrySkills());
     dispatch(fetchSkillUpdates());
   }, [dispatch]);
-
-  const regGrouped = useMemo(() => {
-    const groups: Record<string, RegistrySkill[]> = {};
-    const q = searchFilter.trim().toLowerCase();
-    for (const sk of regSkills) {
-      if (q && !sk.name.toLowerCase().includes(q) && !sk.description.toLowerCase().includes(q)) continue;
-      const cat = sk.category || 'General';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(sk);
-    }
-    return groups;
-  }, [regSkills, searchFilter]);
 
   const filteredLocal = useMemo(() => {
     const q = searchFilter.trim().toLowerCase();
@@ -151,24 +115,12 @@ const Skills: React.FC = () => {
     return localSkills.filter((s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q));
   }, [localSkills, searchFilter]);
 
-  const categoryOrder = useMemo(() => Object.keys(regGrouped).sort(), [regGrouped]);
-
-  const toggleCategory = (cat: string) =>
-    setCollapsedCats((p) => ({ ...p, [cat]: !p[cat] }));
-
-  const selectRegistry = (name: string) => {
-    setSelection({ type: 'registry', name });
-    dispatch(fetchSkillDetail(name));
-  };
-
   const selectLocal = (id: string) => {
     setSelection({ type: 'local', id });
   };
 
   const selectedLocal: Skill | null =
     selection?.type === 'local' ? items[selection.id] ?? null : null;
-  const selectedReg: RegistrySkillDetail | null =
-    selection?.type === 'registry' && regDetail?.name === selection.name ? regDetail : null;
 
   const openCreate = () => {
     setEditingId(null);
@@ -196,21 +148,6 @@ const Skills: React.FC = () => {
     if (selection?.type === 'local' && selection.id === id) setSelection(null);
   };
 
-  const handleInstall = async () => {
-    if (!selectedReg) return;
-    try {
-      await dispatch(installCuratedSkill(selectedReg.folder)).unwrap();
-    } catch (e) {
-      // unwrap() rejects with a plain serialized object, not an Error instance, so read .message off it directly.
-      const msg = (e as { message?: string })?.message || 'unknown error';
-      setSnackbar({ open: true, message: `Install failed: ${msg}` });
-      return;
-    }
-    await dispatch(fetchSkills());
-    onboardingBus.emit('skill:installed');
-    setSnackbar({ open: true, message: `Installed "${selectedReg.name}" as a local skill` });
-  };
-
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const handleUpdate = async (skill: Skill) => {
     setUpdatingId(skill.id);
@@ -229,24 +166,6 @@ const Skills: React.FC = () => {
       ? ` (heads up: the update ships ${result.secret_findings.length} file(s) with secret-shaped content)`
       : '';
     setSnackbar({ open: true, message: `Updated "${skill.name}" to the latest version${flagged}` });
-  };
-
-  const handleEditInstall = () => {
-    if (!selectedReg) return;
-    setEditingId(null);
-    setForm({
-      name: selectedReg.name,
-      description: selectedReg.description,
-      content: selectedReg.content,
-      command: selectedReg.name.toLowerCase().replace(/\s+/g, '-'),
-    });
-    setDialogOpen(true);
-  };
-
-  const isSelected = (type: 'registry' | 'local', key: string) => {
-    if (!selection) return false;
-    if (type === 'registry') return selection.type === 'registry' && selection.name === key;
-    return selection.type === 'local' && selection.id === key;
   };
 
   // claude.ai's content card header: [SKILL.md v] file picker + "N files" + eye/code toggles. Single-file skills hide the picker.
@@ -375,46 +294,16 @@ const Skills: React.FC = () => {
     );
   };
 
-  const SidebarRow: React.FC<{
-    label: string;
-    selected: boolean;
-    onClick: () => void;
-    icon?: React.ReactNode;
-    onboardingId?: string;
-    trailing?: React.ReactNode;
-  }> = ({ label, selected, onClick, icon, onboardingId, trailing }) => (
-    <Box
-      onClick={onClick}
-      data-onboarding={onboardingId}
-      sx={{
-        display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 0.6,
-        borderRadius: `${c.radius.sm}px`, cursor: 'pointer',
-        bgcolor: selected ? c.bg.secondary : 'transparent',
-        transition: 'background 0.12s',
-        '&:hover': { bgcolor: selected ? c.bg.secondary : 'rgba(0,0,0,0.03)' },
-      }}
-    >
-      {icon ?? <DescriptionIcon sx={{ fontSize: 15, color: c.text.tertiary, flexShrink: 0 }} />}
-      <Typography
-        sx={{
-          fontSize: '0.8125rem', color: selected ? c.text.primary : c.text.secondary,
-          fontWeight: selected ? 600 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-        }}
-      >
-        {label}
-      </Typography>
-      {trailing && <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>{trailing}</Box>}
-    </Box>
-  );
+  const fmtUpdated = (epoch?: number): string =>
+    epoch ? new Date(epoch * 1000).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) : '';
+  const authorOf = (sk: Skill): string =>
+    sk.built_in ? 'OpenSwarm' : /anthropic/i.test(sk.source || '') ? 'Anthropic' : sk.source ? sk.source.split('/')[0] : 'You';
+  const detailOpen = (selection?.type === 'builder-preview' && !!builderPreview) || !!selectedLocal;
 
   return (
-    <Box sx={{ display: 'flex', height: '100%', overflow: 'hidden', bgcolor: c.bg.page, position: 'relative' }}>
-      <Box
-        sx={{
-          width: SIDEBAR_W, minWidth: SIDEBAR_W, height: '100%', display: 'flex', flexDirection: 'column',
-          bgcolor: c.bg.secondary,
-        }}
-      >
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: c.bg.page }}>
+      {!detailOpen ? (
+        <>
         {/* claude.ai's Skills header grammar: search icon, Browse, Add menu (Create with Claude / Write skill instructions / Upload a skill), plus our Import .swarm row. */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, px: 1.5, pt: 1.5, pb: 1 }}>
           <Tooltip title="Search">
@@ -499,103 +388,61 @@ const Skills: React.FC = () => {
             />
           </Box>
         </Collapse>
-
-        <Box
-          sx={{
-            flex: 1, overflow: 'auto', px: 0.75, pb: 2,
-            '&::-webkit-scrollbar': { width: 4 },
-            '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 2 },
-          }}
-        >
-          {filteredLocal.length > 0 && (
-            <Box sx={{ mb: 1 }}>
-              <Box
-                onClick={() => toggleCategory('__local')}
-                sx={{
-                  display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5,
-                  cursor: 'pointer', userSelect: 'none',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' }, borderRadius: `${c.radius.sm}px`,
-                }}
-              >
-                {collapsedCats['__local']
-                  ? <KeyboardArrowRightIcon sx={{ fontSize: 16, color: c.text.ghost }} />
-                  : <KeyboardArrowDownIcon sx={{ fontSize: 16, color: c.text.ghost }} />}
-                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: c.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  My Skills
-                </Typography>
-                <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, ml: 0.5 }}>({filteredLocal.length})</Typography>
-              </Box>
-              <Collapse in={!collapsedCats['__local']} timeout={0} unmountOnExit>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, mt: 0.25 }}>
-                  {filteredLocal.map((sk) => (
-                    <SidebarRow
-                      key={sk.id}
-                      label={sk.name}
-                      selected={isSelected('local', sk.id)}
-                      onClick={() => selectLocal(sk.id)}
-                      icon={<FolderIcon sx={{ fontSize: 15, color: c.text.tertiary, flexShrink: 0 }} />}
-                      trailing={regOutdated.includes(sk.id)
-                        ? <Tooltip title="Update available"><Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c.status.warning }} /></Tooltip>
-                        : undefined}
-                    />
-                  ))}
-                </Box>
-              </Collapse>
-            </Box>
-          )}
-
-          {(loading || regLoading) && regSkills.length === 0 && localSkills.length === 0 ? (
+        {/* claude.ai's Skills settings body: a clean table of INSTALLED skills; browsing lives in the Directory. */}
+        <Box sx={{ flex: 1, overflow: 'auto', px: 3, pb: 3, '&::-webkit-scrollbar': { width: 5 }, '&::-webkit-scrollbar-thumb': { background: c.border.medium, borderRadius: 3 } }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 120px 120px', px: 1, pb: 1, borderBottom: `1px solid ${c.border.medium}` }}>
+            <Typography sx={{ fontSize: '0.75rem', color: c.text.tertiary }}>Skill</Typography>
+            <Typography sx={{ fontSize: '0.75rem', color: c.text.tertiary }}>Last updated</Typography>
+            <Typography sx={{ fontSize: '0.75rem', color: c.text.tertiary }}>Author</Typography>
+          </Box>
+          {loading && localSkills.length === 0 ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', pt: 6 }}>
               <CircularProgress size={22} sx={{ color: c.accent.primary }} />
             </Box>
-          ) : (
-            categoryOrder.map((cat) => {
-              const group = regGrouped[cat];
-              if (!group || group.length === 0) return null;
-              const isCollapsed = !!collapsedCats[cat];
-              return (
-                <Box key={cat} sx={{ mb: 0.5 }}>
-                  <Box
-                    onClick={() => toggleCategory(cat)}
-                    sx={{
-                      display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5,
-                      cursor: 'pointer', userSelect: 'none',
-                      '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' }, borderRadius: `${c.radius.sm}px`,
-                    }}
-                  >
-                    {isCollapsed
-                      ? <KeyboardArrowRightIcon sx={{ fontSize: 16, color: c.text.ghost }} />
-                      : <KeyboardArrowDownIcon sx={{ fontSize: 16, color: c.text.ghost }} />}
-                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: c.text.tertiary, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                      {cat}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, ml: 0.5 }}>({group.length})</Typography>
-                  </Box>
-                  <Collapse in={!isCollapsed} timeout={0} unmountOnExit>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25, mt: 0.25 }}>
-                      {group.map((sk) => (
-                        <SidebarRow
-                          key={sk.name}
-                          label={sk.name}
-                          selected={isSelected('registry', sk.name)}
-                          onClick={() => selectRegistry(sk.name)}
-                          onboardingId={
-                            /pdf/i.test(sk.name) ? 'skill-item-pdf' : undefined
-                          }
-                        />
-                      ))}
-                    </Box>
-                  </Collapse>
-                </Box>
-              );
-            })
-          )}
+          ) : filteredLocal.length === 0 ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', pt: 8, gap: 1.5, color: c.text.ghost }}>
+              <DescriptionIcon sx={{ fontSize: 40, opacity: 0.3 }} />
+              <Typography sx={{ fontSize: '0.875rem' }}>No skills yet. Browse the directory or add your own.</Typography>
+            </Box>
+          ) : filteredLocal.map((sk) => (
+            <Box
+              key={sk.id}
+              onClick={() => selectLocal(sk.id)}
+              sx={{
+                display: 'grid', gridTemplateColumns: '1fr 120px 120px', alignItems: 'center',
+                px: 1, py: 1.4, borderBottom: `1px solid ${c.border.subtle}`, cursor: 'pointer',
+                '&:hover': { bgcolor: c.bg.secondary },
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                <Typography noWrap sx={{ fontSize: '0.875rem', color: c.text.primary, fontWeight: 500 }}>{sk.name}</Typography>
+                {sk.enabled === false && (
+                  <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, flexShrink: 0 }}>Disabled</Typography>
+                )}
+                {regOutdated.includes(sk.id) && (
+                  <Tooltip title="Update available"><Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c.status.warning, flexShrink: 0 }} /></Tooltip>
+                )}
+              </Box>
+              <Typography sx={{ fontSize: '0.8125rem', color: c.text.tertiary }}>{fmtUpdated(sk.updated_at)}</Typography>
+              <Typography sx={{ fontSize: '0.8125rem', color: c.text.tertiary }}>{authorOf(sk)}</Typography>
+            </Box>
+          ))}
         </Box>
-      </Box>
-
-      <Box sx={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden', bgcolor: 'transparent' }}>
-        {selection?.type === 'builder-preview' && builderPreview ? (
-          <Box sx={{ p: 4, pb: 3, maxWidth: 1100, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        </>
+      ) : (
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <Box sx={{ px: 4, pt: 2, flexShrink: 0 }}>
+            <Box
+              role="button"
+              onClick={() => setSelection(null)}
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, cursor: 'pointer', color: c.text.secondary, '&:hover': { color: c.text.primary } }}
+            >
+              <ArrowBackIcon sx={{ fontSize: 16 }} />
+              <Typography sx={{ fontSize: '0.875rem', fontWeight: 600 }}>Skills</Typography>
+            </Box>
+          </Box>
+          {selection?.type === 'builder-preview' && builderPreview ? (
+            <Box sx={{ p: 4, pb: 3, maxWidth: 1100, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexShrink: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Typography sx={{ fontSize: '1.375rem', fontWeight: 700, color: c.text.primary, fontFamily: c.font.sans }}>
@@ -645,81 +492,8 @@ const Skills: React.FC = () => {
 
             <ContentPreview content={builderPreview.content} />
           </Box>
-        ) : !selection ? (
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: c.text.ghost, gap: 2 }}>
-            <DescriptionIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-            <Typography sx={{ fontSize: '0.875rem' }}>Select a skill to view its details</Typography>
-          </Box>
-        ) : selection.type === 'registry' ? (
-          regDetailLoading && !selectedReg ? (
-            <Box sx={{ display: 'flex', justifyContent: 'center', pt: 12 }}>
-              <CircularProgress size={24} sx={{ color: c.accent.primary }} />
-            </Box>
-          ) : selectedReg ? (
+          ) : selectedLocal ? (
             <Box sx={{ p: 4, pb: 3, maxWidth: 1100, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '1.375rem', fontWeight: 700, color: c.text.primary, fontFamily: c.font.sans }}>
-                  {selectedReg.name}
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    startIcon={<DownloadIcon sx={{ fontSize: 15 }} />}
-                    onClick={handleInstall}
-                    data-onboarding="skill-install-button"
-                    sx={{
-                      bgcolor: c.accent.primary, '&:hover': { bgcolor: c.accent.pressed },
-                      textTransform: 'none', borderRadius: `${c.radius.md}px`, px: 2, py: 0.5,
-                      fontSize: '0.8125rem', fontWeight: 600, boxShadow: 'none',
-                    }}
-                  >
-                    Install
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<EditIcon sx={{ fontSize: 15 }} />}
-                    onClick={handleEditInstall}
-                    sx={{
-                      borderColor: c.border.strong, color: c.text.secondary,
-                      '&:hover': { borderColor: c.accent.primary, color: c.accent.primary, bgcolor: 'rgba(174,86,48,0.04)' },
-                      textTransform: 'none', borderRadius: `${c.radius.md}px`, px: 2, py: 0.5,
-                      fontSize: '0.8125rem', fontWeight: 600,
-                    }}
-                  >
-                    Edit & Install
-                  </Button>
-                  {selectedReg.repositoryUrl && (
-                    <Tooltip title="View on GitHub">
-                      <IconButton
-                        size="small"
-                        component="a"
-                        href={selectedReg.repositoryUrl}
-                        sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}
-                      >
-                        <OpenInNewIcon sx={{ fontSize: 18 }} />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Box>
-              </Box>
-
-              <Box sx={{ mb: 1, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '0.75rem', color: c.text.ghost }}>Added by <strong style={{ color: c.text.secondary, fontWeight: 600 }}>Anthropic</strong></Typography>
-              </Box>
-
-              <Box sx={{ mb: 2, flexShrink: 0 }}>
-                <Typography sx={{ fontSize: '0.875rem', color: c.text.secondary, lineHeight: 1.6 }}>
-                  {selectedReg.description}
-                </Typography>
-              </Box>
-
-              <ContentPreview content={selectedReg.content} />
-            </Box>
-          ) : null
-        ) : selectedLocal ? (
-          <Box sx={{ p: 4, pb: 3, maxWidth: 1100, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
             {/* claude.ai detail chrome: title + info, byline underneath, enable toggle + kebab on the right. */}
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1, flexShrink: 0 }}>
               <Box sx={{ minWidth: 0 }}>
@@ -795,8 +569,9 @@ const Skills: React.FC = () => {
 
             <ContentPreview content={selectedLocal.content} skillId={selectedLocal.id} multiFile={selectedLocal.has_supporting_files} />
           </Box>
-        ) : null}
-      </Box>
+          ) : null}
+        </Box>
+      )}
 
       <Dialog
         open={dialogOpen}

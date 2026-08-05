@@ -21,6 +21,8 @@ class Skill(BaseModel):
     version: str = ""
     # The detail-page toggle: a disabled skill stays installed but leaves the agent's skill list, the Skill tool refuses to load it, and cloud runs skip it.
     enabled: bool = True
+    # SKILL.md mtime (epoch seconds); feeds the settings table's Last updated column.
+    updated_at: float = 0
 
 
 class SkillCreate(BaseModel):

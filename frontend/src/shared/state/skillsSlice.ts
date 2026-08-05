@@ -20,6 +20,8 @@ export interface Skill {
   has_supporting_files?: boolean;
   /** Detail-page toggle: disabled skills stay installed but leave the agent's skill list. */
   enabled?: boolean;
+  /** SKILL.md mtime (epoch seconds); the settings table's Last updated column. */
+  updated_at?: number;
 }
 
 interface SkillsState {
