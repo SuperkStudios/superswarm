@@ -14,7 +14,7 @@ import MinimizedStack from '../desktop/MinimizedStack';
 import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
-import { GRAIN_URL } from '@/shared/styles/grainTexture';
+import { useGrainTileUrl } from '@/shared/styles/useGrainTileUrl';
 import { washOpaqueBackgroundUrl, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
 
 // How far the dot grid bleeds past the viewport; must exceed one tile period (24px * max zoom) so the compositor phase translate can never expose an edge.
@@ -172,6 +172,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // Memoized: this component re-renders every card-drag frame, and rebuilding these strings (SVG encode + hex blends) per frame is pure waste.
   const washUnderlay = React.useMemo(() => washUnderlayColor(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
   const washUrl = React.useMemo(() => washOpaqueBackgroundUrl(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
+  const grainTileUrl = useGrainTileUrl(grain);
   const gridTileUrl = React.useMemo(() => `url("data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
   )}")`, [dotSpacing, dotSize, c.border.medium]);
@@ -414,19 +415,10 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               inset: 0,
               pointerEvents: 'none',
               backgroundColor: washUnderlay,
-              backgroundImage: washUrl,
-              backgroundSize: '100% 100%',
-            }}
-          />
-        )}
-        {grain > 0 && (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              pointerEvents: 'none',
-              opacity: grain,
-              backgroundImage: GRAIN_URL,
+              // Grain rides the SAME element (alpha pre-baked): one raster, so an evicted tile drops both and paints the tint, never a grain-only seam.
+              backgroundImage: grainTileUrl ? `${grainTileUrl}, ${washUrl}` : washUrl,
+              backgroundSize: grainTileUrl ? 'auto, 100% 100%' : '100% 100%',
+              backgroundRepeat: grainTileUrl ? 'repeat, no-repeat' : 'no-repeat',
             }}
           />
         )}
