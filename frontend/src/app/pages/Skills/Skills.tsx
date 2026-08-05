@@ -67,6 +67,9 @@ type Selection =
 
 const emptyForm: SkillForm = { name: '', description: '', content: '', command: '' };
 
+// One naming grammar everywhere: skills read as kebab slugs (the Directory grid's /slug style), whatever casing they were authored with.
+const skillSlug = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, '-');
+
 interface SkillsProps {
   /** Provided when hosted inside the Marketplace: Browse switches the view in place instead of opening a nested dialog. */
   onBrowseDirectory?: () => void;
@@ -424,7 +427,7 @@ const Skills: React.FC<SkillsProps> = ({ onBrowseDirectory, focusSkillId }) => {
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                <Typography noWrap sx={{ fontSize: '0.875rem', color: c.text.primary, fontWeight: 500 }}>{sk.name}</Typography>
+                <Typography noWrap sx={{ fontSize: '0.875rem', color: c.text.primary, fontWeight: 500 }}>{skillSlug(sk.name)}</Typography>
                 {sk.enabled === false && (
                   <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, flexShrink: 0 }}>Disabled</Typography>
                 )}
@@ -508,7 +511,7 @@ const Skills: React.FC<SkillsProps> = ({ onBrowseDirectory, focusSkillId }) => {
               <Box sx={{ minWidth: 0 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                   <Typography sx={{ fontSize: '1.375rem', fontWeight: 700, color: c.text.primary, fontFamily: c.font.sans }}>
-                    {selectedLocal.name}
+                    {skillSlug(selectedLocal.name)}
                   </Typography>
                   {selectedLocal.command && (
                     <Tooltip title={`Slash command: /${selectedLocal.command}`}>
