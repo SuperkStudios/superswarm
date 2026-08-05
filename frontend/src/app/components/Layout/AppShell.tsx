@@ -28,6 +28,7 @@ import { fetchOutputs } from '@/shared/state/outputsSlice';
 import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
 import ShareRequestHost from '@/app/components/share/ShareRequestHost';
 import CardContextMenu from '@/app/pages/Dashboard/desktop/CardContextMenu';
+import MarketplaceHost from '@/app/pages/Directory/MarketplaceHost';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
@@ -580,6 +581,8 @@ const AppShell: React.FC = () => {
 
       {/* Shell-global right-click host (portals to body): chat surfaces render on non-dashboard routes too, so the menu can't live inside DashboardCanvas. */}
       <CardContextMenu />
+
+      <MarketplaceHost />
 
     </Box>
   );

@@ -1,12 +1,13 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
-import { Globe, CalendarClock, Settings, LayoutGrid } from 'lucide-react';
+import { Globe, CalendarClock, Settings, LayoutGrid, Store } from 'lucide-react';
 import { useAppDispatch } from '@/shared/hooks';
 import { openSettingsCard, openWorkflowsApp } from '@/shared/state/dashboardLayoutSlice';
+import { openMarketplace } from '@/app/pages/Directory/MarketplaceHost';
 
 // The dock reserves room for these before it knows what they are, so the count lives with the list.
-export const DOCK_ACTION_COUNT = 4;
+export const DOCK_ACTION_COUNT = 5;
 
 interface DockActionTilesProps {
   tile: number;
@@ -21,6 +22,7 @@ function DockActionTiles({ tile, onAddBrowser, onApplications, onHoverAway }: Do
   const actions: { label: string; Icon: typeof Globe; act: () => void; divider?: boolean }[] = [
     { label: 'New browser', Icon: Globe, act: onAddBrowser },
     { label: 'Workflows', Icon: CalendarClock, act: () => dispatch(openWorkflowsApp()) },
+    { label: 'Marketplace', Icon: Store, act: () => openMarketplace() },
     { label: 'Settings', Icon: Settings, act: () => dispatch(openSettingsCard()), divider: true },
     { label: 'Applications', Icon: LayoutGrid, act: onApplications },
   ];

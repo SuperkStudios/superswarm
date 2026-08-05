@@ -19,7 +19,7 @@ import {
   RegistrySkill,
 } from '@/shared/state/skillRegistrySlice';
 import DirectoryFilterBar from './DirectoryFilterBar';
-import CommunityInstallConfirm from './CommunityInstallConfirm';
+import CommunityInstallConfirm from './dialogs/CommunityInstallConfirm';
 
 interface Props {
   onOpenInstalled?: (skillId: string) => void;

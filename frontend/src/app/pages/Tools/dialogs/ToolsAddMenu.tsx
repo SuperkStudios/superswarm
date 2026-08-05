@@ -9,7 +9,7 @@ import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddLinkIcon from '@mui/icons-material/AddLink';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import DirectoryDialog from '../../Directory/DirectoryDialog';
-import AddCustomConnectorDialog from '../../Directory/AddCustomConnectorDialog';
+import AddCustomConnectorDialog from '../../Directory/dialogs/AddCustomConnectorDialog';
 
 interface Props {
   devMode: boolean;
