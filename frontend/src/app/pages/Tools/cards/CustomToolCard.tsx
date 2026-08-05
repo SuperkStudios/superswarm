@@ -100,9 +100,9 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
   return (
                   <Card
                     key={tool.id}
-                    sx={{ bgcolor: c.bg.surface, border: `1px solid ${isExpanded ? c.accent.primary : c.border.subtle}`, borderRadius: 2, boxShadow: c.shadow.sm, '&:hover': { borderColor: isDisabled ? c.border.subtle : c.accent.primary, boxShadow: isDisabled ? undefined : '0 0 0 1px rgba(174,86,48,0.12)' }, transition: 'border-color 0.2s, box-shadow 0.2s' }}
+                    sx={{ bgcolor: isExpanded ? c.bg.elevated : 'transparent', border: 'none', borderRadius: 0, boxShadow: 'none', borderBottom: `1px solid ${c.border.subtle}`, '&:last-of-type': { borderBottom: 'none' }, '&:hover': { bgcolor: c.bg.elevated }, transition: 'background-color 0.12s' }}
                   >
-                    <CardContent sx={{ py: 1.1, px: 1.75, '&:last-child': { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.4, px: 2, '&:last-child': { pb: 1.4 } }}>
                       <Box
                         sx={{ display: 'flex', alignItems: 'center', gap: 2, cursor: isDisabled ? 'default' : 'pointer' }}
                         data-onboarding={isYoutube ? 'actions-youtube-chevron' : isReddit ? 'actions-reddit-chevron' : undefined}
@@ -110,32 +110,39 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                       >
                         {ig && (
                           <Box sx={{
-                            width: 30, height: 30, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            bgcolor: `${ig.color}18`, fontSize: '1.125rem', fontWeight: 700, color: ig.color, flexShrink: 0,
-                            opacity: isDisabled ? 0.4 : 1, transition: 'opacity 0.2s',
+                            width: 34, height: 34, borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.surface, fontSize: '1.125rem', fontWeight: 700, color: ig.color, flexShrink: 0,
+                            opacity: isDisabled ? 0.55 : 1, transition: 'opacity 0.2s',
                           }}>
                             {ig.icon}
                           </Box>
                         )}
-                        <Box sx={{ flex: 1, minWidth: 0, opacity: isDisabled ? 0.4 : 1, transition: 'opacity 0.2s' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
-                            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.9375rem' }}>{tool.name}</Typography>
-                            {isMcp && <Chip icon={<ExtensionIcon sx={{ fontSize: 12 }} />} label={isStdio ? 'MCP · stdio' : 'MCP'} size="small" sx={{ bgcolor: `${c.status.warning}20`, color: c.status.warning, fontSize: '0.75rem', height: 24 }} />}
-                            {tool.command && <Chip icon={<TerminalIcon sx={{ fontSize: 12 }} />} label={`/${tool.command}`} size="small" sx={{ bgcolor: 'rgba(174,86,48,0.12)', color: c.accent.hover, fontSize: '0.75rem', height: 22 }} />}
-                            {tool.auth_status === 'connected' && !ig && (
-                              <Chip icon={<CheckCircleIcon sx={{ fontSize: 12 }} />} label={tool.connected_account_email ? `Connected · ${tool.connected_account_email}` : 'Connected'} size="small" sx={{ bgcolor: c.status.successBg, color: c.status.success, fontSize: '0.6875rem', height: 20, '& .MuiChip-icon': { color: c.status.success } }} />
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
+                            <Typography sx={{ color: isDisabled ? c.text.tertiary : c.text.primary, fontWeight: 600, fontSize: '0.9375rem' }}>{tool.name}</Typography>
+                            {tool.command && <Chip icon={<TerminalIcon sx={{ fontSize: 12 }} />} label={`/${tool.command}`} size="small" sx={{ bgcolor: 'rgba(174,86,48,0.12)', color: c.accent.hover, fontSize: '0.6875rem', height: 20 }} />}
+                            {tool.auth_status === 'connected' && (
+                              <Typography sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: c.status.success, fontSize: '0.75rem', fontWeight: 600 }}>
+                                <CheckCircleIcon sx={{ fontSize: 13 }} /> Connected{!ig && tool.connected_account_email ? ` · ${tool.connected_account_email}` : ''}
+                              </Typography>
                             )}
                             {tool.auth_status === 'configured' && !ig?.credentialFields && (
-                              <Chip icon={<SettingsIcon sx={{ fontSize: 12 }} />} label="Configured" size="small" sx={{ bgcolor: c.status.warningBg, color: c.status.warning, fontSize: '0.6875rem', height: 20, '& .MuiChip-icon': { color: c.status.warning } }} />
-                            )}
-                            {ig && totalToolCount > 0 && (
-                              <Chip label={`${totalToolCount} tools`} size="small" sx={{ bgcolor: `${ig.color}15`, color: ig.color, fontSize: '0.6875rem', height: 20, '& .MuiChip-label': { px: 0.6 } }} />
-                            )}
-                            {ig && (
-                              <Chip component="a" href={ig.website} clickable icon={<OpenInNewIcon sx={{ fontSize: 10 }} />} label="docs" size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.ghost, fontSize: '0.625rem', height: 18, '& .MuiChip-label': { px: 0.4 }, '& .MuiChip-icon': { ml: 0.4, fontSize: 10 } }} />
+                              <Typography sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: c.status.warning, fontSize: '0.75rem', fontWeight: 600 }}>
+                                <SettingsIcon sx={{ fontSize: 13 }} /> Configured
+                              </Typography>
                             )}
                           </Box>
-                          {tool.description && <Typography sx={{ color: c.text.muted, fontSize: '0.8125rem' }}>{tool.description}</Typography>}
+                          {tool.description && (
+                            <Typography noWrap sx={{ color: c.text.muted, fontSize: '0.8125rem' }}>{tool.description}</Typography>
+                          )}
+                          <Typography sx={{ color: c.text.ghost, fontSize: '0.75rem', mt: 0.25 }}>
+                            {[isMcp ? (isStdio ? 'MCP · stdio' : 'MCP') : null, totalToolCount > 0 ? `${totalToolCount} tools` : null].filter(Boolean).join('  ·  ')}
+                            {ig && (
+                              <Box component="a" href={ig.website} target="_blank" rel="noreferrer" onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ color: c.text.ghost, ml: 1, textDecoration: 'none', '&:hover': { color: c.text.secondary, textDecoration: 'underline' } }}>
+                                docs<OpenInNewIcon sx={{ fontSize: 10, ml: 0.25, verticalAlign: 'middle' }} />
+                              </Box>
+                            )}
+                          </Typography>
                         </Box>
                         <CustomToolConnect
                           tool={tool}

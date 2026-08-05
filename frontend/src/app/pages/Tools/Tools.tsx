@@ -199,15 +199,7 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
               <Typography sx={{ fontSize: '0.875rem' }}>No custom tools defined yet. Create one to get started.</Typography>
             </Box>
           ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pl: 1 }}>
-              {visibleGallery.map((ig) => (
-                <IntegrationGalleryCard
-                  key={ig.id}
-                  integration={ig}
-                  isLoading={!!a.integrationLoading[ig.id]}
-                  onToggle={a.handleIntegrationToggle}
-                />
-              ))}
+            <Box sx={{ display: 'flex', flexDirection: 'column', ml: 1, border: `1px solid ${c.border.subtle}`, borderRadius: '12px', overflow: 'hidden', bgcolor: c.bg.surface }}>
               {visibleTools.map((tool) => (
                 <CustomToolCard
                   key={tool.id}
@@ -235,6 +227,14 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
                   onOpenCredentialsDialog={a.openCredentialsDialog}
                   onEdit={a.openEdit}
                   onDelete={a.handleDelete}
+                />
+              ))}
+              {visibleGallery.map((ig) => (
+                <IntegrationGalleryCard
+                  key={ig.id}
+                  integration={ig}
+                  isLoading={!!a.integrationLoading[ig.id]}
+                  onToggle={a.handleIntegrationToggle}
                 />
               ))}
             </Box>

@@ -3,7 +3,6 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Switch from '@mui/material/Switch';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
@@ -21,22 +20,25 @@ const IntegrationGalleryCard: React.FC<IntegrationGalleryCardProps> = ({ integra
   return (
                   <Card
                     key={ig.id}
-                    sx={{ order: 2, bgcolor: c.bg.surface, border: `1px solid ${c.border.subtle}`, borderRadius: 2, boxShadow: c.shadow.sm, transition: 'border-color 0.2s, box-shadow 0.2s' }}
+                    sx={{ bgcolor: 'transparent', border: 'none', borderRadius: 0, boxShadow: 'none', borderBottom: `1px solid ${c.border.subtle}`, '&:last-of-type': { borderBottom: 'none' }, '&:hover': { bgcolor: c.bg.elevated }, transition: 'background-color 0.12s' }}
                   >
-                    <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                    <CardContent sx={{ py: 1.4, px: 2, '&:last-child': { pb: 1.4 } }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Box sx={{
-                          width: 36, height: 36, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          bgcolor: c.bg.secondary, fontSize: '1.125rem', fontWeight: 700, color: c.text.ghost,
+                          width: 34, height: 34, borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: `1px solid ${c.border.subtle}`, bgcolor: c.bg.surface, fontSize: '1.125rem', fontWeight: 700, color: c.text.ghost,
                         }}>
                           {ig.icon}
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
-                            <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>{ig.name}</Typography>
-                            <Chip component="a" href={ig.website} clickable icon={<OpenInNewIcon sx={{ fontSize: 10 }} />} label="docs" size="small" sx={{ bgcolor: c.bg.secondary, color: c.text.ghost, fontSize: '0.625rem', height: 18, '& .MuiChip-label': { px: 0.4 }, '& .MuiChip-icon': { ml: 0.4, fontSize: 10 } }} />
-                          </Box>
-                          <Typography sx={{ color: c.text.muted, fontSize: '0.8125rem' }}>{ig.description}</Typography>
+                          <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '0.9375rem', mb: 0.25 }}>{ig.name}</Typography>
+                          <Typography noWrap sx={{ color: c.text.muted, fontSize: '0.8125rem' }}>{ig.description}</Typography>
+                          <Typography sx={{ color: c.text.ghost, fontSize: '0.75rem', mt: 0.25 }}>
+                            Not installed
+                            <Box component="a" href={ig.website} target="_blank" rel="noreferrer" sx={{ color: c.text.ghost, ml: 1, textDecoration: 'none', '&:hover': { color: c.text.secondary, textDecoration: 'underline' } }}>
+                              docs<OpenInNewIcon sx={{ fontSize: 10, ml: 0.25, verticalAlign: 'middle' }} />
+                            </Box>
+                          </Typography>
                         </Box>
                         <Box
                           data-onboarding={
