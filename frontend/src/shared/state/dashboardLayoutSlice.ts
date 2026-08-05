@@ -586,9 +586,17 @@ function addMissingCards<T extends { x: number; y: number; width: number; height
 
 // One docked surface per chat: the slot is a single rect, so docking a new browser/app releases
 // whatever was previously docked there (it falls back to its stored free position).
-function clearOtherDocks(state: { browserCards: Record<string, BrowserCardPosition>; viewCards: Record<string, ViewCardPosition> }, sessionId: string): void {
+function clearOtherDocks(state: { browserCards: Record<string, BrowserCardPosition>; viewCards: Record<string, ViewCardPosition> }, sessionId: string, keepBrowserId?: string): void {
   for (const bc of Object.values(state.browserCards)) {
-    if (bc.docked_to === sessionId) bc.docked_to = null;
+    if (bc.docked_to !== sessionId) continue;
+    // The card being (re-)docked must survive its own clear: layout sync re-asserts docks, and deleting the assertee would vanish a live browser.
+    if (bc.browser_id === keepBrowserId) continue;
+    // An agent-owned browser displaced by its replacement is a corpse (the agent spins a fresh one when a tab dies); releasing it to the canvas painted dead stacked windows next to the chat.
+    if (bc.spawned_by === sessionId) {
+      delete state.browserCards[bc.browser_id];
+      continue;
+    }
+    bc.docked_to = null;
   }
   for (const vc of Object.values(state.viewCards)) {
     if (vc.docked_to === sessionId) vc.docked_to = null;
@@ -973,7 +981,7 @@ const dashboardLayoutSlice = createSlice({
     setBrowserDocked(state, action: PayloadAction<{ browserId: string; dockedTo: string | null }>) {
       const bc = state.browserCards[action.payload.browserId];
       if (!bc) return;
-      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo);
+      if (action.payload.dockedTo) clearOtherDocks(state, action.payload.dockedTo, action.payload.browserId);
       bc.docked_to = action.payload.dockedTo;
     },
     addBrowserCardFromBackend(state, action: PayloadAction<BrowserCardPosition>) {
