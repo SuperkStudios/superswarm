@@ -53,12 +53,17 @@ export function useDashboardSelection(
   const isDraggingMarqueeRef = useRef(false);
   const shiftHeldRef = useRef(false);
   const selectionBeforeMarqueeRef = useRef<Map<string, CardType>>(new Map());
+  // Cached at marquee arm: a live getBoundingClientRect per move forces layout mid-drag, and the
+  // viewport element itself never moves during a marquee (only its content transform does).
+  const marqueeVpRectRef = useRef<DOMRect | null>(null);
+  const marqueeRafRef = useRef<number | null>(null);
+  const latestMoveRef = useRef<{ x: number; y: number } | null>(null);
 
   const screenToCanvas = useCallback(
     (screenX: number, screenY: number) => {
       const vp = canvas.viewportRef.current;
       if (!vp) return { x: 0, y: 0 };
-      const rect = vp.getBoundingClientRect();
+      const rect = marqueeVpRectRef.current ?? vp.getBoundingClientRect();
       const cam = canvas.getLiveState();
       return {
         x: (screenX - rect.left - cam.panX) / cam.zoom,
@@ -210,8 +215,9 @@ export function useDashboardSelection(
       isDraggingMarqueeRef.current = false;
       shiftHeldRef.current = e.shiftKey;
       selectionBeforeMarqueeRef.current = new Map(selectedIds);
+      marqueeVpRectRef.current = canvas.viewportRef.current?.getBoundingClientRect() ?? null;
     },
-    [selectedIds],
+    [selectedIds, canvas.viewportRef],
   );
 
   const handleCanvasMouseMove = useCallback(
@@ -230,18 +236,36 @@ export function useDashboardSelection(
         document.body.classList.add('dashboard-marquee-active');
       }
 
-      const start = screenToCanvas(origin.screenX, origin.screenY);
-      const end = screenToCanvas(e.clientX, e.clientY);
-
-      const rect: MarqueeRect = {
-        x: Math.min(start.x, end.x),
-        y: Math.min(start.y, end.y),
-        width: Math.abs(end.x - start.x),
-        height: Math.abs(end.y - start.y),
-      };
-
-      setMarquee(rect);
-      setSelectedIds(computeMarqueeSelection(rect, shiftHeldRef.current));
+      // One update per frame, not per pointermove: 120Hz mice fired two renders per painted frame.
+      latestMoveRef.current = { x: e.clientX, y: e.clientY };
+      if (marqueeRafRef.current !== null) return;
+      marqueeRafRef.current = requestAnimationFrame(() => {
+        marqueeRafRef.current = null;
+        const o = marqueeOriginRef.current;
+        const p = latestMoveRef.current;
+        if (!o || !p || !isDraggingMarqueeRef.current) return;
+        const start = screenToCanvas(o.screenX, o.screenY);
+        const end = screenToCanvas(p.x, p.y);
+        const rect: MarqueeRect = {
+          x: Math.min(start.x, end.x),
+          y: Math.min(start.y, end.y),
+          width: Math.abs(end.x - start.x),
+          height: Math.abs(end.y - start.y),
+        };
+        setMarquee(rect);
+        const next = computeMarqueeSelection(rect, shiftHeldRef.current);
+        // Same membership = same state object, so sweeping across empty space re-renders nothing.
+        setSelectedIds((prev) => {
+          if (prev.size === next.size) {
+            let same = true;
+            for (const [id, type] of next) {
+              if (prev.get(id) !== type) { same = false; break; }
+            }
+            if (same) return prev;
+          }
+          return next;
+        });
+      });
     },
     [screenToCanvas, computeMarqueeSelection],
   );
@@ -258,6 +282,11 @@ export function useDashboardSelection(
 
       marqueeOriginRef.current = null;
       isDraggingMarqueeRef.current = false;
+      marqueeVpRectRef.current = null;
+      if (marqueeRafRef.current !== null) {
+        cancelAnimationFrame(marqueeRafRef.current);
+        marqueeRafRef.current = null;
+      }
       setMarquee(null);
       document.body.style.userSelect = '';
       document.body.classList.remove('dashboard-marquee-active');
