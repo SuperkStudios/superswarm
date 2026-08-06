@@ -23,7 +23,7 @@ const IntegrationGalleryCard: React.FC<IntegrationGalleryCardProps> = ({ integra
                     sx={{ bgcolor: 'transparent', border: 'none', borderRadius: 0, boxShadow: 'none', borderBottom: `1px solid ${c.border.subtle}`, '&:last-of-type': { borderBottom: 'none' }, '&:hover': { bgcolor: c.bg.elevated }, transition: 'background-color 0.12s' }}
                   >
                     <CardContent sx={{ py: 1.4, px: 2, '&:last-child': { pb: 1.4 } }}>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 130px 150px', alignItems: 'center', gap: 2 }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px 200px', alignItems: 'center', gap: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
                           <Box sx={{
                             width: 34, height: 34, borderRadius: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center',

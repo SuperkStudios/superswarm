@@ -52,7 +52,7 @@ const BrowserPermissionCard: React.FC<BrowserPermissionCardProps> = ({
           <CardContent sx={{ py: 1.4, px: 2, '&:last-child': { pb: 1.4 } }}>
             <Box
               onClick={() => browserSectionEnabled && onToggleOpen()}
-              sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 130px 150px', alignItems: 'center', gap: 2, cursor: browserSectionEnabled ? 'pointer' : 'default' }}
+              sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px 200px', alignItems: 'center', gap: 2, cursor: browserSectionEnabled ? 'pointer' : 'default' }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
                 <Box sx={{

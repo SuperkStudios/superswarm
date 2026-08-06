@@ -104,7 +104,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                   >
                     <CardContent sx={{ py: 1.4, px: 2, '&:last-child': { pb: 1.4 } }}>
                       <Box
-                        sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 130px 150px', alignItems: 'center', gap: 2, cursor: isDisabled ? 'default' : 'pointer' }}
+                        sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px 200px', alignItems: 'center', gap: 2, cursor: isDisabled ? 'default' : 'pointer' }}
                         data-onboarding={isYoutube ? 'actions-youtube-chevron' : isReddit ? 'actions-reddit-chevron' : undefined}
                         onClick={() => !isDisabled && onToggleExpand(tool.id, isExpanded)}
                       >
@@ -137,7 +137,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                           </Box>
                         </Box>
                         <Typography sx={{ color: c.text.secondary, fontSize: '0.8125rem' }}>{isMcp ? (isStdio ? 'MCP · stdio' : 'MCP') : 'Custom'}</Typography>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.25 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.25, minWidth: 0, overflow: 'hidden', '& .MuiChip-root': { maxWidth: '100%' }, '& .MuiButton-root': { whiteSpace: 'nowrap' } }}>
                           {tool.auth_status === 'connected' && (
                             <Typography sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: c.status.success, fontSize: '0.75rem', fontWeight: 600 }}>
                               <CheckCircleIcon sx={{ fontSize: 13 }} /> Connected
@@ -148,7 +148,7 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                               <SettingsIcon sx={{ fontSize: 13 }} /> Configured
                             </Typography>
                           )}
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.25, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
                             <CustomToolConnect
                               tool={tool}
                               ig={ig}

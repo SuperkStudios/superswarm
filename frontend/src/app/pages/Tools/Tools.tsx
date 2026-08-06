@@ -156,7 +156,7 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
           <PopularConnectorsRow integrations={popularUninstalled} loading={a.integrationLoading} onConnect={a.handleIntegrationToggle} />
         )}
         <Box sx={{ border: `1px solid ${c.border.subtle}`, borderRadius: '12px', overflow: 'hidden', bgcolor: c.bg.surface }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 130px 150px', gap: 2, px: 2, py: 1.1, borderBottom: `1px solid ${c.border.subtle}` }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px 200px', gap: 2, px: 2, py: 1.1, borderBottom: `1px solid ${c.border.subtle}` }}>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem' }}>Connector</Typography>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem' }}>Type</Typography>
             <Typography sx={{ color: c.text.tertiary, fontSize: '0.8125rem', textAlign: 'right' }}>Status</Typography>
