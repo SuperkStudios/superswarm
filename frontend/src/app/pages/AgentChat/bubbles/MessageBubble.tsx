@@ -18,8 +18,7 @@ import InsertDriveFileOutlinedIcon from '@mui/icons-material/InsertDriveFileOutl
 import PsychologyOutlinedIcon from '@mui/icons-material/PsychologyOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import LanguageIcon from '@mui/icons-material/Language';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { renderMarkdownCached, renderMarkdownNow } from './markdownCache';
 import WindowedMarkdown from './WindowedMarkdown';
 import WindowedPlainText from './WindowedPlainText';
 import { renderUserTextWithPills } from './renderUserTextWithPills';
@@ -933,16 +932,11 @@ const ChatMessageBubble: React.FC<Props> = ({ message, editing = false, onSaveEd
     return { text: rawText, start: 0, end: rawText.length, windowed: false };
   }, [rawText, shouldRenderMarkdown]);
 
-  const renderedMarkdown = useMemo(() => (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ children, ...props }) => (
-          <a {...props} style={{ cursor: 'pointer' }}>{children}</a>
-        ),
-      }}
-    >{markdownWindow.text}</ReactMarkdown>
-  ), [markdownWindow.text]);
+  // Streaming prefixes are unique per chunk, so they bypass the LRU; finished text hits it and survives remounts.
+  const renderedMarkdown = useMemo(
+    () => (isStreaming ? renderMarkdownNow(markdownWindow.text) : renderMarkdownCached(markdownWindow.text)),
+    [markdownWindow.text, isStreaming],
+  );
 
   // Height to reserve for this message's off-screen placeholder before it has ever been measured. Estimated from the FULL text length (we render in full when in view) with the same model as AgentChat's spacer estimate, so the placeholder and the spacer reserve the same space. Once rendered, oversizedContentHeights wins over this.
   const placeholderFallbackHeight = useMemo(
