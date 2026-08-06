@@ -323,7 +323,9 @@ const BrowserCard: React.FC<Props> = ({
     };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
-  const dockParentZ = dockParentCard?.zOrder ?? 0;
+  const dockParentZOverride = useAppSelector((state) => (dockedTo ? state.dashboardLayout.zOrders[dockedTo] : undefined));
+  const dockParentZ = dockParentZOverride ?? dockParentCard?.zOrder ?? 0;
+  const zOverride = useAppSelector((state) => state.dashboardLayout.zOrders[browserId]);
 
   // The slot's frozen-shot backdrop and the live overlay must never BOTH paint (the clamped overlay leaves margins where a misaligned copy of the page peeks through), so the card stamps its live state onto the slot and the slot's CSS hides the shot while live.
   const overlayLiveRef = useRef(false);
@@ -1221,7 +1223,7 @@ const BrowserCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : (zOverride ?? cardZOrder),
         // The inline slot scrolls with the transcript; a webview can't be clipped by the scroller, so the mini fades out when its slot is mostly out of view instead of floating over unrelated messages.
         opacity: (dockActive && !dockVisible) || dockPending ? 0 : 1,
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease, opacity 0.14s ease',

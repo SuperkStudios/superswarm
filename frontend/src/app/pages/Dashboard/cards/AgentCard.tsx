@@ -1483,6 +1483,7 @@ const MemoAgentCard = React.memo(AgentCard);
 const AgentCardOuter: React.FC<OuterProps> = (props) => {
   const session = useAppSelector((s) => s.agents.sessions[props.sessionId]);
   const cardEntry = useAppSelector((s) => s.dashboardLayout.cards[props.sessionId]);
+  const zOverride = useAppSelector((s) => s.dashboardLayout.zOrders[props.sessionId]);
   if (!session || !cardEntry) return null;
   return (
     <MemoAgentCard
@@ -1492,7 +1493,7 @@ const AgentCardOuter: React.FC<OuterProps> = (props) => {
       cardY={cardEntry.y}
       cardWidth={cardEntry.width}
       cardHeight={cardEntry.height}
-      cardZOrder={cardEntry.zOrder ?? 0}
+      cardZOrder={zOverride ?? cardEntry.zOrder ?? 0}
     />
   );
 };

@@ -186,6 +186,8 @@ export interface DashboardLayoutState {
   pendingFocusMarketplaceCard: boolean;
   /** Transient deep-link: which marketplace view to land on; the card consumes and clears it. */
   marketplaceRequestedTab: string | null;
+  /** Focus-order overrides, keyed by card id (singletons use their literal ids). bringToFront writes ONLY here, so a click never churns card-object identities; effective z = zOrders[id] ?? the base stamped at creation. */
+  zOrders: Record<string, number>;
   /** Creation-order ledger, oldest first, across all content card types; the trash's no-selection press pops the newest. Persisted with the layout (zOrder can't stand in, it re-bumps on every focus). */
   creationOrder: string[];
 }
@@ -234,6 +236,7 @@ const initialState: DashboardLayoutState = {
   pendingFocusMarketplaceCard: false,
   marketplaceRequestedTab: null,
   creationOrder: [],
+  zOrders: {},
 };
 
 interface LayoutPayload {
@@ -244,6 +247,8 @@ interface LayoutPayload {
   workflowsHub: WorkflowsHubPosition | null;
   expandedSessionIds: string[];
   creationOrder: string[];
+  // Optional because savers omit it: the save thunk reads the live map from state itself.
+  zOrders?: Record<string, number>;
 }
 
 function ledgerAdd(ledger: string[], id: string): void {
@@ -296,6 +301,7 @@ export const fetchLayout = createAsyncThunk(
       workflowsHub: (layout.workflows_hub ?? null) as WorkflowsHubPosition | null,
       expandedSessionIds: (layout.expanded_session_ids ?? []) as string[],
       creationOrder: (layout.creation_order ?? []) as string[],
+      zOrders: (layout.z_orders ?? {}) as Record<string, number>,
     } satisfies LayoutPayload;
   },
 );
@@ -308,8 +314,14 @@ export const saveLayout = createAsyncThunk(
   'dashboardLayout/save',
   async (payload: SaveLayoutPayload, { getState }) => {
     // Never persist a layout this client never successfully loaded; a failed boot fetch otherwise saves the pristine empty store over the server's real layout (the wipe class).
-    const armed = (getState() as { dashboardLayout: { saveArmed: boolean } }).dashboardLayout.saveArmed;
-    if (!armed) return payload;
+    const dl = (getState() as { dashboardLayout: { saveArmed: boolean; zOrders: Record<string, number> } }).dashboardLayout;
+    if (!dl.saveArmed) return payload;
+    // Prune focus overrides to ids that still exist, so removed cards can't grow the map forever.
+    const liveZ: Record<string, number> = {};
+    for (const [zid, z] of Object.entries(dl.zOrders)) {
+      if (payload.cards[zid] || payload.viewCards[zid] || payload.browserCards[zid] || payload.workflowCards[zid]
+        || zid === 'settings' || zid === 'marketplace' || zid === 'workflows-hub' || zid === 'workflows-monitor') liveZ[zid] = z;
+    }
     await fetch(`${DASHBOARDS_API}/${payload.dashboardId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -322,6 +334,7 @@ export const saveLayout = createAsyncThunk(
           workflows_hub: payload.workflowsHub,
           expanded_session_ids: payload.expandedSessionIds,
           creation_order: payload.creationOrder,
+          z_orders: liveZ,
         },
       }),
     });
@@ -727,50 +740,23 @@ const dashboardLayoutSlice = createSlice({
       action: PayloadAction<{ id: string; type: CardType }>,
     ) {
       const { id, type } = action.payload;
-      // Compute the current top zOrder across ALL card types so we can short-circuit when the target is already on top. Without this guard, every click on a card (which fires onPointerDownCapture + onClick + onDoubleClick) bumps zOrder and triggers a Redux mutation. That mutation cascades into a re-render that unmounts inputs mid-keystroke, causing the workflow card's title / description / step textareas to lose focus on every click.
-      let maxZ = 0;
-      let currentZ = 0;
-      const tally = (z: number | undefined) => { if (typeof z === 'number' && z > maxZ) maxZ = z; };
-      for (const c of Object.values(state.cards)) tally(c.zOrder);
-      for (const c of Object.values(state.viewCards)) tally(c.zOrder);
-      for (const c of Object.values(state.browserCards)) tally(c.zOrder);
-      for (const c of Object.values(state.workflowCards)) tally(c.zOrder);
-      if (state.workflowsHub) tally(state.workflowsHub.zOrder);
-      if (state.workflowsMonitorCard) tally(state.workflowsMonitorCard.zOrder);
-      if (state.settingsCard) tally(state.settingsCard.zOrder);
-      if (state.marketplaceCard) tally(state.marketplaceCard.zOrder);
-      if (type === 'agent') currentZ = state.cards[id]?.zOrder ?? 0;
-      else if (type === 'view') currentZ = state.viewCards[id]?.zOrder ?? 0;
-      else if (type === 'workflow') currentZ = state.workflowCards[id]?.zOrder ?? 0;
-      else if (type === 'workflows-hub') currentZ = state.workflowsHub?.zOrder ?? 0;
-      else if (type === 'workflows-monitor') currentZ = state.workflowsMonitorCard?.zOrder ?? 0;
-      else if (type === 'settings') currentZ = state.settingsCard?.zOrder ?? 0;
-      else if (type === 'marketplace') currentZ = state.marketplaceCard?.zOrder ?? 0;
-      else currentZ = state.browserCards[id]?.zOrder ?? 0;
-      if (currentZ >= maxZ) return;  // Already on top: no-op.
-
-      const z = state.nextZOrder++;
-      if (type === 'agent') {
-        const card = state.cards[id];
-        if (card) card.zOrder = z;
-      } else if (type === 'view') {
-        const card = state.viewCards[id];
-        if (card) card.zOrder = z;
-      } else if (type === 'workflow') {
-        const card = state.workflowCards[id];
-        if (card) card.zOrder = z;
-      } else if (type === 'workflows-hub') {
-        if (state.workflowsHub) state.workflowsHub.zOrder = z;
-      } else if (type === 'workflows-monitor') {
-        if (state.workflowsMonitorCard) state.workflowsMonitorCard.zOrder = z;
-      } else if (type === 'settings') {
-        if (state.settingsCard) state.settingsCard.zOrder = z;
-      } else if (type === 'marketplace') {
-        if (state.marketplaceCard) state.marketplaceCard.zOrder = z;
-      } else {
-        const card = state.browserCards[id];
-        if (card) card.zOrder = z;
-      }
+      // Focus writes ONLY the override map: the old form mutated the card object, which replaced its
+      // dict, re-rendered the controller + tethers + dock + minimap, and armed a layout PUT +
+      // thumbnail capture on every press (CANVAS_LAG_NOTES item 33). The nextZOrder-1 holder is
+      // always the top card, so the already-on-top guard (workflow textarea focus-loss) is one compare.
+      let base = 0;
+      if (type === 'agent') base = state.cards[id]?.zOrder ?? 0;
+      else if (type === 'view') base = state.viewCards[id]?.zOrder ?? 0;
+      else if (type === 'workflow') base = state.workflowCards[id]?.zOrder ?? 0;
+      else if (type === 'workflows-hub') base = state.workflowsHub?.zOrder ?? 0;
+      else if (type === 'workflows-monitor') base = state.workflowsMonitorCard?.zOrder ?? 0;
+      else if (type === 'settings') base = state.settingsCard?.zOrder ?? 0;
+      else if (type === 'marketplace') base = state.marketplaceCard?.zOrder ?? 0;
+      else base = state.browserCards[id]?.zOrder ?? 0;
+      const effective = state.zOrders[id] ?? base;
+      // Zero is the legacy every-card tie (backend-synced cards arrive without z); never short-circuit on it.
+      if (effective > 0 && effective === state.nextZOrder - 1) return;
+      state.zOrders[id] = state.nextZOrder++;
     },
 
     removeCard(state, action: PayloadAction<string>) {
@@ -1911,11 +1897,13 @@ const dashboardLayoutSlice = createSlice({
           if (!w.zOrder) w.zOrder = 0;
           if (w.zOrder > maxZ) maxZ = w.zOrder;
         }
+        state.zOrders = { ...state.zOrders, ...(action.payload.zOrders ?? {}) };
+        for (const z of Object.values(state.zOrders)) { if (z > maxZ) maxZ = z; }
         state.nextZOrder = maxZ + 1;
 
         // Ledger rebuild: persisted order filtered to live ids, then unledgered survivors by zOrder (legacy layouts, drift). Keep-alive browsers homed on OTHER dashboards stay out: the trash must never delete a card the user can't see.
         const zOf = (id: string): number =>
-          state.cards[id]?.zOrder ?? state.viewCards[id]?.zOrder ?? state.browserCards[id]?.zOrder ?? state.workflowCards[id]?.zOrder ?? 0;
+          state.zOrders[id] ?? state.cards[id]?.zOrder ?? state.viewCards[id]?.zOrder ?? state.browserCards[id]?.zOrder ?? state.workflowCards[id]?.zOrder ?? 0;
         const live = new Set<string>([
           ...Object.keys(state.cards),
           ...Object.keys(state.viewCards),

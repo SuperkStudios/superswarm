@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import { useAppSelector } from '@/shared/hooks';
 import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
 import { useCanvasWindowResize } from './useCanvasWindowResize';
@@ -71,6 +72,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   children,
 }) => {
   const c = useClaudeTokens();
+  const zOverride = useAppSelector((state) => state.dashboardLayout.zOrders[cardId]);
   const tiling = useCardTiling({ cardId, getCanvasState, commitPosition: onCommitPosition });
 
   // ---- Drag (title bar is the handle) ----
@@ -219,7 +221,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: tiledSize ? 999990 : (isDragging || isResizing) ? 999999 : cardZOrder,
+        zIndex: tiledSize ? 999990 : (isDragging || isResizing) ? 999999 : (zOverride ?? cardZOrder),
         transition: noTransition ? 'none' : 'box-shadow 0.3s ease, border-color 0.2s ease',
       }}
     >

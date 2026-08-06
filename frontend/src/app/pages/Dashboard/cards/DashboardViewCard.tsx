@@ -207,7 +207,9 @@ const DashboardViewCard: React.FC<Props> = ({
       timers.forEach((tm) => window.clearTimeout(tm));
     };
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
-  const dockParentZ = dockParentCard?.zOrder ?? 0;
+  const dockParentZOverride = useAppSelector((state) => (dockedTo ? state.dashboardLayout.zOrders[dockedTo] : undefined));
+  const dockParentZ = dockParentZOverride ?? dockParentCard?.zOrder ?? 0;
+  const zOverride = useAppSelector((state) => state.dashboardLayout.zOrders[cardKey]);
 
   // Keep the live preview mounted only when the user can actually see/use this app card. Always live
   // when it's being interacted with, driven by an agent, tiled, or selected; otherwise gated on being
@@ -691,7 +693,7 @@ const DashboardViewCard: React.FC<Props> = ({
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
-        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : cardZOrder,
+        zIndex: isTiled ? 999990 : (isDragging || isResizing) ? 999999 : dockActive ? (dockParentTiled ? 999991 : dockParentZ + 1) : (zOverride ?? cardZOrder),
         transition: noTransition ? 'none' : 'box-shadow 0.4s ease, border 0.3s ease',
         '&:hover .resize-handle': { opacity: 1 },
         ...(isHighlighted && {

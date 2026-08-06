@@ -262,11 +262,13 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     Object.values(st.dashboardLayout.browserCards).some((bc) => bc.docked_to === (sessionIdProp || routeId)) ||
     Object.values(st.dashboardLayout.viewCards).some((vc) => vc.docked_to === (sessionIdProp || routeId)));
   // The docked surface's aspect ratio, so the inline slot hugs the browser's shape instead of reserving a fixed letterbox band (primitive selectors so no fresh-object rerenders). Highest z wins, mirroring BrowserCard's dock-owner election, so a dead rival's stale dock never feeds dims or shots.
-  const pickTopDocked = (st: { dashboardLayout: { browserCards: Record<string, { browser_id: string; docked_to?: string | null; width: number; height: number; zOrder: number }> } }) => {
+  const pickTopDocked = (st: { dashboardLayout: { zOrders: Record<string, number>; browserCards: Record<string, { browser_id: string; docked_to?: string | null; width: number; height: number; zOrder: number }> } }) => {
     let best: { browser_id: string; width: number; height: number; zOrder: number } | null = null;
+    let bestZ = -1;
+    const zOf = (b: { browser_id: string; zOrder: number }): number => st.dashboardLayout.zOrders[b.browser_id] ?? b.zOrder ?? 0;
     for (const b of Object.values(st.dashboardLayout.browserCards)) {
       if (b.docked_to !== (sessionIdProp || routeId)) continue;
-      if (!best || (b.zOrder || 0) > (best.zOrder || 0)) best = b;
+      if (!best || zOf(b) > bestZ) { best = b; bestZ = zOf(b); }
     }
     return best;
   };
