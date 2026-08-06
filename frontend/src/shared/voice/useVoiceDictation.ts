@@ -200,6 +200,8 @@ export function useVoiceDictation() {
           res = await window.openswarm?.voiceTranscribe?.(wav);
         }
       }
+      // Whisper captions non-speech in brackets/parens ("[ Background sounds ]", "(laughs)") and marks speaker turns with ">>"; those are annotations, not dictation.
+      if (res?.ok && res.text) res = { ok: true, text: res.text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|(?:^|\s)>>\s?/g, ' ').replace(/\s+/g, ' ').trim() };
       // A transcript with no letter or digit in it is a hallucination artifact (the lone comma), not dictation.
       if (res?.ok && res.text && !/[\p{L}\p{N}]/u.test(res.text)) res = { ok: true, text: '' };
       if (res?.ok && res.text) {

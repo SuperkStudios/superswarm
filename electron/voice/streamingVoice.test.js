@@ -2,7 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { createStreamSegmenter } = require('./streamSegmenter');
 const whisperService = require('./whisperService');
-const { createStreamingSession, wavFromPcm16 } = require('./streamingSession');
+const { createStreamingSession, wavFromPcm16, stripSoundCaptions } = require('./streamingSession');
 
 const RATE = 16000;
 
@@ -89,6 +89,24 @@ test('session: a failed segment decode marks the result degraded', async () => {
   restore();
   assert.strictEqual(out.ok, true);
   assert.strictEqual(out.degraded, true);
+});
+
+test('stripSoundCaptions: captions and speaker marks go, words stay', () => {
+  assert.strictEqual(stripSoundCaptions('[ Background sounds ]'), '');
+  assert.strictEqual(stripSoundCaptions('[ Silence ] >> Hello world. [ Silence ]'), 'Hello world.');
+  assert.strictEqual(stripSoundCaptions('(laughs) okay *music* done'), 'okay done');
+  assert.strictEqual(stripSoundCaptions('plain dictated text'), 'plain dictated text');
+});
+
+test('session: a caption-only decode never becomes a committed phrase', async () => {
+  const restore = stubTranscribe(async () => '[ Background sounds ]');
+  const s = createStreamingSession({ resourceDir: '', userDataDir: '', onPartial: () => {}, previewIntervalMs: 3600000 });
+  s.pushChunk(asBuffer(tone(400)));
+  const out = await s.stop();
+  restore();
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.text, '');
+  assert.strictEqual(out.degraded, false);
 });
 
 test('session: chunks after cancel are dropped and stop reports stopped', async () => {

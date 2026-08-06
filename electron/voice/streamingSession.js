@@ -16,6 +16,12 @@ const SAMPLE_RATE = 16000;
 const SILENT_KEEP_BYTES = SAMPLE_RATE * 2 * 2;
 const SILENT_TRIM_BYTES = SAMPLE_RATE * 2 * 10;
 
+// Whisper captions non-speech in brackets/parens ("[ Background sounds ]", "(laughs)"); strip them so
+// neither the live preview nor a committed phrase ever carries a caption instead of dictation.
+function stripSoundCaptions(text) {
+  return String(text || '').replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|(?:^|\s)>>\s?/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function wavFromPcm16(pcm) {
   const buf = Buffer.alloc(44 + pcm.length);
   buf.write('RIFF', 0); buf.writeUInt32LE(36 + pcm.length, 4); buf.write('WAVE', 8);
@@ -68,7 +74,7 @@ function createStreamingSession({ resourceDir, userDataDir, onPartial, previewIn
     inflight = decodePcm(pcm)
       .then((text) => {
         if (closedDown || epoch !== segEpoch) return; // the segment closed mid-decode; its final wins
-        tentative = text;
+        tentative = stripSoundCaptions(text);
         emit();
       })
       .catch(() => { skipNext = true; })
@@ -94,7 +100,7 @@ function createStreamingSession({ resourceDir, userDataDir, onPartial, previewIn
     commitChain = commitChain.then(async () => {
       if (inflight) await inflight;
       try {
-        const text = await decodePcm(pcm);
+        const text = stripSoundCaptions(await decodePcm(pcm));
         if (text) committed.push(text);
       } catch (_) {
         degraded = true; // a lost phrase final means the caller must fall back to the full-clip decode
@@ -137,4 +143,4 @@ function createStreamingSession({ resourceDir, userDataDir, onPartial, previewIn
   };
 }
 
-module.exports = { createStreamingSession, wavFromPcm16 };
+module.exports = { createStreamingSession, wavFromPcm16, stripSoundCaptions };
