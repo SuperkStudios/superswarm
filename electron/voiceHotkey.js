@@ -114,9 +114,14 @@ function installVoiceHotkey(getMainWindow) {
     }, FALLBACK_DEFER_MS);
   };
 
-  // Fallback shortcut stays registered while unfocused until a primary tier proves alive.
+  // Only the tier that can actually SERVE the primary combo may retire the fallbacks: the uiohook
+  // tap cannot see fn (keycode 63 is VC_UNDEFINED), so with an fn primary a proven tap must not
+  // silence the legacy chord (caught live: focused Cmd+Shift+D went dead the moment any key flowed).
+  const primaryProven = () => (combo.special === 'fn' ? fnProven : (tapProven || fnProven));
+
+  // Fallback shortcut stays registered while unfocused until the primary tier proves alive.
   const registerVoiceShortcut = () => {
-    if (tapProven || fnProven) return;
+    if (primaryProven()) return;
     if (registeredAccel === fallbackCombo.accel) return;
     unregisterFallbackShortcut();
     try {
@@ -203,7 +208,7 @@ function installVoiceHotkey(getMainWindow) {
         lastTapKeyMs = Date.now();
         if (!tapProven) {
           tapProven = true;
-          unregisterFallbackShortcut();
+          if (primaryProven()) unregisterFallbackShortcut();
           console.log('[voice] native key tap PROVEN (events flowing), hold-to-talk enabled');
         }
       };
@@ -276,7 +281,7 @@ function installVoiceHotkey(getMainWindow) {
     contents.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || input.isAutoRepeat) return;
       if (inputMatchesCombo(input)) {
-        if (!tapProven && !fnProven) sendFallbackToggle();
+        if (!primaryProven()) sendFallbackToggle();
         event.preventDefault();
       }
     });
