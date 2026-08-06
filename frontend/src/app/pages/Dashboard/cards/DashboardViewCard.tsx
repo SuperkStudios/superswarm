@@ -1,12 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Fade from '@mui/material/Fade';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import CodeRoundedIcon from '@mui/icons-material/CodeRounded';
@@ -585,11 +583,9 @@ const DashboardViewCard: React.FC<Props> = ({
     dispatch(addViewCard({ outputId: output.id, newInstance: true }));
   };
 
-  const [reloadMenuRect, setReloadMenuRect] = useState<DOMRect | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const handleHardReload = useCallback(async (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setReloadMenuRect(null);
     const wsId = output.workspace_id;
     if (wsId) {
       try {
@@ -837,10 +833,10 @@ const DashboardViewCard: React.FC<Props> = ({
                 size="small"
                 onClick={handleRefresh}
                 onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!output.workspace_id) return;
-                  setReloadMenuRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+                  if (!output.workspace_id) { e.preventDefault(); e.stopPropagation(); return; }
+                  openCardContextMenu(e, {
+                    items: [{ label: 'Reset and hard reload', onClick: () => { void handleHardReload(); } }],
+                  });
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
                 sx={{ color: c.text.muted, p: 0.5, '&:hover': { color: c.text.primary } }}
@@ -933,55 +929,6 @@ const DashboardViewCard: React.FC<Props> = ({
           }}
         />
       ))}
-
-      {/* Custom popover: MUI Menu's Popover machinery fought the canvas transform + Electron webview compositor, so this is plain position:fixed JSX. Floats above the icon into empty canvas, never overlaps the webview. */}
-      {reloadMenuRect && createPortal(
-        <>
-          <Box
-            onClick={() => setReloadMenuRect(null)}
-            onContextMenu={(e) => { e.preventDefault(); setReloadMenuRect(null); }}
-            sx={{ position: 'fixed', inset: 0, zIndex: 2147483646 }}
-          />
-          <Box
-            sx={{
-              position: 'fixed',
-              bottom: window.innerHeight - reloadMenuRect.top + 6,
-              right: window.innerWidth - reloadMenuRect.right,
-              zIndex: 2147483647,
-              bgcolor: c.bg.elevated,
-              border: `1px solid ${c.border.subtle}`,
-              borderRadius: `${c.radius.md}px`,
-              boxShadow: c.shadow.lg,
-              minWidth: 260,
-              py: 0.5,
-            }}
-          >
-            <Box
-              onClick={handleHardReload}
-              sx={{
-                px: 1.5, py: 1,
-                display: 'flex',
-                gap: 1.25,
-                alignItems: 'center',
-                cursor: 'pointer',
-                transition: 'background-color 0.12s',
-                '&:hover': { bgcolor: c.bg.surface },
-              }}
-            >
-              <RestartAltIcon sx={{ fontSize: 18, color: c.text.muted, flexShrink: 0 }} />
-              <Box>
-                <Typography sx={{ fontSize: '0.8125rem', fontWeight: 500, color: c.text.primary, lineHeight: 1.2 }}>
-                  Reset & Hard Reload
-                </Typography>
-                <Typography sx={{ fontSize: '0.6875rem', color: c.text.ghost, mt: 0.25 }}>
-                  Restart backend.py + reload preview
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
-        </>,
-        document.body,
-      )}
 
       {shareOpen && <ShareModal target={{ kind: 'app', id: output.id, name: output.name }} open onClose={() => setShareOpen(false)} />}
     </Box>
