@@ -3,15 +3,14 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Tooltip from '@mui/material/Tooltip';
 import Popover from '@mui/material/Popover';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { API_BASE } from '@/shared/config';
 import type { Workflow } from '@/shared/state/workflowsSlice';
-import { runWorkflowNow, deleteWorkflow, updateWorkflow, openWorkflowCard } from '@/shared/state/workflowsSlice';
+import { openWorkflowCard, updateWorkflow } from '@/shared/state/workflowsSlice';
 import { addWorkflowCard } from '@/shared/state/dashboardLayoutSlice';
-import { WEEKDAY_FULL, WEEKDAY_LABEL_SHORT, addDays, sameDay, startOfMonthGrid, startOfWeek, formatTime, formatHourLabel, stepsSignature } from './scheduleUtils';
+import { useWorkflowMenu } from '@/app/pages/Workflows/app/useWorkflowMenu';
+import { WEEKDAY_FULL, WEEKDAY_LABEL_SHORT, addDays, sameDay, startOfMonthGrid, startOfWeek, formatTime, formatHourLabel } from './scheduleUtils';
 import { useWindowedList } from '@/shared/hooks/useWindowedList';
 
 interface Props {
@@ -51,53 +50,14 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
   }, []);
-  // Right-click menu: pinned position + the workflow whose pill was clicked. Same anchor pattern as MUI's menu examples.
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; workflow: Workflow } | null>(null);
-  const closeMenu = () => setCtxMenu(null);
-  const onRunNow = () => {
-    if (!ctxMenu) return;
-    dispatch(runWorkflowNow({
-      id: ctxMenu.workflow.id,
-      signature: stepsSignature(ctxMenu.workflow.steps),
-    }));
-    closeMenu();
-  };
-  const onPauseToggle = () => {
-    if (!ctxMenu) return;
-    const wf = ctxMenu.workflow;
-    dispatch(updateWorkflow({
-      id: wf.id,
-      patch: { schedule: { ...wf.schedule, enabled: !wf.schedule.enabled } as any },
-      ifMatch: wf.updated_at || null,
-    }));
-    closeMenu();
-  };
-  const onEdit = () => {
-    if (!ctxMenu) return;
-    dispatch(addWorkflowCard({ workflowId: ctxMenu.workflow.id }));
-    // Right-click "Edit" on a calendar entry opens the new Edit Agent chat view, matching the post-revamp design (Image #38).
-    dispatch(openWorkflowCard({ workflowId: ctxMenu.workflow.id, view: 'edit_agent' }));
-    closeMenu();
-  };
-  const onDelete = () => {
-    if (!ctxMenu) return;
-    const ok = window.confirm(`Delete "${ctxMenu.workflow.title}"? Scheduled runs will stop.`);
-    if (!ok) { closeMenu(); return; }
-    dispatch(deleteWorkflow(ctxMenu.workflow.id));
-    closeMenu();
-  };
-  const ctxMenuEl = (
-    <Menu
-      open={Boolean(ctxMenu)}
-      onClose={closeMenu}
-      anchorReference="anchorPosition"
-      anchorPosition={ctxMenu ? { top: ctxMenu.y, left: ctxMenu.x } : undefined}>
-      <MenuItem onClick={onRunNow}>Run now</MenuItem>
-      <MenuItem onClick={onPauseToggle}>{ctxMenu?.workflow.schedule.enabled ? 'Pause schedule' : 'Resume schedule'}</MenuItem>
-      <MenuItem onClick={onEdit}>Edit…</MenuItem>
-      <MenuItem onClick={onDelete} sx={{ color: c.status.error }}>Delete</MenuItem>
-    </Menu>
-  );
+  // Right-click goes through the one shared menu grammar (rows identical to the hub's surfaces); Edit keeps this surface's edit_agent card behavior.
+  const openWorkflowMenu = useWorkflowMenu();
+  const openMenuFor = (ev: React.MouseEvent, wf: Workflow) => openWorkflowMenu(ev, wf, {
+    onEdit: () => {
+      dispatch(addWorkflowCard({ workflowId: wf.id }));
+      dispatch(openWorkflowCard({ workflowId: wf.id, view: 'edit_agent' }));
+    },
+  });
   // refDate is recreated on every render unless the caller memoizes it. Pin the calendar to a day-precision key so occurrence fetches only change when the visible day, view, or schedule set changes.
   const today = refDate || new Date();
   const dayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
@@ -313,7 +273,7 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
                       maxVisible={compact ? 1 : 3}
                       onSelectWorkflow={onSelectWorkflow}
                       eventFontSize={EVENT_FS}
-                      onContextWorkflow={(wf, ev) => { ev.preventDefault(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: wf }); }}
+                      onContextWorkflow={(wf, ev) => openMenuFor(ev, wf)}
                     />
                   </Box>
                 );
@@ -332,7 +292,6 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
             </Box>
           )}
         </Box>
-        {ctxMenuEl}
       </Box>
     );
   }
@@ -370,7 +329,7 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
                   <Box
                     key={`${e.workflow.id}-${idx}`}
                     onClick={() => onSelectWorkflow?.(e.workflow.id, e.date)}
-                    onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
+                    onContextMenu={(ev) => openMenuFor(ev, e.workflow)}
                     sx={{ mt: 0.3, display: 'flex', alignItems: 'center', gap: 0.5, fontSize: EVENT_FS, color: c.text.primary, cursor: 'pointer', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', '&:hover': { color: accent } }}>
                     <Box sx={{ width: 6, height: 6, borderRadius: '50%', boxSizing: 'border-box', bgcolor: accent, flexShrink: 0 }} />
                     <span style={{ color: c.text.muted, flexShrink: 0 }}>{formatTime(e.date.getHours(), e.date.getMinutes())}</span>
@@ -391,7 +350,6 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
             );
           })}
         </Box>
-        {ctxMenuEl}
       </Box>
     );
   }
@@ -447,7 +405,7 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
             key={row.id}
             data-wl-id={row.id}
             onClick={() => onSelectWorkflow?.(e.workflow.id, e.date)}
-            onContextMenu={(ev) => { ev.preventDefault(); ev.stopPropagation(); setCtxMenu({ x: ev.clientX, y: ev.clientY, workflow: e.workflow }); }}
+            onContextMenu={(ev) => openMenuFor(ev, e.workflow)}
             sx={{
               display: 'flex', alignItems: 'center', gap: 1.25,
               px: 2, py: 0.4,
@@ -465,7 +423,6 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
       {windowing.bottomSpacer > 0 && (
         <Box aria-hidden sx={{ height: windowing.bottomSpacer, flexShrink: 0, overflowAnchor: 'none' }} />
       )}
-      {ctxMenuEl}
     </Box>
   );
 }
