@@ -17,7 +17,7 @@ export function useLiveMultiDrag(): void {
       for (const id of update.ids) {
         let el = els.get(id);
         if (el === undefined) {
-          el = document.querySelector<HTMLElement>(`[data-osw-card="${CSS.escape(id)}"]`);
+          el = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(id)}"]`);
           els.set(id, el);
         }
         if (el) el.style.translate = value;
