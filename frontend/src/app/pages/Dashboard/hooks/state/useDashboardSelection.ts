@@ -18,9 +18,9 @@ export interface MarqueeRect {
 }
 
 interface ScreenToCanvas {
-  panX: number;
-  panY: number;
-  zoom: number;
+  // The LIVE camera getter, never committed React state: a marquee drawn during a pan glide or
+  // inertia was converted with the stale pre-gesture camera and landed far from the mouse.
+  getLiveState: () => { panX: number; panY: number; zoom: number };
   viewportRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -59,12 +59,14 @@ export function useDashboardSelection(
       const vp = canvas.viewportRef.current;
       if (!vp) return { x: 0, y: 0 };
       const rect = vp.getBoundingClientRect();
+      const cam = canvas.getLiveState();
       return {
-        x: (screenX - rect.left - canvas.panX) / canvas.zoom,
-        y: (screenY - rect.top - canvas.panY) / canvas.zoom,
+        x: (screenX - rect.left - cam.panX) / cam.zoom,
+        y: (screenY - rect.top - cam.panY) / cam.zoom,
       };
     },
-    [canvas.panX, canvas.panY, canvas.zoom, canvas.viewportRef],
+    // The stable members, not the wrapper: the call site builds the wrapper object fresh per render.
+    [canvas.getLiveState, canvas.viewportRef],
   );
 
   const isSelected = useCallback((id: string) => selectedIds.has(id), [selectedIds]);

@@ -70,7 +70,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
 
   const canvas = useCanvasControls(zoomSensitivity, contentBounds, isActive, mouseWheelAction);
   const selection = useDashboardSelection(
-    { panX: canvas.panX, panY: canvas.panY, zoom: canvas.zoom, viewportRef: canvas.viewportRef },
+    { getLiveState: canvas.actions.getLiveState, viewportRef: canvas.viewportRef },
     cards,
     viewCards,
     browserCards,
