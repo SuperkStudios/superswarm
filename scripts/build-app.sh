@@ -502,6 +502,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
     echo "Building whisper-server for dictation (arm64 + x64)..."
     bash scripts/build-whisper.sh arm64
     bash scripts/build-whisper.sh x64
+    echo "Building fn-watcher for dictation's fn key (arm64 + x64)..."
+    bash scripts/build-fn-watcher.sh arm64
+    bash scripts/build-fn-watcher.sh x64
 fi
 
 # Node's default ~4 GB heap OOMs while codesign'ing the .app on dual-arch

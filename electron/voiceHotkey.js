@@ -58,7 +58,7 @@ function parseCombo(str) {
 // stay primary on null). The dev compile is async: a first-boot swiftc must never freeze startup.
 function resolveFnWatcherBinary(cb) {
   if (process.platform !== 'darwin') { cb(null); return; }
-  const bundled = path.join(process.resourcesPath || '', 'fn-watcher');
+  const bundled = path.join(process.resourcesPath || '', 'fn-watcher', 'fn-watcher');
   if (fs.existsSync(bundled)) { cb(bundled); return; }
   const src = path.join(__dirname, 'native', 'fn-watcher.swift');
   if (!fs.existsSync(src)) { cb(null); return; }

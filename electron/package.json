@@ -77,6 +77,13 @@
           ]
         },
         {
+          "from": "build-staging/fn-watcher/${arch}",
+          "to": "fn-watcher",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
           "from": "build-staging/haptics/${arch}",
           "to": "haptics",
           "filter": [
