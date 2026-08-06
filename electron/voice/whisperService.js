@@ -145,7 +145,10 @@ async function p_bootServer(resourceDir, userDataDir) {
   p_sweepStrays(bin);
   const p = await freePort();
   // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
-  const child = spawn(bin, ['-m', model, '--port', String(p), '-nt'], {
+  const args = ['-m', model, '--port', String(p), '-nt'];
+  // A multilingual model (no .en in the filename) auto-detects the spoken language per utterance.
+  if (!path.basename(model).includes('.en')) args.push('-l', 'auto');
+  const child = spawn(bin, args, {
     cwd: p_privateCwd(userDataDir), // a writable, EMPTY dir: whisper writes temp files beside cwd, and ggml scans cwd at boot (see p_privateCwd)
     // BOTH pipes: whisper writes its fatal reasons to STDOUT and then exits 0, so an ignored stdout
     // turns "ffmpeg is missing" into an unexplained failure. Draining also stops the pipe buffer

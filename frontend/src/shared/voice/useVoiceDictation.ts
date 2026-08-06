@@ -223,6 +223,12 @@ export function useVoiceDictation() {
       if (res?.ok && res.text) res = { ok: true, text: res.text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|(?:^|\s)>>\s?/g, ' ').replace(/\s+/g, ' ').trim() };
       // A transcript with no letter or digit in it is a hallucination artifact (the lone comma), not dictation.
       if (res?.ok && res.text && !/[\p{L}\p{N}]/u.test(res.text)) res = { ok: true, text: '' };
+      // Wispr's command grammar, v1: saying only "scratch that" (or "delete/cancel that") throws the take away.
+      if (res?.ok && res.text && /^(scratch|delete|cancel) that[.!?]?$/i.test(res.text.trim())) {
+        setFeedback({ tone: 'ok', icon: 'check', text: 'Scratched.', at: Date.now() });
+        setState('idle');
+        return;
+      }
       if (res?.ok && res.text) {
         // WhisperFlow-style cleanup: punctuation + filler words via the cheap aux tier, fail-open to
         // the raw transcript on any error/timeout so dictation never breaks with the aux down.
