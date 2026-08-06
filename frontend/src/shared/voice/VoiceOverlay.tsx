@@ -65,9 +65,9 @@ const VoiceCapsule: React.FC<{
     // transcript away from the field the user is dictating into.
     onMouseDown={(e) => e.preventDefault()}
     sx={{
-      // A droplet under the chrome: sits BELOW the frameless-window drag strip (y 3-25), which
-      // otherwise swallows clicks on the X/check; no-drag makes the capsule its own island anyway.
-      position: 'fixed', top: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
+      // A droplet under the chrome: sits BELOW the frameless-window drag strip (y 3-25) with extra
+      // clearance, because overshooting to the very top edge triggers the dashboard chrome.
+      position: 'fixed', top: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
       WebkitAppRegion: 'no-drag',
       display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, py: 0.5,
       borderRadius: '14px 14px 22px 22px',
@@ -76,19 +76,19 @@ const VoiceCapsule: React.FC<{
       boxShadow: '0 10px 32px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.07)',
       transformOrigin: 'top center',
       '@keyframes vgloop-in': {
-        '0%': { opacity: 0, transform: 'translate(-50%, -130%) scale(0.92, 0.74)' },
-        '55%': { opacity: 1, transform: 'translate(-50%, 0) scale(0.97, 1.1)' },
-        '78%': { transform: 'translate(-50%, 0) scale(1.02, 0.95)' },
+        '0%': { opacity: 0, transform: 'translate(-50%, -135%) scale(0.9, 0.68)' },
+        '55%': { opacity: 1, transform: 'translate(-50%, 2%) scale(0.955, 1.16)' },
+        '78%': { transform: 'translate(-50%, 0) scale(1.035, 0.93)' },
         '100%': { transform: 'translate(-50%, 0) scale(1, 1)' },
       },
       '@keyframes vgloop-out': {
         '0%': { opacity: 1, transform: 'translate(-50%, 0) scale(1, 1)' },
-        '30%': { transform: 'translate(-50%, 4%) scale(0.97, 1.06)' },
-        '100%': { opacity: 0, transform: 'translate(-50%, -130%) scale(0.92, 0.74)' },
+        '30%': { transform: 'translate(-50%, 6%) scale(0.955, 1.1)' },
+        '100%': { opacity: 0, transform: 'translate(-50%, -135%) scale(0.9, 0.68)' },
       },
       animation: leaving
-        ? 'vgloop-out 0.26s cubic-bezier(0.32, 0.72, 0, 1) both'
-        : 'vgloop-in 0.34s cubic-bezier(0.3, 1.2, 0.4, 1) both',
+        ? 'vgloop-out 0.3s cubic-bezier(0.32, 0.72, 0, 1) both'
+        : 'vgloop-in 0.38s cubic-bezier(0.3, 1.2, 0.4, 1) both',
       '@media (prefers-reduced-motion: reduce)': { animation: 'none', opacity: leaving ? 0 : 1 },
     }}
   >
@@ -161,7 +161,7 @@ const IdlePill: React.FC<{ onPressStart: () => void; onPressEnd: () => void }> =
       role="button"
       aria-label="Start dictation"
       sx={{
-        position: 'fixed', top: 6, left: '50%', transform: 'translateX(-50%)', zIndex: 2147482998,
+        position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 2147482998,
         WebkitAppRegion: 'no-drag', cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
         height: hover ? 24 : 8, minWidth: hover ? 74 : 44, px: hover ? 1.25 : 0,
@@ -252,7 +252,7 @@ const VoiceOverlay: React.FC = () => {
       sx={{
         // Hangs just under the droplet so the live words read as its tail.
         position: 'fixed',
-        top: 78,
+        top: 86,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 2147483000,
