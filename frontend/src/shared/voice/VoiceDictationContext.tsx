@@ -10,7 +10,19 @@ import VoiceOverlay from './VoiceOverlay';
 // out-of-sync state. Mounted once near the app root.
 
 export function VoiceDictationProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, volumeRef } = useVoiceDictation();
+  const { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, notify, volumeRef } = useVoiceDictation();
+
+  // fn is the dictation key, but macOS may still have its own Globe action bound (emoji picker on a quick tap); say so once.
+  const globeWarnedRef = useRef(false);
+  useEffect(() => {
+    const bridge = window as unknown as { openswarm?: { onVoiceGlobeConflict?: (cb: () => void) => () => void } };
+    const off = bridge.openswarm?.onVoiceGlobeConflict?.(() => {
+      if (globeWarnedRef.current) return;
+      globeWarnedRef.current = true;
+      notify('Tip: set System Settings > Keyboard > "Press Globe key to" to "Do Nothing" so fn only dictates.');
+    });
+    return () => { off?.(); };
+  }, [notify]);
   const holdMode = useAppSelector((s) => s.settings.data.voice_hold_to_talk ?? true);
   const dictationShortcut = useAppSelector((s) => s.settings.data.dictation_shortcut ?? null);
   const dictationModel = useAppSelector((s) => s.settings.data.dictation_model ?? null);

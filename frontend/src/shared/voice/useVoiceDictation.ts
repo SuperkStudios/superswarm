@@ -294,5 +294,10 @@ export function useVoiceDictation() {
   // A dangling recorder (unmount mid-capture) must release the mic.
   useEffect(() => () => { teardown(); }, [teardown]);
 
-  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, volumeRef };
+  // One-line notices from outside the session flow (Globe-key conflict, permission hints) ride the same bubble.
+  const notify = useCallback((text: string): void => {
+    setFeedback({ tone: 'warn', icon: 'info', text, at: Date.now() });
+  }, []);
+
+  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, notify, volumeRef };
 }

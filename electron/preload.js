@@ -116,6 +116,12 @@ contextBridge.exposeInMainWorld('openswarm', {
     ipcRenderer.on('voice:hold-up', up);
     return () => { ipcRenderer.removeListener('voice:hold-down', down); ipcRenderer.removeListener('voice:hold-up', up); };
   },
+  // Fires once at fn-watcher arm when macOS's own Globe-key action is still active (emoji picker on tap).
+  onVoiceGlobeConflict: (cb) => {
+    const h = () => cb();
+    ipcRenderer.on('voice:globe-conflict', h);
+    return () => ipcRenderer.removeListener('voice:globe-conflict', h);
+  },
   // Hands a vetted social platform's partition cookies to its session-backed MCP shim (allowlisted domains only, gated again in the main process).
   getPartitionCookies: (domain) => ipcRenderer.invoke('get-partition-cookies', domain),
   // Silently reads the user's own chatgpt.com/claude.ai history offscreen (no card) for onboarding personalization; main owns the injected script + gates the provider.

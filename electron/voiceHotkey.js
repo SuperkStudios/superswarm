@@ -169,6 +169,16 @@ function installVoiceHotkey(getMainWindow) {
     });
     app.on('will-quit', () => { try { fnProc && fnProc.kill('SIGKILL'); } catch (_) {} });
     console.log('[voice] fn watcher armed (awaiting first event to prove Input Monitoring)');
+    // macOS's own Globe-key action (emoji picker by default) fires on a quick fn tap alongside us;
+    // tell the renderer once so it can point the user at "Press Globe key to: Do Nothing".
+    require('child_process').exec('defaults read com.apple.HIToolbox AppleFnUsageType', (err, out) => {
+      const usage = err ? '2' : String(out).trim();
+      if (usage !== '0') {
+        const win = getMainWindow();
+        if (win && !win.isDestroyed()) win.webContents.send('voice:globe-conflict');
+        console.log(`[voice] Globe key system action is active (AppleFnUsageType=${usage}); quick fn taps also trigger it`);
+      }
+    });
   };
 
   let tapKeycode;
