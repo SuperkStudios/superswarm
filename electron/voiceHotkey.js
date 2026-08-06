@@ -106,10 +106,12 @@ function installVoiceHotkey(getMainWindow) {
     registeredAccel = null;
   };
 
-  // Fallback toggle, deferred so a live tap's hold-down wins the same press.
+  // Fallback toggle, deferred so a live tap's hold-down wins the same press. The freshness guard
+  // only applies when the tap can SERVE the primary: under an fn primary the tap sees every key yet
+  // handles none, and ambient typing was suppressing the legacy chord entirely (caught live).
   const sendFallbackToggle = () => {
     setTimeout(() => {
-      if (Date.now() - lastTapKeyMs < TAP_FRESH_MS) return;
+      if (combo.special !== 'fn' && Date.now() - lastTapKeyMs < TAP_FRESH_MS) return;
       send('voice:toggle');
     }, FALLBACK_DEFER_MS);
   };
