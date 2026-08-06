@@ -103,6 +103,8 @@ class AppSettings(BaseModel):
     dictation_sound_volume: float = 0.35
     # Comma-separated hostnames (and app names) where dictation refuses to record while focused there.
     dictation_disabled_surfaces: str = ""
+    # Off = the memory block never reaches any model; the facts stay on disk untouched.
+    memory_enabled: bool = True
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
     # Opt-in: let a blocked browser agent borrow the sign-in you already have in your everyday

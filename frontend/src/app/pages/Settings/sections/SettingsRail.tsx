@@ -1,7 +1,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { User, Settings2, Palette, ShieldCheck, Wrench, Boxes, SquareSlash, BarChart3, Bell, Mic, LayoutGrid, Bot } from 'lucide-react';
+import { User, Settings2, Palette, ShieldCheck, Wrench, Boxes, SquareSlash, BarChart3, Bell, Mic, LayoutGrid, Bot, Brain } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 
@@ -26,6 +26,7 @@ export const RAIL_GROUPS: RailGroup[] = [
     { value: 'general', label: 'General', Icon: Settings2 },
     { value: 'appearance', label: 'Appearance', Icon: Palette },
     { value: 'dictation', label: 'Dictation', Icon: Mic },
+    { value: 'memory', label: 'Memory', Icon: Brain },
     { value: 'canvas', label: 'Canvas', Icon: LayoutGrid },
     { value: 'agents', label: 'Agents', Icon: Bot },
     { value: 'notifications', label: 'Notifications', Icon: Bell },
