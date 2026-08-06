@@ -1,7 +1,7 @@
 import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { addViewCard, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
+import { addViewCard, addBrowserTab, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayerHost from './TetherLayerHost';
 import { useLiveMultiDrag } from '../hooks/interaction/useLiveMultiDrag';
@@ -33,6 +33,7 @@ import type { CardType, useDashboardSelection } from '../hooks/state/useDashboar
 import type { useCanvasControls } from '../hooks/interaction/useCanvasControls';
 import { useWebviewSuspend } from '../hooks/interaction/useWebviewSuspend';
 import { deleteSelectedCards } from '../hooks/interaction/deleteSelectedCards';
+import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import type { TetherInputs } from '../geometry/dashboardTethers';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
@@ -290,6 +291,23 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
     }
     if (newestDeletable) deleteSelectedCards(new Map([[newestDeletable.id, newestDeletable.type]]), dispatch);
   }, [selection, dispatch, newestDeletable]);
+
+  // Cmd/Ctrl+W and Cmd/Ctrl+T arrive as IPC echoes: main preventDefaults both before any DOM keydown
+  // (including from focused guests), so these bridges are the only firing path, no double-handling.
+  const browserHomepage = useAppSelector((st) => st.settings.data.browser_homepage ?? 'https://www.google.com');
+  React.useEffect(() => {
+    const w = window as unknown as { openswarm?: { onCloseShortcut?: (cb: () => void) => () => void; onNewTabShortcut?: (cb: () => void) => () => void } };
+    const offs: Array<() => void> = [];
+    if (w.openswarm?.onCloseShortcut) offs.push(w.openswarm.onCloseShortcut(() => handleDeleteSelected()));
+    if (w.openswarm?.onNewTabShortcut) {
+      offs.push(w.openswarm.onNewTabShortcut(() => {
+        const browserId = getLastInteractedBrowser();
+        if (browserId && browserCards[browserId]) dispatch(addBrowserTab({ browserId, url: browserHomepage, makeActive: true }));
+        else onAddBrowser();
+      }));
+    }
+    return () => { offs.forEach((off) => off()); };
+  }, [handleDeleteSelected, browserCards, browserHomepage, dispatch, onAddBrowser]);
 
   // Gestures write the transform imperatively (no React commit per frame), so a foreign render mid-gesture would paint the stale committed transform for a frame. Re-applying live after EVERY render seals that; do not remove.
   React.useLayoutEffect(() => {

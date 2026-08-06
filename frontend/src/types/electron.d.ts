@@ -76,6 +76,8 @@ declare global {
     onUpdateError: (cb: (message: string) => void) => () => void;
     onWebviewNewWindow: (cb: (url: string, webContentsId: number, disposition?: string) => void) => () => void;
     onReloadShortcut?: (cb: () => void) => () => void;
+    onCloseShortcut?: (cb: () => void) => () => void;
+    onNewTabShortcut?: (cb: () => void) => () => void;
     onBrowserShortcut?: (cb: (payload: { action: string; webContentsId: number }) => void) => () => void;
     openExternal: (url: string) => Promise<void>;
     harvestUsage?: (provider: string) => Promise<{ ok: boolean; total: number; titles: string[]; memories: string[] } | null>;

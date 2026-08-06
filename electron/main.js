@@ -2234,7 +2234,24 @@ function swallowCloseWindowShortcut(event, input) {
     (input.key || '').toLowerCase() === 'w'
   ) {
     event.preventDefault();
+    // Arc semantics: the swallowed close becomes "close the focused card" in the renderer (undoable via Cmd+Z).
+    if (!input.shift) {
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('openswarm:close-shortcut');
+      } catch (_) {}
+    }
   }
+}
+
+// Cmd/Ctrl+T: new tab in the last-interacted browser, or a new browser card (Arc muscle memory).
+function routeNewTabShortcut(event, input) {
+  if (input.type !== 'keyDown') return;
+  if (!(input.meta || input.control) || input.shift || input.alt) return;
+  if ((input.key || '').toLowerCase() !== 't') return;
+  event.preventDefault();
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('openswarm:newtab-shortcut');
+  } catch (_) {}
 }
 
 // Cmd/Ctrl+R: the default menu's Reload accelerator reloads the WHOLE app even when a browser webview is focused (the "Ctrl+R reloads OpenSwarm, not the browser" complaint). preventDefault kills that accelerator (same electron#19279 path as Cmd+W, dispatched against whichever webContents is focused, hence both main window AND guests); the renderer then reloads the last-interacted browser, or the app if none. Shift+R (force reload) is left alone.
@@ -2398,6 +2415,7 @@ app.on('web-contents-created', (_event, contents) => {
   if (isCreatingMainWindow || contents.getType() === 'webview') {
     contents.on('before-input-event', swallowCloseWindowShortcut);
     contents.on('before-input-event', routeReloadShortcut);
+    contents.on('before-input-event', routeNewTabShortcut);
   }
   // The main app window (created while this flag is set) gets a text-focused native menu; OAuth
   // popups are 'window' contents created with the flag OFF, so they keep the OS default.

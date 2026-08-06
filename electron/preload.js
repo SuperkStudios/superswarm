@@ -188,6 +188,20 @@ contextBridge.exposeInMainWorld('openswarm', {
     return () => ipcRenderer.removeListener('openswarm:reload-shortcut', listener);
   },
 
+  // Cmd/Ctrl+W with the window-close swallowed in main: the renderer closes the focused card instead.
+  onCloseShortcut: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('openswarm:close-shortcut', listener);
+    return () => ipcRenderer.removeListener('openswarm:close-shortcut', listener);
+  },
+
+  // Cmd/Ctrl+T: new tab in the last-interacted browser, else a new browser card.
+  onNewTabShortcut: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('openswarm:newtab-shortcut', listener);
+    return () => ipcRenderer.removeListener('openswarm:newtab-shortcut', listener);
+  },
+
   // In-page browser shortcuts (zoom/find/tab-cycle) from a focused guest webview, carrying the guest's webContents id so the renderer targets that exact browser.
   onBrowserShortcut: (cb) => {
     const listener = (_event, payload) => cb(payload);
