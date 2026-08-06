@@ -2,6 +2,8 @@ import React, { useEffect, type RefObject } from 'react';
 import Box from '@mui/material/Box';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { addViewCard, addBrowserTab, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
+import { store } from '@/shared/state/store';
+import { buildDockEntries } from '../desktop/dockEntries';
 import DashboardHeader from './DashboardHeader';
 import TetherLayerHost from './TetherLayerHost';
 import { useLiveMultiDrag } from '../hooks/interaction/useLiveMultiDrag';
@@ -296,7 +298,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   // (including from focused guests), so these bridges are the only firing path, no double-handling.
   const browserHomepage = useAppSelector((st) => st.settings.data.browser_homepage ?? 'https://www.google.com');
   React.useEffect(() => {
-    const w = window as unknown as { openswarm?: { onCloseShortcut?: (cb: () => void) => () => void; onNewTabShortcut?: (cb: () => void) => () => void } };
+    const w = window as unknown as { openswarm?: { onCloseShortcut?: (cb: () => void) => () => void; onNewTabShortcut?: (cb: () => void) => () => void; onDockShortcut?: (cb: (index: number) => void) => () => void } };
     const offs: Array<() => void> = [];
     if (w.openswarm?.onCloseShortcut) offs.push(w.openswarm.onCloseShortcut(() => handleDeleteSelected()));
     if (w.openswarm?.onNewTabShortcut) {
@@ -306,8 +308,16 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         else onAddBrowser();
       }));
     }
+    if (w.openswarm?.onDockShortcut) {
+      offs.push(w.openswarm.onDockShortcut((index: number) => {
+        // Same order the dock draws, so Cmd+N matches what the user sees top-to-bottom.
+        const entries = buildDockEntries({ sessions: store.getState().agents.sessions, cards, viewCards, browserCards, workflowCards, outputs });
+        const entry = entries[index];
+        if (entry) handleFocusCard(entry.id, entry.rect);
+      }));
+    }
     return () => { offs.forEach((off) => off()); };
-  }, [handleDeleteSelected, browserCards, browserHomepage, dispatch, onAddBrowser]);
+  }, [handleDeleteSelected, browserCards, browserHomepage, dispatch, onAddBrowser, cards, viewCards, workflowCards, outputs, handleFocusCard]);
 
   // Gestures write the transform imperatively (no React commit per frame), so a foreign render mid-gesture would paint the stale committed transform for a frame. Re-applying live after EVERY render seals that; do not remove.
   React.useLayoutEffect(() => {

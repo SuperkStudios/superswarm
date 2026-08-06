@@ -92,6 +92,12 @@ contextBridge.exposeInMainWorld('openswarm', {
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
   // Reveal a user-attached file in Finder/Explorer (reveal-only; main checks existence).
   revealPath: (filePath) => ipcRenderer.invoke('files:reveal', filePath),
+  // Cmd/Ctrl+1..9: focus the Nth dock tile (0-based index arrives here).
+  onDockShortcut: (cb) => {
+    const listener = (_event, index) => cb(index);
+    ipcRenderer.on('openswarm:dock-shortcut', listener);
+    return () => ipcRenderer.removeListener('openswarm:dock-shortcut', listener);
+  },
 
   // Native OS notification for a finished workflow run, posted by the MAIN process
   // so it survives a minimized/hidden/backgrounded renderer (the renderer's own

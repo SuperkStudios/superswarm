@@ -102,6 +102,7 @@ declare global {
     notify?: (payload: OpenSwarmNotifyRequest) => Promise<boolean>;
     onNotificationAction?: (cb: (payload: OpenSwarmNotifyAction) => void) => () => void;
     revealPath?: (filePath: string) => Promise<{ ok: boolean }>;
+    onDockShortcut?: (cb: (index: number) => void) => () => void;
   }
 
   interface Window {

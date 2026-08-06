@@ -2254,6 +2254,18 @@ function routeNewTabShortcut(event, input) {
   } catch (_) {}
 }
 
+// Cmd/Ctrl+1..9: focus the Nth dock tile, Arc-style. Routed through main so it works from a focused webview too.
+function routeDockShortcut(event, input) {
+  if (input.type !== 'keyDown') return;
+  if (!(input.meta || input.control) || input.shift || input.alt) return;
+  const key = input.key || '';
+  if (key < '1' || key > '9' || key.length !== 1) return;
+  event.preventDefault();
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('openswarm:dock-shortcut', Number(key) - 1);
+  } catch (_) {}
+}
+
 // Cmd/Ctrl+R: the default menu's Reload accelerator reloads the WHOLE app even when a browser webview is focused (the "Ctrl+R reloads OpenSwarm, not the browser" complaint). preventDefault kills that accelerator (same electron#19279 path as Cmd+W, dispatched against whichever webContents is focused, hence both main window AND guests); the renderer then reloads the last-interacted browser, or the app if none. Shift+R (force reload) is left alone.
 function routeReloadShortcut(event, input) {
   if (input.type !== 'keyDown') return;
@@ -2458,6 +2470,7 @@ app.on('web-contents-created', (_event, contents) => {
     contents.on('before-input-event', swallowCloseWindowShortcut);
     contents.on('before-input-event', routeReloadShortcut);
     contents.on('before-input-event', routeNewTabShortcut);
+    contents.on('before-input-event', routeDockShortcut);
   }
   // The main app window (created while this flag is set) gets a text-focused native menu; OAuth
   // popups are 'window' contents created with the flag OFF, so they keep the OS default.
