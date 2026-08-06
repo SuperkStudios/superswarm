@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useRef, useEffect, RefObject } from 'react';
 import type { CardPosition, ViewCardPosition, BrowserCardPosition, WorkflowCardPosition, WorkflowsHubPosition } from '@/shared/state/dashboardLayoutSlice';
 import { viewCardKey } from '@/shared/state/dashboardLayoutSlice';
+import { publishMarqueeRect } from '../interaction/marqueeLiveChannel';
 
 export type { CardType } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType } from '@/shared/state/dashboardLayoutSlice';
@@ -25,6 +26,7 @@ interface ScreenToCanvas {
 }
 
 const DRAG_THRESHOLD = 4;
+
 
 function rectsIntersect(
   a: { x: number; y: number; width: number; height: number },
@@ -252,7 +254,9 @@ export function useDashboardSelection(
           width: Math.abs(end.x - start.x),
           height: Math.abs(end.y - start.y),
         };
-        setMarquee(rect);
+        // React mounts the rect once; per-frame movement rides the channel (the layer re-rendered per frame otherwise).
+        publishMarqueeRect(rect);
+        setMarquee((prev) => prev ?? rect);
         const next = computeMarqueeSelection(rect, shiftHeldRef.current);
         // Same membership = same state object, so sweeping across empty space re-renders nothing.
         setSelectedIds((prev) => {
@@ -287,6 +291,7 @@ export function useDashboardSelection(
         cancelAnimationFrame(marqueeRafRef.current);
         marqueeRafRef.current = null;
       }
+      publishMarqueeRect(null);
       setMarquee(null);
       document.body.style.userSelect = '';
       document.body.classList.remove('dashboard-marquee-active');

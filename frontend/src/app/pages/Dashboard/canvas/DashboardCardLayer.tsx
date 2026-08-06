@@ -1,5 +1,6 @@
 import React, { type RefObject } from 'react';
 import { AnimatePresence } from 'framer-motion';
+import MarqueeRect from './MarqueeRect';
 import AgentCard from '../cards/AgentCard';
 import DashboardViewCard from '../cards/DashboardViewCard';
 import BrowserCard from '../cards/BrowserCard';
@@ -234,23 +235,8 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
         onDragEnd={onDragEnd}
         onBringToFront={onBringToFront}
       />
-      {/* Marquee selection rectangle */}
-      {selection.marquee && (
-        <div
-          style={{
-            position: 'absolute',
-            left: selection.marquee.x,
-            top: selection.marquee.y,
-            width: selection.marquee.width,
-            height: selection.marquee.height,
-            border: '1.5px dashed rgba(59, 130, 246, 0.6)',
-            background: 'rgba(59, 130, 246, 0.08)',
-            borderRadius: 2,
-            pointerEvents: 'none',
-            zIndex: 9999,
-          }}
-        />
-      )}
+      {/* Marquee selection rectangle: mounted once per sweep, moved imperatively off the channel */}
+      {selection.marquee && <MarqueeRect initial={selection.marquee} />}
     </>
   );
 };
