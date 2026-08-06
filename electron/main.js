@@ -2362,6 +2362,48 @@ function buildBrowserContextMenu(contents, params, webContentsId) {
   } catch (_) {}
 }
 
+// App-preview webviews (a generated app's live preview) are not browser tabs: no Back/Forward that
+// could strand the preview on an external page, and the link action says where the link really goes.
+function buildAppPreviewContextMenu(contents, params) {
+  const template = [];
+  const sep = () => template.push({ type: 'separator' });
+
+  if (params.linkURL) {
+    template.push({ label: 'Open Link in Browser', click: () => openInNewBrowserTab(params.linkURL, null) });
+    template.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) });
+    sep();
+  }
+
+  if (params.mediaType === 'image' && params.srcURL) {
+    template.push({ label: 'Copy Image', click: () => { try { contents.copyImageAt(params.x, params.y); } catch (_) {} } });
+    template.push({ label: 'Copy Image Address', click: () => clipboard.writeText(params.srcURL) });
+    sep();
+  }
+
+  const flags = params.editFlags || {};
+  if (params.isEditable) {
+    template.push({ role: 'cut', enabled: flags.canCut !== false });
+    template.push({ role: 'copy', enabled: flags.canCopy !== false });
+    template.push({ role: 'paste', enabled: flags.canPaste !== false });
+    template.push({ role: 'selectAll' });
+    sep();
+  } else if (params.selectionText) {
+    template.push({ role: 'copy' });
+    sep();
+  }
+
+  template.push({ label: 'Reload App', click: () => { try { contents.reload(); } catch (_) {} } });
+
+  if (isDev) {
+    sep();
+    template.push({ label: 'Inspect Element', click: () => { try { contents.inspectElement(params.x, params.y); } catch (_) {} } });
+  }
+
+  try {
+    Menu.buildFromTemplate(template).popup({ window: mainWindow || undefined });
+  } catch (_) {}
+}
+
 // The app's OWN renderer (chat, outputs, sidebar) gets no native menu from Electron by default, so
 // right-clicking text used to do nothing. This is the browser menu minus the nav items that mean
 // nothing inside a single-page app: spelling, copy-link, and the edit/copy roles.
@@ -2427,7 +2469,12 @@ app.on('web-contents-created', (_event, contents) => {
     // Chrome parity for trackpad pinch: Electron DROPS macOS pinch gestures at the default (1,1) visual-zoom limits, so Figma/Miro/Maps never received the ctrl+wheel their canvas zoom listens for. With limits widened, the guest synthesizes ctrl+wheel first (a preventDefault-ing page like Figma owns the zoom), and plain pages get Chrome's pinch magnify.
     try { contents.setVisualZoomLevelLimits(1, 3); } catch (_) { /* older Electron */ }
     contents.on('before-input-event', (event, input) => routeBrowserShortcut(event, input, wcId));
-    contents.on('context-menu', (_e, params) => buildBrowserContextMenu(contents, params, wcId));
+    contents.on('context-menu', (_e, params) => {
+      // Browser cards ride the persist:openswarm-browser partition; app previews share the main window's default session, and get the app-flavored menu instead of browser-tab verbs.
+      const isAppPreview = mainWindow && !mainWindow.isDestroyed() && contents.session === mainWindow.webContents.session;
+      if (isAppPreview) buildAppPreviewContextMenu(contents, params);
+      else buildBrowserContextMenu(contents, params, wcId);
+    });
   }
 
   // Override the user-agent on popup BrowserWindows (i.e. anything created
