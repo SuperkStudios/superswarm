@@ -21,18 +21,24 @@ function hueFor(name: string): number {
 
 function AppTile({ output }: { output: Output }): React.ReactElement {
   const tile = {
-    width: 64,
-    height: 64,
-    borderRadius: '15px',
+    width: 68,
+    height: 68,
+    borderRadius: '16px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
     // Hairline inset so screenshots and light tiles read as crafted app icons on the glass, not raw pasted images.
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12), 0 4px 14px rgba(0,0,0,0.28)',
+    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14), 0 6px 18px rgba(0,0,0,0.32)',
   } as const;
   if (output.thumbnail) {
-    return <Box component="img" src={output.thumbnail} alt="" sx={{ ...tile, objectFit: 'cover' }} />;
+    return (
+      <Box sx={{ ...tile, position: 'relative', overflow: 'hidden' }}>
+        <Box component="img" src={output.thumbnail} alt="" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        {/* A soft top gloss makes a raw screenshot read as an app ICON instead of a pasted image. */}
+        <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0) 46%)', pointerEvents: 'none' }} />
+      </Box>
+    );
   }
   const glyph = (output.icon || '').trim();
   const h = hueFor(output.name || '?');
@@ -79,21 +85,28 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
           maxHeight: 'calc(100% - 120px)',
           display: 'flex',
           flexDirection: 'column',
-          borderRadius: '18px',
-          background: 'rgba(22,12,34,0.82)',
+          borderRadius: '20px',
+          background: 'rgba(18,16,24,0.86)',
           backdropFilter: 'blur(28px) saturate(160%)',
           WebkitBackdropFilter: 'blur(28px) saturate(160%)',
-          boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.07)',
           p: 2.5,
+          '@keyframes appwin-in': {
+            from: { opacity: 0, transform: 'translate(-50%, -50%) scale(0.96)' },
+            to: { opacity: 1, transform: 'translate(-50%, -50%) scale(1)' },
+          },
+          animation: 'appwin-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mb: 2, px: 0.5 }}>
-          <Typography sx={{ fontSize: '0.9375rem', fontWeight: 590, letterSpacing: '-0.01em', color: 'rgba(255,255,255,0.92)' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, px: 0.5 }}>
+          <Typography sx={{ fontSize: '0.75rem', fontWeight: 650, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
             Applications
           </Typography>
-          <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.42)' }}>
-            {Object.keys(outputs).length > 0 ? Object.keys(outputs).length : ''}
-          </Typography>
+          {Object.keys(outputs).length > 0 && (
+            <Box sx={{ px: 0.9, py: 0.1, borderRadius: 999, background: 'rgba(255,255,255,0.09)', fontSize: '0.6875rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)' }}>
+              {Object.keys(outputs).length}
+            </Box>
+          )}
         </Box>
 
         {Object.keys(outputs).length > 8 && (
@@ -135,7 +148,7 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
             </DarkTokensScope>
           )}
           {apps.length > 0 && (
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(92px, 1fr))', gap: 1, pb: 0.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 1.5, pb: 0.5 }}>
               {apps.map((output) => (
                 <Box
                   key={output.id}
@@ -150,15 +163,15 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
                     borderRadius: '12px',
                     cursor: 'pointer',
                     transition: 'background-color 0.15s ease',
-                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.07)' },
-                    '&:hover .osw-app-tile': { transform: 'scale(1.05)' },
-                    '&:active .osw-app-tile': { transform: 'scale(0.97)' },
+                    '&:hover': { backgroundColor: 'rgba(255,255,255,0.06)' },
+                    '&:hover .osw-app-tile': { transform: 'translateY(-2px) scale(1.05)', filter: 'drop-shadow(0 8px 16px rgba(0,0,0,0.35))' },
+                    '&:active .osw-app-tile': { transform: 'scale(0.97)', filter: 'none' },
                   }}
                 >
-                  <Box className="osw-app-tile" sx={{ transition: 'transform 0.16s ease', display: 'flex' }}>
+                  <Box className="osw-app-tile" sx={{ transition: 'transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1), filter 0.16s ease', display: 'flex' }}>
                     <AppTile output={output} />
                   </Box>
-                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 500, color: 'rgba(255,255,255,0.86)', textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.5 }}>
+                  <Typography sx={{ fontSize: '0.71875rem', fontWeight: 500, color: 'rgba(255,255,255,0.78)', textAlign: 'center', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', px: 0.5 }}>
                     {output.name}
                   </Typography>
                 </Box>
