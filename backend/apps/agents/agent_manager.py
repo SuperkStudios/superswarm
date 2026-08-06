@@ -100,6 +100,54 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
             yield
 
     @typechecked
+    async def prewarm_client(self, session_id: str) -> None:
+        """Spawn the session's CLI in the seconds between create and the first message, so the first
+        turn's acquire is a pool hit instead of a 0.6-1.6s cold connect. Best-effort: any failure
+        just means the first turn pays the connect it always paid. Kill switch OSW_PREWARM_CLI=0."""
+        if os.environ.get("OSW_PREWARM_CLI", "1") == "0":
+            return
+        session = self.sessions.get(session_id)
+        if not session or session.messages:
+            return
+        try:
+            import claude_agent_sdk  # noqa: F401
+        except ImportError:
+            return
+        try:
+            from backend.apps.agents.providers.registry import (
+                resolve_model_id_for_sdk as p_resolve,
+                get_api_type as p_api_of,
+            )
+            p_router_model_id = p_resolve(session.model, load_settings())
+            p_api_type = p_api_of(session.model)
+            builtin_perms = load_builtin_permissions()
+            # Representative-LENGTH prompt: thinking derives from prompt length (<50 chars forces it
+            # off), so an empty prewarm prompt would boot a different thinking config than a typical
+            # first message and fingerprint-miss into a respawn. 50+ chars matches the common case.
+            p_representative = "prewarm placeholder prompt of representative length for boot"
+            (options, options_kwargs, _pc, _stderr, _gs) = await self.build_agent_options(
+                session, session_id, p_representative, "", builtin_perms,
+                None, None, None, False, p_router_model_id, p_api_type)
+            from claude_agent_sdk import ClaudeSDKClient
+            from backend.apps.agents.manager.run.client_pool import acquire_client, boot_fingerprint
+
+            async def p_connect():
+                p_client = ClaudeSDKClient(options=options)
+                logger.info(f"[SPAWN-PHASE] prewarm-connect start session={session_id[:8]} t={time.monotonic():.3f}")
+                await p_client.connect()
+                logger.info(f"[SPAWN-PHASE] prewarm-connect done session={session_id[:8]} t={time.monotonic():.3f}")
+                return p_client
+
+            fp = boot_fingerprint(options_kwargs, session)
+            await acquire_client(self.client_pool, session_id, fp, p_connect)
+            # Deleted mid-connect: the late-arriving client just pooled into a dead session; nothing else will ever dispose it.
+            if session_id not in self.sessions:
+                from backend.apps.agents.manager.run.client_pool import dispose_client
+                await dispose_client(self.client_pool, session_id)
+        except Exception:
+            logger.info("[client-pool] prewarm skipped for %s", session_id[:8], exc_info=True)
+
+    @typechecked
     async def run_agent_loop(self, session_id: str, prompt: str, images: Optional[List] = None, context_paths: Optional[List] = None, forced_tools: Optional[List[str]] = None, attached_skills: Optional[List] = None, fork_session: bool = False, selected_browser_ids: Optional[List[str]] = None, selected_app_output_ids: Optional[List[str]] = None, selected_setting_ids: Optional[List[str]] = None, context_valve_retry: bool = False):
         """Run the Claude Agent SDK query loop for a session."""
         session = self.sessions.get(session_id)

@@ -135,6 +135,9 @@ async def launch_agent(config: AgentConfig):
     # A launch that carries a prompt runs it as the first turn through the same path /message uses.
     if config.prompt:
         asyncio.create_task(agent_manager.send_message(session.id, config.prompt))
+    else:
+        # No prompt yet: the user is typing. Spend that window spawning the CLI so the first turn is a pool hit.
+        asyncio.create_task(agent_manager.prewarm_client(session.id))
     return {"session_id": session.id, "session": session.model_dump(mode="json")}
 
 @agents.router.post("/sessions/{session_id}/message")
