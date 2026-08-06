@@ -139,11 +139,15 @@ export function useVoiceDictation() {
         const data = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
         chunks.push(data);
-        // RMS per chunk drives the aurora; smoothed so it breathes instead of flickering.
+        // RMS per chunk drives the waveform; fast attack + slower release, like a real peak meter,
+        // so the bars snap to speech instead of lagging behind it.
         let sum = 0;
         for (let i = 0; i < data.length; i += 8) sum += data[i] * data[i];
         const rms = Math.sqrt(sum / (data.length / 8));
-        volumeRef.current = volumeRef.current * 0.7 + Math.min(1, rms * 6) * 0.3;
+        const level = Math.min(1, rms * 7);
+        volumeRef.current = level > volumeRef.current
+          ? volumeRef.current * 0.35 + level * 0.65
+          : volumeRef.current * 0.78 + level * 0.22;
         if (endpointer && endpointer.push(data) !== 'listening') void stopRef.current?.();
       });
       source.connect(capture.node);
@@ -245,6 +249,16 @@ export function useVoiceDictation() {
 
   stopRef.current = stop;
 
+  // The capsule's X: throw the take away. No transcription, no cue, straight back to idle.
+  const cancel = useCallback((): void => {
+    if (stateRef.current !== 'recording') return;
+    const rec = recRef.current;
+    if (rec?.streaming) window.openswarm?.voiceStreamCancel?.();
+    teardown();
+    setPartial(null);
+    setState('idle');
+  }, [teardown]);
+
   const toggle = useCallback((): void => {
     if (stateRef.current === 'recording') void stop();
     else if (stateRef.current === 'idle') void start();
@@ -277,5 +291,5 @@ export function useVoiceDictation() {
   // A dangling recorder (unmount mid-capture) must release the mic.
   useEffect(() => () => { teardown(); }, [teardown]);
 
-  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, volumeRef };
+  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, volumeRef };
 }
