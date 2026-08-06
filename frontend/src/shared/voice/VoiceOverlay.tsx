@@ -183,7 +183,7 @@ const IdlePill: React.FC<{ onPressStart: () => void; onPressEnd: () => void }> =
 };
 
 const VoiceOverlay: React.FC = () => {
-  const { state, pct, feedback, partial, targetLabel, volumeRef, confirmRecording, cancelRecording, pressStart, pressEnd } = useVoice();
+  const { state, pct, feedback, partial, target, volumeRef, confirmRecording, cancelRecording, pressStart, pressEnd } = useVoice();
   const [showFeedback, setShowFeedback] = useState(false);
   // The capsule lingers past its state for one out-animation beat, so it glides back up instead of vanishing.
   const [capsuleLeaving, setCapsuleLeaving] = useState(false);
@@ -224,8 +224,10 @@ const VoiceOverlay: React.FC = () => {
     // Words once there are words; before that, the chip says WHERE they will land.
     content = hasPartial
       ? <LiveTranscript committed={partial.committed} tentative={partial.tentative} />
-      : (state === 'recording' && targetLabel
-        ? <Box component="span" sx={{ color: 'rgba(255,255,255,0.65)', fontSize: '0.75rem' }}>{'→'} {targetLabel}</Box>
+      : (state === 'recording' && target.label
+        ? <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.6, color: 'rgba(255,255,255,0.65)', fontSize: '0.75rem' }}>
+            {'→'} {target.icon && <Box component="img" src={target.icon} alt="" sx={{ width: 13, height: 13, borderRadius: '3px' }} />} {target.label}
+          </Box>
         : null);
   } else if (state === 'preparing') {
     content = (<><CircularProgress size={13} thickness={5} sx={{ color: 'rgba(255,255,255,0.7)' }} /><span>Downloading voice model {pct}%</span></>);

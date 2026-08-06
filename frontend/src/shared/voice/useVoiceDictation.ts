@@ -6,6 +6,9 @@ import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 import { createSilenceDetector } from './createSilenceDetector';
 import { pushDictation } from './voiceHistory';
+import { learnFromTranscript } from './voiceDictionary';
+import { getFocusedSurfaceHost, surfaceDisabled } from './voiceSurface';
+import { store } from '@/shared/state/store';
 import { createCaptureNode } from './createCaptureNode';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
@@ -40,17 +43,30 @@ export interface VoiceFeedback {
   at: number;
 }
 
-// Where the transcript will land RIGHT NOW, in the user's words; mirrors injectAtFocus's tiers so
-// the capsule's target chip never promises a destination injection would not actually pick.
-export function describeInjectTarget(): string {
+// Where the transcript will land RIGHT NOW, in the user's words plus the surface's own icon;
+// mirrors injectAtFocus's tiers so the chip never promises a destination injection would not pick.
+export interface InjectTargetInfo {
+  label: string;
+  icon: string | null;
+}
+
+function browserTargetInfo(): InjectTargetInfo {
+  const browserId = getLastInteractedBrowser();
+  const card = browserId ? store.getState().dashboardLayout.browserCards[browserId] : undefined;
+  const tab = card?.tabs?.find((t) => t.id === card.activeTabId);
+  const host = (() => { try { return tab?.url ? new URL(tab.url).hostname : null; } catch { return null; } })();
+  return { label: host || 'browser page', icon: tab?.favicon || null };
+}
+
+export function describeInjectTarget(): InjectTargetInfo {
   const a = document.activeElement as HTMLElement | null;
   if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) {
     const hint = a.getAttribute('placeholder') || a.getAttribute('aria-label');
-    return hint ? hint.slice(0, 30) : 'text field';
+    return { label: hint ? hint.slice(0, 30) : 'text field', icon: null };
   }
-  if (a && a.tagName === 'WEBVIEW') return 'browser page';
-  if (getLastInteractedBrowser()) return 'browser page';
-  return 'chat composer';
+  if (a && a.tagName === 'WEBVIEW') return browserTargetInfo();
+  if (getLastInteractedBrowser()) return browserTargetInfo();
+  return { label: 'chat composer', icon: null };
 }
 
 // Context hint for the polisher: what the user is dictating into (a field label, a page title), so
@@ -87,7 +103,7 @@ export function useVoiceDictation() {
   const [pct, setPct] = useState<number>(0);
   const [feedback, setFeedback] = useState<VoiceFeedback | null>(null);
   const [partial, setPartial] = useState<VoicePartial | null>(null);
-  const [targetLabel, setTargetLabel] = useState<string>('');
+  const [target, setTarget] = useState<InjectTargetInfo>({ label: '', icon: null });
   const partialSeqRef = useRef<number>(0);
   const recRef = useRef<Recorder | null>(null);
   const stateRef = useRef<VoiceState>('idle');
@@ -132,6 +148,15 @@ export function useVoiceDictation() {
   const start = useCallback(async (hold = false): Promise<void> => {
     if (stateRef.current !== 'idle') return;
     if (!window.openswarm?.voiceTranscribe) { setError('desktop-only'); return; } // no Electron bridge = web build
+    // Per-surface disable: the user marked this site as no-dictation; refuse loudly, never silently.
+    const disabledList = store.getState().settings.data.dictation_disabled_surfaces ?? '';
+    if (disabledList) {
+      const host = getFocusedSurfaceHost();
+      if (surfaceDisabled(disabledList, host)) {
+        setFeedback({ tone: 'warn', icon: 'mic', text: `Dictation is off for ${host}. Change it in Settings > Interface.`, at: Date.now() });
+        return;
+      }
+    }
     setError(null);
     // Warm on the DOWN edge, before the mic prompt, so the model load overlaps the user starting to speak.
     void window.openswarm?.voiceWarmup?.();
@@ -150,7 +175,19 @@ export function useVoiceDictation() {
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
       const streamRes = await window.openswarm?.voiceStreamStart?.();
       const streaming = streamRes?.ok === true;
+      // Whisper-mode: quiet speech gets a gentle, slow-moving boost (3x cap) so murmured dictation
+      // still clears the decode gates; loud input passes through untouched, and the gain glides so
+      // it can never pump. Applied to BOTH the streamed chunks and the stored clip.
+      let agcGain = 1;
       const capture = await createCaptureNode(ctx, (i16) => {
+        let sumSq = 0;
+        for (let i = 0; i < i16.length; i += 8) { const v = i16[i] / 0x8000; sumSq += v * v; }
+        const rawRms = Math.sqrt(sumSq / Math.max(1, Math.floor(i16.length / 8)));
+        const desired = rawRms > 0.004 && rawRms < 0.03 ? Math.min(3, 0.06 / rawRms) : 1;
+        agcGain = agcGain * 0.9 + desired * 0.1;
+        if (agcGain > 1.02) {
+          for (let i = 0; i < i16.length; i++) i16[i] = Math.max(-32768, Math.min(32767, Math.round(i16[i] * agcGain)));
+        }
         if (streaming) window.openswarm?.voiceStreamChunk?.(i16.buffer as ArrayBuffer);
         const data = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
@@ -246,6 +283,7 @@ export function useVoiceDictation() {
         // fallback still speaks, because the user has to act (paste) to get the text.
         const target = injectAtFocus(text);
         pushDictation(text, target || 'clipboard');
+        learnFromTranscript(text);
         if (target) {
           playVoiceCue('paste');
         } else {
@@ -317,9 +355,9 @@ export function useVoiceDictation() {
   // The target chip tracks focus LIVE while recording: clicking into a field mid-dictation retargets
   // injection (by design), and the chip must tell that truth as it happens.
   useEffect(() => {
-    if (state !== 'recording') { setTargetLabel(''); return undefined; }
-    setTargetLabel(describeInjectTarget());
-    const onFocus = (): void => setTargetLabel(describeInjectTarget());
+    if (state !== 'recording') { setTarget({ label: '', icon: null }); return undefined; }
+    setTarget(describeInjectTarget());
+    const onFocus = (): void => setTarget(describeInjectTarget());
     window.addEventListener('focusin', onFocus, true);
     window.addEventListener('focusout', onFocus, true);
     return () => {
@@ -336,5 +374,5 @@ export function useVoiceDictation() {
     setFeedback({ tone: 'warn', icon: 'info', text, at: Date.now() });
   }, []);
 
-  return { state, lastText, error, pct, feedback, partial, targetLabel, toggle, start, stop, cancel, notify, volumeRef };
+  return { state, lastText, error, pct, feedback, partial, target, toggle, start, stop, cancel, notify, volumeRef };
 }

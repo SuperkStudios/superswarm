@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/shared/hooks';
 import { useVoiceDictation } from './useVoiceDictation';
-import { playVoiceCue } from './voiceCues';
+import { playVoiceCue, configureVoiceCues } from './voiceCues';
+import { setManualDictionary } from './voiceDictionary';
 import { VoiceContext } from './voiceContext';
 import VoiceOverlay from './VoiceOverlay';
 
@@ -10,7 +11,7 @@ import VoiceOverlay from './VoiceOverlay';
 // out-of-sync state. Mounted once near the app root.
 
 export function VoiceDictationProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const { state, lastText, error, pct, feedback, partial, targetLabel, toggle, start, stop, cancel, notify, volumeRef } = useVoiceDictation();
+  const { state, lastText, error, pct, feedback, partial, target, toggle, start, stop, cancel, notify, volumeRef } = useVoiceDictation();
 
   // fn is the dictation key, but macOS may still have its own Globe action bound (emoji picker on a quick tap); say so once.
   const globeWarnedRef = useRef(false);
@@ -39,12 +40,18 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
     if (dictationModel) void window.openswarm?.voiceSetModel?.(dictationModel);
   }, [dictationModel]);
 
-  // Personal glossary rides every decode as a whisper prompt; push on boot and on change.
+  // Personal glossary rides every decode as a whisper prompt (manual list merged with learned nouns).
   const dictationDictionary = useAppSelector((s) => s.settings.data.dictation_dictionary ?? '');
   useEffect(() => {
-    const bridge = window as unknown as { openswarm?: { voiceSetDictionary?: (words: string) => void } };
-    bridge.openswarm?.voiceSetDictionary?.(dictationDictionary);
+    setManualDictionary(dictationDictionary);
   }, [dictationDictionary]);
+
+  // Cue sounds honor the user's toggle and loudness.
+  const cueSounds = useAppSelector((s) => s.settings.data.dictation_sounds ?? true);
+  const cueVolume = useAppSelector((s) => s.settings.data.dictation_sound_volume ?? 0.35);
+  useEffect(() => {
+    configureVoiceCues(cueSounds, cueVolume);
+  }, [cueSounds, cueVolume]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const heldRef = useRef(false);
@@ -111,7 +118,7 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   const confirmRecording = useCallback((): void => { void stop(); }, [stop]);
 
   return (
-    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, partial, targetLabel, toggle, pressStart, pressEnd, confirmRecording, cancelRecording: cancel, holdMode, volumeRef }}>
+    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, partial, target, toggle, pressStart, pressEnd, confirmRecording, cancelRecording: cancel, holdMode, volumeRef }}>
       {children}
       <VoiceOverlay />
     </VoiceContext.Provider>

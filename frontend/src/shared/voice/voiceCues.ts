@@ -6,9 +6,20 @@ import { VOICE_CUE_START, VOICE_CUE_STOP, VOICE_CUE_PASTE, VOICE_CUE_LOCK } from
 // Wispr's three-beat: tap in, tap out, and a rising completion the moment the text actually lands;
 // lock marks a hands-free latch.
 
-const CUE_VOLUME = 0.35;
-
 type CueKind = 'start' | 'stop' | 'paste' | 'lock';
+
+// Pushed from Settings (dictation_sounds / dictation_sound_volume); defaults match the shipped feel.
+let cueEnabled = true;
+let cueVolume = 0.35;
+
+export function configureVoiceCues(enabled: boolean, volume: number): void {
+  cueEnabled = enabled;
+  cueVolume = Math.min(1, Math.max(0, volume));
+  for (const kind of Object.keys(p_players) as CueKind[]) {
+    const a = p_players[kind];
+    if (a) a.volume = kind === 'paste' ? cueVolume * 0.8 : cueVolume;
+  }
+}
 
 const SOURCES: Record<CueKind, string> = {
   start: VOICE_CUE_START,
@@ -23,13 +34,14 @@ function player(kind: CueKind): HTMLAudioElement {
   let a = p_players[kind];
   if (!a) {
     a = new Audio(SOURCES[kind]);
-    a.volume = kind === 'paste' ? CUE_VOLUME * 0.8 : CUE_VOLUME;
+    a.volume = kind === 'paste' ? cueVolume * 0.8 : cueVolume;
     p_players[kind] = a;
   }
   return a;
 }
 
 export function playVoiceCue(kind: CueKind): void {
+  if (!cueEnabled) return;
   try {
     const a = player(kind);
     a.currentTime = 0;

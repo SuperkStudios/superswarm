@@ -33,6 +33,9 @@ export interface AppSettings {
   dictation_shortcut?: string | null;
   dictation_model?: string | null;
   dictation_dictionary?: string;
+  dictation_sounds?: boolean;
+  dictation_sound_volume?: number;
+  dictation_disabled_surfaces?: string;
   anthropic_api_key: string | null;
   openai_api_key?: string | null;
   google_api_key?: string | null;
@@ -165,6 +168,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictation_shortcut: null,
   dictation_model: null,
   dictation_dictionary: '',
+  dictation_sounds: true,
+  dictation_sound_volume: 0.35,
+  dictation_disabled_surfaces: '',
   anthropic_api_key: null,
   browser_homepage: 'https://duckduckgo.com',
   browser_import_signins: false,

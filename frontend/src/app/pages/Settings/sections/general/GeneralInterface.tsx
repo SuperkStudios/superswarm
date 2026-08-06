@@ -157,6 +157,43 @@ const GeneralInterface: React.FC<{
         />
       </Box>
 
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_sounds', 'Dictation sounds', 'Interface', 'The start, stop, and text-landed cues.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Sounds</Typography>
+          <Typography sx={descSx}>The start, stop, and text-landed cues, and how loud they play.</Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Slider
+            size="small"
+            min={0}
+            max={100}
+            disabled={!(form.dictation_sounds ?? true)}
+            value={Math.round((form.dictation_sound_volume ?? 0.35) * 100)}
+            onChange={(_, v) => setForm({ ...form, dictation_sound_volume: (v as number) / 100 })}
+            sx={{ width: 110 }}
+          />
+          <Switch
+            size="small"
+            checked={form.dictation_sounds ?? true}
+            onChange={(e) => setForm({ ...form, dictation_sounds: e.target.checked })}
+          />
+        </Box>
+      </Box>
+
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_disabled_surfaces', 'Dictation off for sites', 'Interface', 'Sites where the dictation key does nothing.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Off for sites</Typography>
+          <Typography sx={descSx}>Comma-separated hostnames where the dictation key refuses to record (it tells you instead of failing silently).</Typography>
+        </Box>
+        <TextField
+          size="small"
+          placeholder="docs.google.com, slack.com"
+          value={form.dictation_disabled_surfaces ?? ''}
+          onChange={(e) => setForm({ ...form, dictation_disabled_surfaces: e.target.value })}
+          sx={{ width: 280 }}
+        />
+      </Box>
+
       <Box sx={{ ...inlineRowSx, alignItems: 'flex-start' }} {...settingSelectAttrs('dictation_history', 'Dictation history', 'Interface', 'Your recent dictations, copyable.')}>
         <Box sx={{ mr: 3, flexShrink: 0, width: 220 }}>
           <Typography sx={labelSx}>History</Typography>

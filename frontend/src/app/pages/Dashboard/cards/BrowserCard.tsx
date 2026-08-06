@@ -73,7 +73,6 @@ import {
 } from '@/shared/browserCommandHandler';
 import { resolveInput, isGoogleSearch } from '@/shared/resolveUrl';
 import BrowserAgentOverlay from './BrowserAgentOverlay';
-import { useOverlayScrollPassthrough } from '../hooks/interaction/useOverlayScrollPassthrough';
 
 // Fixed light chrome for the macOS-window look; deliberately theme-independent, like a real browser window.
 const CHROME_BG = '#f2eff5';
@@ -213,7 +212,6 @@ const BrowserCard: React.FC<Props> = ({
   // Read via ref inside the webview-attach effect so a new onDoubleClick identity doesn't re-run that effect (which would re-register the webview).
   const onDoubleClickRef = useRef(onDoubleClick);
   onDoubleClickRef.current = onDoubleClick;
-  const scrollOverlayRef = useOverlayScrollPassthrough(isSelected);
   const browserHomepage = useAppSelector((state) => state.settings.data.browser_homepage);
   const elementSelectionCtx = useElementSelection();
   const isElementSelectMode = elementSelectionCtx?.selectMode ?? false;
