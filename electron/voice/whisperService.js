@@ -141,7 +141,7 @@ function p_reasonFrom(tail) {
   return pick ? `: ${pick.slice(0, 200)}` : '';
 }
 
-async function p_bootServer(resourceDir, userDataDir) {
+async function p_bootServer(resourceDir, userDataDir, extended = true) {
   const bin = resolveBinary(resourceDir);
   const model = resolveModel(resourceDir, userDataDir);
   if (!model) {
@@ -153,9 +153,12 @@ async function p_bootServer(resourceDir, userDataDir) {
   p_sweepStrays(bin);
   const p = await freePort();
   // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
-  // Beam search (5) over greedy: measurably fewer recognition errors at ~1.5x decode cost; Eric
-  // rates accuracy above stop-latency.
+  // Decode setup from the OSS-dictation survey (VoiceTypr/VoiceInk consensus): beam 5 over greedy,
+  // suppress-nst kills non-speech captions AT the decoder, no-context stops cross-segment
+  // hallucination carryover, flash-attn is a free Metal win. extended=false retries with the
+  // minimal set so an older binary missing a flag can never kill dictation.
   const args = ['-m', model, '--port', String(p), '-nt', '-bs', '5'];
+  if (extended) args.push('--suppress-nst', '--no-context', '--flash-attn');
   // A multilingual model (no .en in the filename) auto-detects the spoken language per utterance.
   if (!path.basename(model).includes('.en')) args.push('-l', 'auto');
   const child = spawn(bin, args, {
@@ -184,6 +187,11 @@ async function p_bootServer(resourceDir, userDataDir) {
   if (!ok) {
     bootingChild = null;
     try { child.kill('SIGKILL'); } catch (_) {}
+    // An instantly-dead child with the extended flags is probably an older binary: retry minimal.
+    if (extended && (child.exitCode !== null || child.signalCode !== null)) {
+      console.log('[voice] extended decode flags rejected; retrying with the minimal set');
+      return p_bootServer(resourceDir, userDataDir, false);
+    }
     // A dead child is not a slow one. Whisper can die in ~0.1s with exit code 0 (a missing ffmpeg on
     // a Finder-launched PATH does exactly that), so report ITS reason instantly instead of making the
     // user sit through the full ready budget for a process that was never coming back.
@@ -237,6 +245,10 @@ async function transcribe(resourceDir, userDataDir, wavBuffer) {
   const form = new FormData();
   form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
   form.append('response_format', 'text');
+  // 0.2 + 0.2 fallback ladder is what VoiceTypr and VoiceInk ship; whisper's 0.0 greedy start
+  // retries into hallucination on marginal audio.
+  form.append('temperature', '0.2');
+  form.append('temperature_inc', '0.2');
   if (dictionaryPrompt) form.append('prompt', dictionaryPrompt);
   const res = await fetch(`http://127.0.0.1:${p}/inference`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`whisper-http-${res.status}`);

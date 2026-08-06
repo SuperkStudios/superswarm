@@ -6,7 +6,7 @@ import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 import { createSilenceDetector } from './createSilenceDetector';
 import { pushDictation } from './voiceHistory';
-import { learnFromTranscript } from './voiceDictionary';
+import { learnFromTranscript, isDictionaryEcho } from './voiceDictionary';
 import { getFocusedSurfaceHost, surfaceDisabled } from './voiceSurface';
 import { store } from '@/shared/state/store';
 import { createCaptureNode } from './createCaptureNode';
@@ -168,7 +168,11 @@ export function useVoiceDictation() {
       // Fire the OS mic prompt through the main process first: a packaged hardened-runtime build denies renderer getUserMedia outright until TCC granted (the prod dictation-dead cause, ENG-103).
       const micOk = await (window.openswarm as any)?.voiceRequestMicAccess?.() ?? true;
       if (micOk === false) { setError('mic-denied'); return; }
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      // autoGainControl OFF is the OSS-dictation consensus (Chromium's hidden AGC rides the mic and
+      // garbles levels mid-utterance; none of the five surveyed shipping apps allow any AGC), and
+      // noiseSuppression smears speech whisper handles better raw. Echo cancellation stays: we play
+      // cues out the speakers while the mic is hot.
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
       ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
       const source = ctx.createMediaStreamSource(stream);
       const chunks: Float32Array[] = [];
@@ -239,20 +243,37 @@ export function useVoiceDictation() {
       }
       let res: { ok: boolean; text?: string; error?: string } | undefined;
       {
-        // Whisper hallucinates plausible punctuation on near-silence; a clip whose level never beat the streaming RMS gate gets "didn't catch that", never a decode.
-        let sumSq = 0;
-        for (let i = 0; i < samples.length; i += 4) sumSq += samples[i] * samples[i];
-        const rms = Math.sqrt(sumSq / Math.max(1, Math.floor(samples.length / 4)));
-        if (rms < 0.002) {
+        // OpenWhispr's window gate: whole-clip RMS misses a clip that is silence plus one cough, so
+        // judge 100ms windows; no window with real speech energy means no decode, ever.
+        const win = Math.round(VOICE_SAMPLE_RATE * 0.1);
+        let peakRms = 0;
+        let speechWindow = false;
+        for (let off = 0; off + win <= samples.length; off += win) {
+          let sumSq = 0;
+          let peak = 0;
+          for (let i = off; i < off + win; i += 2) { const v = samples[i]; sumSq += v * v; if (Math.abs(v) > peak) peak = Math.abs(v); }
+          const wr = Math.sqrt(sumSq / (win / 2));
+          if (wr > peakRms) peakRms = wr;
+          if (wr >= 0.003 && peak >= 0.02) speechWindow = true;
+        }
+        if (peakRms < 0.002 || (!speechWindow && peakRms < 0.006)) {
           res = { ok: true, text: '' };
         } else {
-          const wav = encodeWav(samples);
+          // whisper.cpp asserts on sub-second buffers; zero-pad instead of rejecting (FluidVoice).
+          const padded = samples.length < VOICE_SAMPLE_RATE
+            ? (() => { const b = new Float32Array(VOICE_SAMPLE_RATE); b.set(samples); return b; })()
+            : samples;
+          const wav = encodeWav(padded);
           res = await window.openswarm?.voiceTranscribe?.(wav);
           if ((!res || !res.ok || !res.text) && streamedFallback) res = { ok: true, text: streamedFallback };
         }
       }
       // Whisper captions non-speech in brackets/parens ("[ Background sounds ]", "(laughs)") and marks speaker turns with ">>"; those are annotations, not dictation.
       if (res?.ok && res.text) res = { ok: true, text: res.text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*|(?:^|\s)>>\s?/g, ' ').replace(/\s+/g, ' ').trim() };
+      // Stutter collapse (Handy): three or more consecutive identical words are one decode loop, not speech.
+      if (res?.ok && res.text) res = { ok: true, text: res.text.replace(/\b([A-Za-z']+)(\s+\1\b){2,}/gi, '$1') };
+      // Glossary echo (OpenWhispr): a transcript that is mostly the dictionary read back is the prompt leaking, not dictation.
+      if (res?.ok && res.text && isDictionaryEcho(res.text)) res = { ok: true, text: '' };
       // A transcript with no letter or digit in it is a hallucination artifact (the lone comma), not dictation.
       if (res?.ok && res.text && !/[\p{L}\p{N}]/u.test(res.text)) res = { ok: true, text: '' };
       // Wispr's command grammar, v1: saying only "scratch that" (or "delete/cancel that") throws the take away.

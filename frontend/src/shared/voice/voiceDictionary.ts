@@ -32,6 +32,7 @@ function pushMerged(): void {
     .map(([w]) => w);
   const manualWords = manual.split(',').map((w) => w.trim()).filter(Boolean);
   const merged = [...new Set([...manualWords, ...learned])].join(', ');
+  lastPushedMerged = merged;
   const bridge = window as unknown as { openswarm?: { voiceSetDictionary?: (words: string) => void } };
   bridge.openswarm?.voiceSetDictionary?.(merged);
 }
@@ -39,6 +40,21 @@ function pushMerged(): void {
 export function setManualDictionary(words: string): void {
   manual = words || '';
   pushMerged();
+}
+
+let lastPushedMerged = '';
+
+// OpenWhispr's echo test: the model sometimes reads the glossary prompt back as the "transcript".
+// Mostly-dictionary words (90%) covering most of the dictionary (70%) = the prompt leaked.
+export function isDictionaryEcho(text: string): boolean {
+  const dictWords = new Set(lastPushedMerged.toLowerCase().split(/[,\s]+/).filter(Boolean));
+  if (dictWords.size === 0) return false;
+  const words = text.toLowerCase().split(/\s+/).map((w) => w.replace(/[^a-z']/g, '')).filter(Boolean);
+  if (words.length === 0) return false;
+  const unique = [...new Set(words)];
+  const fromDict = unique.filter((w) => dictWords.has(w)).length;
+  const coverage = [...dictWords].filter((w) => words.includes(w)).length / dictWords.size;
+  return fromDict / unique.length >= 0.9 && coverage >= 0.7;
 }
 
 export function learnFromTranscript(text: string): void {
