@@ -54,8 +54,9 @@ def p_drive(monkeypatch, messages, prompt="hi"):
     mgr = AgentManager()
     from backend.apps.agents.core.models import AgentSession
     session = AgentSession(name="t", model="sonnet", dashboard_id="d")
-    # Several harness turns deliberately end tool-only; spend the silent-quit nudge budget so the seal (tested in test_empty_finish.py) doesn't auto-continue them here.
-    session.empty_finish_nudges = 1
+    # Several harness turns deliberately end tool-only; spend the whole silent-quit nudge budget so the seal (tested in test_empty_finish.py) doesn't auto-continue them here.
+    from backend.apps.agents.manager.run.empty_finish import NUDGE_HARD_CAP
+    session.empty_finish_nudges = NUDGE_HARD_CAP
     mgr.sessions[session.id] = session
     asyncio.run(mgr.run_agent_loop(session.id, prompt))
     return session, events
