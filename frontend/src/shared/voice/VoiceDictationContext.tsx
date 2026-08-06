@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react';
 import { useAppSelector } from '@/shared/hooks';
 import { useVoiceDictation } from './useVoiceDictation';
+import { playVoiceCue } from './voiceCues';
 import { VoiceContext } from './voiceContext';
 import VoiceOverlay from './VoiceOverlay';
 
@@ -29,13 +30,17 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   stateRef.current = state;
   const heldRef = useRef(false);
 
+  // A quick tap releases before start() flips state to 'recording': the session latches hands-free
+  // (Wispr's lock). The lock cue lands once recording is actually live, confirming the latch.
+  const latchedRef = useRef(false);
+
   const pressStart = useCallback((): void => {
     if (holdMode) {
       // A TAP while recording must stop: the quick tap's press-end fires before the async start
       // flips state to 'recording', so without this the mic could be started by a click but never
       // stopped by one.
       if (stateRef.current === 'recording') { heldRef.current = false; void stop(); return; }
-      if (stateRef.current === 'idle') { heldRef.current = true; void start(true); }
+      if (stateRef.current === 'idle') { heldRef.current = true; latchedRef.current = false; void start(true); }
     } else {
       toggle();
     }
@@ -45,8 +50,19 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
     if (holdMode && heldRef.current) {
       heldRef.current = false;
       if (stateRef.current === 'recording') void stop();
+      else latchedRef.current = true;
     }
   }, [holdMode, stop]);
+
+  useEffect(() => {
+    if (state === 'recording' && latchedRef.current) {
+      latchedRef.current = false;
+      const t = setTimeout(() => playVoiceCue('lock'), 160);
+      return () => clearTimeout(t);
+    }
+    if (state === 'idle') latchedRef.current = false;
+    return undefined;
+  }, [state]);
 
   // Keyboard hotkey channels, matched to what the source can actually see:
   // voice:hold-down/up come ONLY from main's native uiohook tap (real global key-up, so the keyboard

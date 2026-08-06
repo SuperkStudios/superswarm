@@ -223,9 +223,12 @@ export function useVoiceDictation() {
         // Success is silent: the text landing at the cursor IS the feedback. Only the clipboard
         // fallback still speaks, because the user has to act (paste) to get the text.
         const target = injectAtFocus(text);
-        if (!target) {
+        if (target) {
+          playVoiceCue('paste');
+        } else {
           const inj = await window.openswarm?.voiceInject?.(text);
-          if (!inj?.pasted) setFeedback({ tone: 'ok', icon: 'clipboard', text: `${text}  (copied, press Cmd+V)`, at: Date.now() });
+          if (inj?.pasted) playVoiceCue('paste');
+          else setFeedback({ tone: 'ok', icon: 'clipboard', text: `${text}  (copied, press Cmd+V)`, at: Date.now() });
         }
         setState('idle');
       } else if (res?.ok && !res.text) {
