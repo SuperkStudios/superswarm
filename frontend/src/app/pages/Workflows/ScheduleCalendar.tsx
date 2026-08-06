@@ -78,14 +78,16 @@ export default function ScheduleCalendar({ view, density, onSelectWorkflow, refD
     .join('|');
   const fromIso = rangeStart.toISOString();
   const toIso = rangeEndExclusive.toISOString();
-  const calendarRequestKey = `${view}:${fromIso}:${toIso}:${workflowScheduleKey}`;
+  // Same race as useCalendarOccurrences: the optimistic pending update flips the fingerprint pre-commit; settleSeq forces one post-commit refetch and busts the interceptor's 1s URL cache.
+  const settleSeq = useAppSelector((s) => s.workflows.settleSeq);
+  const calendarRequestKey = `${view}:${fromIso}:${toIso}:${workflowScheduleKey}:${settleSeq}`;
   // The visible window alone decides whether shown events are even plausible. Gating on this (not the full request key) means a schedule edit refetches without blanking the calendar first: we keep the current events until the fresh ones land. Only a view/date change, where old events are for the wrong window, clears them.
   const calendarWindowKey = `${view}:${fromIso}:${toIso}`;
 
   useEffect(() => {
     // No AbortController: the global fetch interceptor (shared/config) dedupes GETs by URL onto ONE underlying request, so aborting on cleanup (which fires when this effect re-runs as workflows hydrate) rejects the shared request and the re-fired fetch with it, leaving the calendar empty on first load. The `cancelled` guard already stops stale state writes.
     let cancelled = false;
-    fetch(`${API_BASE}/workflows/calendar?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`)
+    fetch(`${API_BASE}/workflows/calendar?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&settle=${settleSeq}`)
       .then((res) => {
         if (!res.ok) throw new Error(`calendar failed ${res.status}`);
         return res.json();
