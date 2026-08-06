@@ -84,7 +84,9 @@ export function useDashboardInteractions({
     }
 
     selection.selectCard(id, type, false);
-    dispatch(bringToFront({ id, type }));
+    // Selection paints THIS frame (instant feedback); the z-restack invalidates the whole cards
+    // dict and reconciles every card, so it runs after the interaction's paint (INP critical path).
+    afterPaint(() => dispatch(bringToFront({ id, type })));
 
     // Clicking a control INSIDE a card (text field, button, browser URL bar/tabs, note textarea) selects + raises it but must NOT re-center the camera onto it: yanking focus to a card just to click into its input is hostile (same reasoning as the guest-page and Workflows carve-outs). Card frame/body clicks still auto-focus.
     if (pressLandedOnControl(originTarget)) return;
@@ -133,7 +135,9 @@ export function useDashboardInteractions({
   }, [selection, getCardRect, canvas.actions, dispatch, expandedSessionIds]);
 
   const handleBringToFront = useCallback((id: string, type: CardType) => {
-    dispatch(bringToFront({ id, type }));
+    // Deferred past the pointerdown's paint: this fires on EVERY card press and the z-restack was
+    // the measured 101ms block inside the 272ms INP; one frame of stacking lag is imperceptible.
+    afterPaint(() => dispatch(bringToFront({ id, type })));
     // Pressing ANY part of a card (header, body, composer) focuses it for scrolling, so its content scrolls instead of the canvas zooming (Google Maps model). Fires via onPointerDownCapture on every card, so a click into a chat's composer focuses it even though the body swallows the bubble. Cleared on blank-canvas press.
     setScrollFocusedCard(id);
   }, [dispatch]);
