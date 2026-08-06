@@ -15,10 +15,13 @@ from backend.apps.agents.core.ws_manager import ws_manager
 from backend.apps.agents.manager.streaming.state import ThinkingState, TurnState
 from backend.apps.agents.manager.streaming import thinking as thinking_mod
 
-try:
+# Annotation-only here (no isinstance dispatch), so the runtime symbol can stay `object` and the SDK chain stays off the boot import graph.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
     from claude_agent_sdk import ResultMessage
-except ImportError:  # the SDK is optional at runtime (mock mode); keep this module importable
-    ResultMessage = object  # type: ignore
+else:
+    ResultMessage = object
 
 logger = logging.getLogger(__name__)
 

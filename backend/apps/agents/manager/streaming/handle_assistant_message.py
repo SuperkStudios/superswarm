@@ -18,11 +18,13 @@ from backend.apps.agents.manager.streaming.upsert_message import upsert_message
 from backend.apps.agents.manager.streaming.PartialReply import PartialReply
 from backend.apps.agents.manager.streaming import thinking as thinking_mod
 
-try:
+# The block types drive isinstance DISPATCH, so they must be real at runtime; imported inside the handler because by stream time the SDK is already resident (the turn's presence check imported it), keeping the 350ms sdk+mcp chain off the boot graph.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
     from claude_agent_sdk import AssistantMessage
-    from claude_agent_sdk.types import ThinkingBlock, TextBlock, ToolUseBlock
-except ImportError:  # the SDK is optional at runtime (mock mode); keep this module importable
-    AssistantMessage = ThinkingBlock = TextBlock = ToolUseBlock = object  # type: ignore
+else:
+    AssistantMessage = object
 
 
 @typechecked
@@ -35,6 +37,8 @@ async def handle_assistant_message(
     live_partial: Dict[str, PartialReply],
     sessions: Dict[str, AgentSession],
 ) -> None:
+    from claude_agent_sdk.types import ThinkingBlock, TextBlock, ToolUseBlock
+
     content_parts = []
     new_thinking_parts = []
     tool_uses = []

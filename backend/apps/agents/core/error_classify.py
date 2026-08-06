@@ -1,7 +1,6 @@
 import re
 from typing import Optional, Tuple
 
-import anthropic
 import httpx
 from typeguard import typechecked
 
@@ -207,9 +206,19 @@ def parse_retry_after(exc: BaseException, extra_text: str = "") -> int | None:
 # anthropic.APIConnectionError stringifies to the bare "Connection error.", so the patterns above
 # score it NON-transient and one network hiccup throws away a whole run (measured live, twice). A
 # transport failure is transient by construction, so classify by TYPE, which no rewording breaks.
-P_TRANSIENT_EXC_TYPES: Tuple[type, ...] = (
-    anthropic.APIConnectionError, anthropic.InternalServerError,  # APITimeoutError subclasses the first
-    httpx.TransportError, ConnectionError, TimeoutError)          # connect/read/pool timeouts, protocol errors
+# Built lazily: importing the anthropic SDK at module scope cost 224ms of every backend boot.
+p_transient_exc_types: Optional[Tuple[type, ...]] = None
+
+
+def p_get_transient_exc_types() -> Tuple[type, ...]:
+    global p_transient_exc_types
+    if p_transient_exc_types is None:
+        import anthropic
+
+        p_transient_exc_types = (
+            anthropic.APIConnectionError, anthropic.InternalServerError,  # APITimeoutError subclasses the first
+            httpx.TransportError, ConnectionError, TimeoutError)          # connect/read/pool timeouts, protocol errors
+    return p_transient_exc_types
 
 
 @typechecked
@@ -222,7 +231,7 @@ def is_transient_capacity_error(exc: BaseException, extra_text: str = "") -> boo
     if is_context_overflow_error(exc, extra_text):
         return False
     # Ahead of the empty-string bail on purpose: what the exception IS doesn't depend on whether it bothered to say anything.
-    if isinstance(exc, P_TRANSIENT_EXC_TYPES):
+    if isinstance(exc, p_get_transient_exc_types()):
         return True
     if not combined:
         return False
