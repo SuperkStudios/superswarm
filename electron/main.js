@@ -3076,6 +3076,7 @@ ipcMain.handle('voice:set-model', (_e, id) => {
   if (ready) whisperService.warmInBackground(voiceResourceDir(), voiceUserDataDir());
   return { ok: true, ready };
 });
+ipcMain.on('voice:set-dictionary', (_e, words) => { whisperService.setDictionary(words); });
 // Paste the text into the frontmost app (dictate-anywhere). Returns whether the OS paste actually fired.
 ipcMain.handle('voice:inject', async (_e, text) => {
   try { const pasted = await injectText(String(text || '')); return { ok: true, pasted }; } catch (err) { return { ok: false, error: String(err && err.message ? err.message : err) }; }

@@ -12,6 +12,14 @@ const whisperModels = require('./whisperModels');
 
 // Which catalog model the user picked. Settings pushes it in; until then the catalog default wins.
 let selectedModelId = whisperModels.DEFAULT_MODEL_ID;
+// The user's personal glossary, pushed from Settings; fed to whisper as a decode prompt so names
+// and jargon bias recognition without any retraining (the classic initial-prompt trick).
+let dictionaryPrompt = '';
+
+function setDictionary(words) {
+  const clean = String(words || '').split(',').map((w) => w.trim()).filter(Boolean).slice(0, 60);
+  dictionaryPrompt = clean.length ? `Glossary: ${clean.join(', ')}.` : '';
+}
 
 function modelStatus() {
   return whisperModels.downloadStatus();
@@ -227,6 +235,7 @@ async function transcribe(resourceDir, userDataDir, wavBuffer) {
   const form = new FormData();
   form.append('file', new Blob([wavBuffer], { type: 'audio/wav' }), 'audio.wav');
   form.append('response_format', 'text');
+  if (dictionaryPrompt) form.append('prompt', dictionaryPrompt);
   const res = await fetch(`http://127.0.0.1:${p}/inference`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`whisper-http-${res.status}`);
   const text = (await res.text()).trim();
@@ -287,4 +296,4 @@ async function reprimeAfterWake() {
   return true;
 }
 
-module.exports = { ensureServer, warmInBackground, reprimeAfterWake, transcribe, stopServer, isWarm, setModel, selectedModel, resolveBinary, resolveModel, modelStatus };
+module.exports = { ensureServer, warmInBackground, reprimeAfterWake, transcribe, stopServer, isWarm, setModel, setDictionary, selectedModel, resolveBinary, resolveModel, modelStatus };

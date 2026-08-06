@@ -32,6 +32,7 @@ export interface AppSettings {
   new_agent_shortcut: string;
   dictation_shortcut?: string | null;
   dictation_model?: string | null;
+  dictation_dictionary?: string;
   anthropic_api_key: string | null;
   openai_api_key?: string | null;
   google_api_key?: string | null;
@@ -163,6 +164,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   new_agent_shortcut: 'Meta+l',
   dictation_shortcut: null,
   dictation_model: null,
+  dictation_dictionary: '',
   anthropic_api_key: null,
   browser_homepage: 'https://duckduckgo.com',
   browser_import_signins: false,

@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('openswarm', {
   // Settings' model picker: the catalog with install state, and switching (downloads on demand).
   voiceModels: () => ipcRenderer.invoke('voice:models'),
   voiceSetModel: (id) => ipcRenderer.invoke('voice:set-model', id),
+  voiceSetDictionary: (words) => ipcRenderer.send('voice:set-dictionary', words),
   voiceTranscribe: (wavArrayBuffer) => ipcRenderer.invoke('voice:transcribe', wavArrayBuffer),
   voiceInject: (text) => ipcRenderer.invoke('voice:inject', text),
   // Streaming dictation: chunks flow up fire-and-forget, live partials flow back down.

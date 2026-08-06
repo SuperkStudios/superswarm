@@ -95,6 +95,8 @@ class AppSettings(BaseModel):
     voice_hold_to_talk: bool = True
     # Whisper model id from the desktop catalog (electron/voice/whisperModels.js); None = its default.
     dictation_model: Optional[str] = None
+    # Personal glossary (comma-separated names/jargon) fed to whisper as a decode prompt so "Anthropic" never comes out "and Thropic".
+    dictation_dictionary: str = ""
     anthropic_api_key: Optional[str] = None
     browser_homepage: str = "https://www.google.com"
     # Opt-in: let a blocked browser agent borrow the sign-in you already have in your everyday

@@ -5,6 +5,7 @@ import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
 import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
 import { createSilenceDetector } from './createSilenceDetector';
+import { pushDictation } from './voiceHistory';
 import { createCaptureNode } from './createCaptureNode';
 
 export type VoiceState = 'idle' | 'recording' | 'transcribing' | 'preparing';
@@ -244,6 +245,7 @@ export function useVoiceDictation() {
         // Success is silent: the text landing at the cursor IS the feedback. Only the clipboard
         // fallback still speaks, because the user has to act (paste) to get the text.
         const target = injectAtFocus(text);
+        pushDictation(text, target || 'clipboard');
         if (target) {
           playVoiceCue('paste');
         } else {

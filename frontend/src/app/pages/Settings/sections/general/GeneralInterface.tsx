@@ -16,6 +16,7 @@ import type { SettingsStyles } from '../settingsStyles';
 import { settingSelectAttrs } from '../settingSelect';
 import ShortcutRecorderChip, { dictationDefaultCombo, comboDisplay } from './parts/ShortcutRecorderChip';
 import DictationModelPicker from './parts/DictationModelPicker';
+import DictationHistoryList from './parts/DictationHistoryList';
 
 const GeneralInterface: React.FC<{
   form: AppSettings;
@@ -140,6 +141,28 @@ const GeneralInterface: React.FC<{
           value={form.dictation_model ?? null}
           onChange={(id) => setForm({ ...form, dictation_model: id })}
         />
+      </Box>
+
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_dictionary', 'Dictation dictionary', 'Interface', 'Names and jargon dictation should always spell right.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Dictionary</Typography>
+          <Typography sx={descSx}>Comma-separated names and jargon (people, products, acronyms) that dictation should always spell right.</Typography>
+        </Box>
+        <TextField
+          size="small"
+          placeholder="Anthropic, Kubernetes, OpenSwarm"
+          value={form.dictation_dictionary ?? ''}
+          onChange={(e) => setForm({ ...form, dictation_dictionary: e.target.value })}
+          sx={{ width: 280 }}
+        />
+      </Box>
+
+      <Box sx={{ ...inlineRowSx, alignItems: 'flex-start' }} {...settingSelectAttrs('dictation_history', 'Dictation history', 'Interface', 'Your recent dictations, copyable.')}>
+        <Box sx={{ mr: 3, flexShrink: 0, width: 220 }}>
+          <Typography sx={labelSx}>History</Typography>
+          <Typography sx={descSx}>Recent dictations, stored only on this machine. Copy one back if it landed in the wrong place.</Typography>
+        </Box>
+        <DictationHistoryList />
       </Box>
 
       <Typography sx={sectionSx}>Canvas</Typography>

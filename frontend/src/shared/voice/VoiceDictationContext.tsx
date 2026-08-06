@@ -38,6 +38,13 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     if (dictationModel) void window.openswarm?.voiceSetModel?.(dictationModel);
   }, [dictationModel]);
+
+  // Personal glossary rides every decode as a whisper prompt; push on boot and on change.
+  const dictationDictionary = useAppSelector((s) => s.settings.data.dictation_dictionary ?? '');
+  useEffect(() => {
+    const bridge = window as unknown as { openswarm?: { voiceSetDictionary?: (words: string) => void } };
+    bridge.openswarm?.voiceSetDictionary?.(dictationDictionary);
+  }, [dictationDictionary]);
   const stateRef = useRef(state);
   stateRef.current = state;
   const heldRef = useRef(false);

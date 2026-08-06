@@ -226,16 +226,9 @@ export function useDashboardInteractions({
     if (e.button !== 0) return;
     if (isCardTarget(e.target, e.currentTarget)) return;
     report('dashboard', 'canvas_double_clicked');
-    const vp = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const cx = e.clientX - vp.left;
-    const cy = e.clientY - vp.top;
-    const cur = canvas.actions.getLiveState();
-    const nextZoom = Math.max(0.15, cur.zoom * 0.55);
-    canvas.actions.animateTo({
-      zoom: nextZoom,
-      panX: cx - ((cx - cur.panX) / cur.zoom) * nextZoom,
-      panY: cy - ((cy - cur.panY) / cur.zoom) * nextZoom,
-    });
+    // Double-tap on empty space = show me everything (Eric's call): the same animated fit the
+    // overview affordances use, instead of the old blind 0.55x zoom-out that just lost people.
+    canvas.actions.fitToView();
   }, [canvas.actions]);
 
   // Double-click a card → always expand + center + zoom (cancels pending collapse from single-click)
