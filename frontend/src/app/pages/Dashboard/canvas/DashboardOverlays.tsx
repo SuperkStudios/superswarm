@@ -4,7 +4,6 @@ import DashboardToolbar from '../DashboardToolbar';
 import CanvasControls from '../controls/CanvasControls';
 import HelpPill from '../desktop/HelpPill';
 import CardSearchPalette from '../controls/CardSearchPalette';
-import DirectionHints from '../controls/DirectionHints';
 import WorkflowRunningToast from '@/app/pages/Workflows/WorkflowRunningToast';
 import WorkflowNoticeToast from '@/app/pages/Workflows/WorkflowNoticeToast';
 import MissedRunsToast from '@/app/pages/Workflows/MissedRunsToast';
@@ -22,8 +21,6 @@ import type {
 import type { useCanvasControls } from '../hooks/interaction/useCanvasControls';
 
 type Canvas = ReturnType<typeof useCanvasControls>;
-type Direction = 'left' | 'right' | 'up' | 'down';
-type NeighborDirections = { left: boolean; right: boolean; up: boolean; down: boolean };
 
 interface DashboardOverlaysProps {
   anyFullscreen: boolean;
@@ -36,8 +33,6 @@ interface DashboardOverlaysProps {
   workflowCards: Record<string, WorkflowCardPosition>;
   workflowsHub: WorkflowsHubPosition | null;
   focusedCardId: string | null;
-  shakeDirection: Direction | null;
-  neighborDirections: NeighborDirections;
   toolbarOpen: boolean;
   searchPaletteOpen: boolean;
   newAgentBounce: boolean;
@@ -70,8 +65,6 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
   workflowCards,
   workflowsHub,
   focusedCardId,
-  shakeDirection,
-  neighborDirections,
   toolbarOpen,
   searchPaletteOpen,
   newAgentBounce,
@@ -123,16 +116,7 @@ const DashboardOverlays: React.FC<DashboardOverlaysProps> = ({
       </Box>
       )}
 
-      {/* Arrow navigation hints when zoomed in on a card */}
-      {focusedCardId && canvas.zoom >= 0.4 && (
-        <DirectionHints
-          hasLeft={neighborDirections.left}
-          hasRight={neighborDirections.right}
-          hasUp={neighborDirections.up}
-          hasDown={neighborDirections.down}
-          shakeDirection={shakeDirection}
-        />
-      )}
+      {/* Arrow-key nav still works; its translucent chevron hints are gone by Eric's call (2026-08-06). */}
 
       {/* Floating zoom controls + minimap */}
       {!anyFullscreen && (
