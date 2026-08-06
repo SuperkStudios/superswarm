@@ -98,6 +98,7 @@ class AppSettings(BaseModel):
     # Personal glossary (comma-separated names/jargon) fed to whisper as a decode prompt so "Anthropic" never comes out "and Thropic".
     dictation_dictionary: str = ""
     dictation_sounds: bool = True
+    dictation_haptics: bool = True
     # 0..1; the cue loudness Eric tuned by ear rides here instead of a hardcode.
     dictation_sound_volume: float = 0.35
     # Comma-separated hostnames (and app names) where dictation refuses to record while focused there.

@@ -1,12 +1,11 @@
-import { VOICE_CUE_START, VOICE_CUE_STOP, VOICE_CUE_PASTE, VOICE_CUE_LOCK } from './voiceCueSounds';
+import { VOICE_CUE_START, VOICE_CUE_STOP, VOICE_CUE_LOCK } from './voiceCueSounds';
 
 // Eric picked these from Google's Material product sound set after a bake-off against Wispr Flow's
 // real cues; the synth versions never survived an ear test. Files are embedded data URIs (see
-// voiceCueSounds.ts), pre-instantiated so playback is instant on the press. The grammar mirrors
-// Wispr's three-beat: tap in, tap out, and a rising completion the moment the text actually lands;
-// lock marks a hands-free latch.
+// voiceCueSounds.ts), pre-instantiated so playback is instant on the press. Start and stop taps plus the
+// hands-free lock mark; Eric explicitly cut the text-landed chime.
 
-type CueKind = 'start' | 'stop' | 'paste' | 'lock';
+type CueKind = 'start' | 'stop' | 'lock';
 
 // Pushed from Settings (dictation_sounds / dictation_sound_volume); defaults match the shipped feel.
 let cueEnabled = true;
@@ -17,14 +16,13 @@ export function configureVoiceCues(enabled: boolean, volume: number): void {
   cueVolume = Math.min(1, Math.max(0, volume));
   for (const kind of Object.keys(p_players) as CueKind[]) {
     const a = p_players[kind];
-    if (a) a.volume = kind === 'paste' ? cueVolume * 0.8 : cueVolume;
+    if (a) a.volume = cueVolume;
   }
 }
 
 const SOURCES: Record<CueKind, string> = {
   start: VOICE_CUE_START,
   stop: VOICE_CUE_STOP,
-  paste: VOICE_CUE_PASTE,
   lock: VOICE_CUE_LOCK,
 };
 
@@ -34,7 +32,7 @@ function player(kind: CueKind): HTMLAudioElement {
   let a = p_players[kind];
   if (!a) {
     a = new Audio(SOURCES[kind]);
-    a.volume = kind === 'paste' ? cueVolume * 0.8 : cueVolume;
+    a.volume = cueVolume;
     p_players[kind] = a;
   }
   return a;

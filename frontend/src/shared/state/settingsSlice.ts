@@ -34,6 +34,7 @@ export interface AppSettings {
   dictation_model?: string | null;
   dictation_dictionary?: string;
   dictation_sounds?: boolean;
+  dictation_haptics?: boolean;
   dictation_sound_volume?: number;
   dictation_disabled_surfaces?: string;
   anthropic_api_key: string | null;
@@ -169,6 +170,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   dictation_model: null,
   dictation_dictionary: '',
   dictation_sounds: true,
+  dictation_haptics: true,
   dictation_sound_volume: 0.35,
   dictation_disabled_surfaces: '',
   anthropic_api_key: null,

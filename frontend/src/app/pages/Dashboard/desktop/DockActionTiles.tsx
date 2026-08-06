@@ -20,7 +20,7 @@ interface DockActionTilesProps {
 function DockActionTiles({ tile, onAddBrowser, onApplications, onHoverAway }: DockActionTilesProps): React.ReactElement {
   const dispatch = useAppDispatch();
   const actions: { label: string; Icon: typeof Globe; act: () => void; divider?: boolean }[] = [
-    { label: 'New browser', Icon: Globe, act: onAddBrowser },
+    { label: 'Browsers', Icon: Globe, act: onAddBrowser },
     { label: 'Workflows', Icon: CalendarClock, act: () => dispatch(openWorkflowsApp()) },
     { label: 'Marketplace', Icon: Store, act: () => openMarketplace() },
     { label: 'Settings', Icon: Settings, act: () => dispatch(openSettingsCard()), divider: true },

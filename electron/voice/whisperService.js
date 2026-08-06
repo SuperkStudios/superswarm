@@ -153,7 +153,9 @@ async function p_bootServer(resourceDir, userDataDir) {
   p_sweepStrays(bin);
   const p = await freePort();
   // No --convert: our WAV is already 16kHz mono, and the flag makes whisper demand ffmpeg on PATH at boot; a Finder-launched app has no brew PATH, so it exited before ever binding the port.
-  const args = ['-m', model, '--port', String(p), '-nt'];
+  // Beam search (5) over greedy: measurably fewer recognition errors at ~1.5x decode cost; Eric
+  // rates accuracy above stop-latency.
+  const args = ['-m', model, '--port', String(p), '-nt', '-bs', '5'];
   // A multilingual model (no .en in the filename) auto-detects the spoken language per utterance.
   if (!path.basename(model).includes('.en')) args.push('-l', 'auto');
   const child = spawn(bin, args, {

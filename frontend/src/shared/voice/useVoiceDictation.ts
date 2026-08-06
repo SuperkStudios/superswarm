@@ -199,7 +199,7 @@ export function useVoiceDictation() {
       recRef.current = { ctx, stream, node: capture.node, requestFlush: capture.requestFlush, source, chunks, streaming };
       setState('recording');
       playVoiceCue('start');
-      void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
+      if (store.getState().settings.data.dictation_haptics ?? true) void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('generic');
     } catch (err) {
       // Release whatever was acquired before the failure, or the OS mic indicator stays lit forever on a half-started session.
       try { stream?.getTracks().forEach((t) => t.stop()); } catch { /* already dead */ }
@@ -220,7 +220,7 @@ export function useVoiceDictation() {
     if (rec) await rec.requestFlush();
     const samples = teardown();
     playVoiceCue('stop');
-    void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('alignment');
+    if (store.getState().settings.data.dictation_haptics ?? true) void (window.openswarm as { haptic?: (p: string) => Promise<boolean> } | undefined)?.haptic?.('alignment');
     setState('transcribing');
     try {
       if (!samples || samples.length < VOICE_SAMPLE_RATE * 0.2) { // < 0.2s = a misfire
@@ -229,14 +229,16 @@ export function useVoiceDictation() {
         setState('idle');
         return;
       }
-      // The streamed assembly (each phrase decoded once at its boundary) is the fast path: stop only
-      // pays for the final open phrase. Any doubt (degraded, empty) falls back to one full-clip decode.
-      let res: { ok: boolean; text?: string; error?: string } | undefined;
+      // Accuracy first (Eric's call): phrases decoded in isolation lose whisper's cross-phrase
+      // context, which read as "sometimes fine, sometimes off". The FULL clip is always decoded at
+      // stop and wins; the streamed assembly only stands in if the batch decode fails outright.
+      let streamedFallback: string | null = null;
       if (streaming) {
         const sres = await window.openswarm?.voiceStreamStop?.();
-        if (sres?.ok && sres.text && !sres.degraded) res = { ok: true, text: sres.text };
+        if (sres?.ok && sres.text) streamedFallback = sres.text;
       }
-      if (!res) {
+      let res: { ok: boolean; text?: string; error?: string } | undefined;
+      {
         // Whisper hallucinates plausible punctuation on near-silence; a clip whose level never beat the streaming RMS gate gets "didn't catch that", never a decode.
         let sumSq = 0;
         for (let i = 0; i < samples.length; i += 4) sumSq += samples[i] * samples[i];
@@ -246,6 +248,7 @@ export function useVoiceDictation() {
         } else {
           const wav = encodeWav(samples);
           res = await window.openswarm?.voiceTranscribe?.(wav);
+          if ((!res || !res.ok || !res.text) && streamedFallback) res = { ok: true, text: streamedFallback };
         }
       }
       // Whisper captions non-speech in brackets/parens ("[ Background sounds ]", "(laughs)") and marks speaker turns with ">>"; those are annotations, not dictation.
@@ -275,12 +278,9 @@ export function useVoiceDictation() {
         const target = injectAtFocus(text);
         pushDictation(text, target || 'clipboard');
         learnFromTranscript(text);
-        if (target) {
-          playVoiceCue('paste');
-        } else {
+        if (!target) {
           const inj = await window.openswarm?.voiceInject?.(text);
-          if (inj?.pasted) playVoiceCue('paste');
-          else setFeedback({ tone: 'ok', icon: 'clipboard', text: `${text}  (copied, press Cmd+V)`, at: Date.now() });
+          if (!inj?.pasted) setFeedback({ tone: 'ok', icon: 'clipboard', text: `${text}  (copied, press Cmd+V)`, at: Date.now() });
         }
         setState('idle');
       } else if (res?.ok && !res.text) {

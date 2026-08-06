@@ -84,10 +84,10 @@ const DictationSettings: React.FC<{
         />
       </Box>
 
-      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_sounds', 'Dictation sounds', 'Interface', 'The start, stop, and text-landed cues.')}>
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_sounds', 'Dictation sounds', 'Interface', 'The start and stop cues.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Sounds</Typography>
-          <Typography sx={descSx}>The start, stop, and text-landed cues, and how loud they play.</Typography>
+          <Typography sx={descSx}>The start and stop cues, and how loud they play.</Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Slider
@@ -105,6 +105,18 @@ const DictationSettings: React.FC<{
             onChange={(e) => setForm({ ...form, dictation_sounds: e.target.checked })}
           />
         </Box>
+      </Box>
+
+      <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_haptics', 'Dictation haptics', 'Interface', 'Trackpad taps on start and stop.')}>
+        <Box sx={{ mr: 3 }}>
+          <Typography sx={labelSx}>Haptics</Typography>
+          <Typography sx={descSx}>Trackpad taps when dictation starts and stops.</Typography>
+        </Box>
+        <Switch
+          size="small"
+          checked={form.dictation_haptics ?? true}
+          onChange={(e) => setForm({ ...form, dictation_haptics: e.target.checked })}
+        />
       </Box>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_disabled_surfaces', 'Dictation off for sites', 'Interface', 'Sites where the dictation key does nothing.')}>
