@@ -800,12 +800,23 @@ const ThinkingBubble: React.FC<{
   );
 };
 
+const REASONING_VARIANTS = [
+  "It's still thinking, we just aren't allowed to peek behind the curtain.",
+  "Wheels are turning, but this provider keeps its thoughts private.",
+  "Brain's busy back there; the provider just isn't letting us listen in.",
+  "Mulling it over quietly. Only Claude shows its work out loud.",
+  "Thinking happened, just not in the open. (GPT and Gemini play their cards close.)",
+  "Reasoning's underway, but this provider doesn't broadcast it. Trust the process.",
+];
+
 // Shown when the model thought but the provider didn't expose the text.
 const ProviderReasoningExplanation: React.FC<{
   isStreaming: boolean;
   tokens: number | null;
   elapsedMs: number | null;
 }> = ({ isStreaming, tokens, elapsedMs }) => {
+  // Hook first, unconditionally: isStreaming flips false on a mounted instance when reasoning ends.
+  const idx = useMemo(() => Math.floor(Math.random() * REASONING_VARIANTS.length), []);
   if (isStreaming) {
     return (
       <Box component="span" sx={{ fontStyle: 'italic', opacity: 0.85 }}>
@@ -826,16 +837,7 @@ const ProviderReasoningExplanation: React.FC<{
     }
     return segs.join(', ');
   })();
-  const variants = [
-    "It's still thinking, we just aren't allowed to peek behind the curtain.",
-    "Wheels are turning, but this provider keeps its thoughts private.",
-    "Brain's busy back there; the provider just isn't letting us listen in.",
-    "Mulling it over quietly. Only Claude shows its work out loud.",
-    "Thinking happened, just not in the open. (GPT and Gemini play their cards close.)",
-    "Reasoning's underway, but this provider doesn't broadcast it. Trust the process.",
-  ];
-  const idx = useMemo(() => Math.floor(Math.random() * variants.length), []);
-  const line = variants[idx];
+  const line = REASONING_VARIANTS[idx];
 
   return (
     <Box component="span" sx={{ fontStyle: 'italic', opacity: 0.85 }}>
@@ -858,12 +860,11 @@ interface Props {
   revealRef?: React.RefObject<HTMLElement | null>;
 }
 
-const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, onSaveEdit, onCancelEdit, isStreaming, dynamicTurnLabel, viewportHeight = 0, viewportWidth = 0, scrollRoot = null, revealRef }) => {
+// Role dispatcher with a FIXED hook count: the chat body's ten-plus hooks live in ChatMessageBubble
+// below, so a mounted instance whose role flips can never trip React's positional hook matching.
+const MessageBubble: React.FC<Props> = React.memo((props) => {
   const c = useClaudeTokens();
-  const dispatch = useAppDispatch();
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const bubbleRootRef = React.useRef<HTMLDivElement | null>(null);
-  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const { message, isStreaming, dynamicTurnLabel, revealRef } = props;
   const { role, content } = message;
 
   if (role === 'system') {
@@ -903,6 +904,17 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
   if (role === 'tool_call' || role === 'tool_result') {
     return null;
   }
+
+  return <ChatMessageBubble {...props} />;
+});
+
+const ChatMessageBubble: React.FC<Props> = ({ message, editing = false, onSaveEdit, onCancelEdit, isStreaming, dynamicTurnLabel, viewportHeight = 0, viewportWidth = 0, scrollRoot = null, revealRef }) => {
+  const c = useClaudeTokens();
+  const dispatch = useAppDispatch();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const bubbleRootRef = React.useRef<HTMLDivElement | null>(null);
+  const contentRef = React.useRef<HTMLDivElement | null>(null);
+  const { role, content } = message;
 
   const isUser = role === 'user';
   const rawText = typeof content === 'string' ? content : JSON.stringify(content);
@@ -1303,6 +1315,6 @@ const MessageBubble: React.FC<Props> = React.memo(({ message, editing = false, o
       />
     </Box>
   );
-});
+};
 
 export default MessageBubble;

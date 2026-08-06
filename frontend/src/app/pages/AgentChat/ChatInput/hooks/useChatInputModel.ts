@@ -35,6 +35,7 @@ export function useChatInputModel(model: string) {
         max_completion_tokens: m.max_completion_tokens ?? null,
         tiers: Array.isArray(m.tiers) && m.tiers.length === 3 ? m.tiers : undefined,
         billing_kind: m.billing_kind,
+        api: m.api,
       }));
       if (enriched.length) grouped[prov] = sortModelsForPicker(enriched);
       for (const m of enriched) {
