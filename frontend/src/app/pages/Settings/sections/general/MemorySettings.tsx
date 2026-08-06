@@ -32,7 +32,8 @@ const MemorySettings: React.FC<{
 
   const refresh = async (): Promise<void> => {
     try {
-      const res = await fetch(`${API_BASE}/memory`);
+      // no-store: Chromium happily serves a cached list, which hides facts the distiller just added.
+      const res = await fetch(`${API_BASE}/memory`, { cache: 'no-store' });
       if (res.ok) setFacts(((await res.json()) as { facts: MemoryFact[] }).facts);
     } catch { /* backend down reads as an empty list, never a crash */ }
   };

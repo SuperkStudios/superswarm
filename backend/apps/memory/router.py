@@ -47,6 +47,20 @@ async def edit_fact(fact_id: str, body: FactBody) -> MemoryFact:
     return fact
 
 
+@memory.router.post("/distill/{session_id}")
+@typechecked
+async def distill(session_id: str) -> Dict[str, List[str]]:
+    from backend.apps.agents.agents import agent_manager
+    from backend.apps.memory.distill import distill_session_memory
+    session = agent_manager.sessions.get(session_id)
+    if not session:
+        try:
+            session = await agent_manager.resume_session(session_id)
+        except ValueError:
+            return {"added": []}
+    return {"added": await distill_session_memory(session)}
+
+
 @memory.router.delete("/{fact_id}")
 @typechecked
 async def remove_fact(fact_id: str) -> Dict[str, bool]:

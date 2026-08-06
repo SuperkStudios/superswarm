@@ -33,6 +33,8 @@ const FollowupChips: React.FC<FollowupChipsProps> = ({ sessionId, busy, messageC
         const tok = (() => { try { return getAuthToken(); } catch { return ''; } })();
         const headers: Record<string, string> = {};
         if (tok) headers['Authorization'] = `Bearer ${tok}`;
+        // Same after-turn beat also feeds the memory distiller; fire-and-forget, backend gates cost.
+        void fetch(`${API_BASE}/memory/distill/${sessionId}`, { method: 'POST', headers }).catch(() => {});
         const resp = await fetch(`${API_BASE}/agents/sessions/${sessionId}/followups?count=3`, { headers });
         if (!resp.ok || seq !== fetchSeqRef.current) return;
         const data = await resp.json();
