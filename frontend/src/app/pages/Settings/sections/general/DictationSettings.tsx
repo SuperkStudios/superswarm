@@ -53,10 +53,20 @@ const DictationSettings: React.FC<{
           <Typography sx={labelSx}>Dictation shortcut</Typography>
           <Typography sx={descSx}>Works anywhere, even with the app in the background.</Typography>
         </Box>
-        <ShortcutRecorderChip
-          value={form.dictation_shortcut || dictationDefaultCombo()}
-          onChange={(combo) => setForm({ ...form, dictation_shortcut: combo })}
-        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {form.dictation_shortcut ? (
+            <Typography
+              onClick={() => setForm({ ...form, dictation_shortcut: null })}
+              sx={{ fontSize: '0.75rem', color: 'text.secondary', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+            >
+              Reset to {comboDisplay(dictationDefaultCombo())}
+            </Typography>
+          ) : null}
+          <ShortcutRecorderChip
+            value={form.dictation_shortcut || dictationDefaultCombo()}
+            onChange={(combo) => setForm({ ...form, dictation_shortcut: combo })}
+          />
+        </Box>
       </Box>
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('dictation_model', 'Dictation model', 'Interface', 'Speech model used for dictation; bigger is more accurate but slower.')}>
