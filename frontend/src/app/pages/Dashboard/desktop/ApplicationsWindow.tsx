@@ -19,33 +19,22 @@ function hueFor(name: string): number {
   return h % 360;
 }
 
+// Every tile is a generated ICON (gradient + monogram): a screenshot crushed to 68px reads as mud,
+// so the screenshot lives in the hover preview instead and the row stays dock-uniform.
 function AppTile({ output }: { output: Output }): React.ReactElement {
-  const tile = {
-    width: 68,
-    height: 68,
-    borderRadius: '16px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    // Hairline inset so screenshots and light tiles read as crafted app icons on the glass, not raw pasted images.
-    boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14), 0 6px 18px rgba(0,0,0,0.32)',
-  } as const;
-  if (output.thumbnail) {
-    return (
-      <Box sx={{ ...tile, position: 'relative', overflow: 'hidden' }}>
-        <Box component="img" src={output.thumbnail} alt="" sx={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-        {/* A soft top gloss makes a raw screenshot read as an app ICON instead of a pasted image. */}
-        <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0) 46%)', pointerEvents: 'none' }} />
-      </Box>
-    );
-  }
   const glyph = (output.icon || '').trim();
   const h = hueFor(output.name || '?');
   return (
     <Box
       sx={{
-        ...tile,
+        width: 68,
+        height: 68,
+        borderRadius: '16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14), 0 6px 18px rgba(0,0,0,0.32)',
         background: `linear-gradient(160deg, hsl(${h}, 42%, 52%), hsl(${(h + 24) % 360}, 48%, 34%))`,
         fontSize: glyph && glyph.length <= 3 ? '1.5rem' : '1.375rem',
         fontWeight: 590,
@@ -57,9 +46,37 @@ function AppTile({ output }: { output: Output }): React.ReactElement {
   );
 }
 
+// Quick-look screenshot beside the hovered tile; fixed so the grid scroller can't clip it.
+function AppHoverPreview({ preview }: { preview: { src: string; x: number; y: number; below: boolean } }): React.ReactElement {
+  return (
+    <Box
+      sx={{
+        position: 'fixed',
+        left: preview.x,
+        top: preview.y,
+        transform: 'translateX(-50%)',
+        zIndex: 30,
+        pointerEvents: 'none',
+        width: 220,
+        borderRadius: '12px',
+        overflow: 'hidden',
+        boxShadow: '0 16px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.12)',
+        '@keyframes appprev-in': {
+          from: { opacity: 0, transform: `translateX(-50%) translateY(${preview.below ? -4 : 4}px)` },
+          to: { opacity: 1, transform: 'translateX(-50%) translateY(0)' },
+        },
+        animation: 'appprev-in 0.14s ease-out 0.3s both',
+      }}
+    >
+      <Box component="img" src={preview.src} alt="" sx={{ display: 'block', width: '100%', aspectRatio: '16 / 10', objectFit: 'cover' }} />
+    </Box>
+  );
+}
+
 /** Launchpad-style window over the canvas: the user's OpenSwarm apps, newest first. Deliberately NOT the machine's /Applications; this launcher is for things built in OpenSwarm. */
 function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowProps): React.ReactElement {
   const [query, setQuery] = useState('');
+  const [preview, setPreview] = useState<{ src: string; x: number; y: number; below: boolean } | null>(null);
 
   const apps = useMemo(() => {
     const all = Object.values(outputs);
@@ -153,6 +170,13 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
                 <Box
                   key={output.id}
                   onClick={() => { onOpenApp(output.id); onClose(); }}
+                  onMouseEnter={(e: React.MouseEvent<HTMLElement>) => {
+                    if (!output.thumbnail) { setPreview(null); return; }
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const below = r.top < 170;
+                    setPreview({ src: output.thumbnail, x: r.left + r.width / 2, y: below ? r.bottom + 10 : r.top - 148, below });
+                  }}
+                  onMouseLeave={() => setPreview(null)}
                   title={output.description || output.name}
                   sx={{
                     display: 'flex',
@@ -180,6 +204,7 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
           )}
         </Box>
       </Box>
+      {preview && <AppHoverPreview preview={preview} />}
     </>
   );
 }
