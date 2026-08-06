@@ -2,9 +2,11 @@
 // LEARNED from their own dictations (a capitalized word that keeps showing up is a name worth
 // biasing toward). All local; main receives one merged comma list via voiceSetDictionary.
 
-const LEARNED_KEY = 'osw-dictation-learned';
+// v2: the v1 store learned junk from garbled transcripts and fed it BACK into decoding (a
+// degradation loop); new key orphans it, and the merge bar is higher.
+const LEARNED_KEY = 'osw-dictation-learned-v2';
 const LEARNED_CAP = 40;
-const MERGE_TOP = 20;
+const MERGE_TOP = 12;
 
 // Words that start sentences get capitalized for free; only mid-sentence capitals count as names.
 const NOUN_RE = /(?<![.!?]\s)(?<!^)\b([A-Z][a-zA-Z]{2,}(?:'s)?)\b/g;
@@ -24,7 +26,7 @@ function readLearned(): Record<string, number> {
 function pushMerged(): void {
   const counts = readLearned();
   const learned = Object.entries(counts)
-    .filter(([, n]) => n >= 2)
+    .filter(([w, n]) => n >= 3 && w.length >= 4)
     .sort((a, b) => b[1] - a[1])
     .slice(0, MERGE_TOP)
     .map(([w]) => w);

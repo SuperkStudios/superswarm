@@ -175,19 +175,10 @@ export function useVoiceDictation() {
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
       const streamRes = await window.openswarm?.voiceStreamStart?.();
       const streaming = streamRes?.ok === true;
-      // Whisper-mode: quiet speech gets a gentle, slow-moving boost (3x cap) so murmured dictation
-      // still clears the decode gates; loud input passes through untouched, and the gain glides so
-      // it can never pump. Applied to BOTH the streamed chunks and the stored clip.
-      let agcGain = 1;
+      // No AGC: boosting "quiet" speech clipped NORMAL speech into distortion and wrecked accuracy
+      // (Eric's garbled-history report). Whisper handles real levels fine; a whisper-mode boost can
+      // only come back as an opt-in with a proper peak limiter, never inline on the hot path.
       const capture = await createCaptureNode(ctx, (i16) => {
-        let sumSq = 0;
-        for (let i = 0; i < i16.length; i += 8) { const v = i16[i] / 0x8000; sumSq += v * v; }
-        const rawRms = Math.sqrt(sumSq / Math.max(1, Math.floor(i16.length / 8)));
-        const desired = rawRms > 0.004 && rawRms < 0.03 ? Math.min(3, 0.06 / rawRms) : 1;
-        agcGain = agcGain * 0.9 + desired * 0.1;
-        if (agcGain > 1.02) {
-          for (let i = 0; i < i16.length; i++) i16[i] = Math.max(-32768, Math.min(32767, Math.round(i16[i] * agcGain)));
-        }
         if (streaming) window.openswarm?.voiceStreamChunk?.(i16.buffer as ArrayBuffer);
         const data = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
