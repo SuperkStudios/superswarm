@@ -93,7 +93,15 @@ export function useDashboardShortcuts({
   useEffect(() => {
     const handleReopen = (e: KeyboardEvent) => {
       if (!isActive) return;
-      if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey || e.key.toLowerCase() !== 't') return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const isReopenT = e.shiftKey && e.key.toLowerCase() === 't';
+      // Cmd+Z = undo my last close (chats, browsers, apps), the muscle memory for "I deleted that by accident"; editables keep text-undo.
+      const isUndoZ = !e.shiftKey && e.key.toLowerCase() === 'z';
+      if (!isReopenT && !isUndoZ) return;
+      if (isUndoZ) {
+        const t = e.target as HTMLElement;
+        if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.isContentEditable) return;
+      }
       e.preventDefault();
       dispatch(reopenLastClosed());
     };

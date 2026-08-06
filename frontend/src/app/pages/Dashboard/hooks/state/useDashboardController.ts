@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useElementSelection } from '@/app/components/editor/ElementSelectionContext';
+import { clipboardCardToSelectedElement } from '@/app/pages/AgentChat/ChatInput/hooks/pasteCards';
+import { TOOLBAR_OWNER_ID } from '@/app/pages/Dashboard/DashboardToolbar';
+import type { ClipboardCard } from '@/shared/dashboardClipboard';
 import { useCanvasControls } from '../interaction/useCanvasControls';
 import { useDashboardSelection } from './useDashboardSelection';
 import { useDashboardSelectors } from './useDashboardSelectors';
@@ -236,6 +239,15 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     return () => window.removeEventListener('openswarm:dictation-fallback', onDictation);
   }, [isActive, handleStarter]);
 
+  const onCopiedToContext = useCallback((copied: ClipboardCard[]) => {
+    if (!elementSelectionCtx) return;
+    for (const card of copied) {
+      const el = clipboardCardToSelectedElement(card);
+      if (el) elementSelectionCtx.addElementForOwner(TOOLBAR_OWNER_ID, el);
+    }
+    setToolbarOpen(true);
+  }, [elementSelectionCtx, setToolbarOpen]);
+
   useDashboardClipboard({
     isActive,
     dashboardId,
@@ -246,6 +258,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     browserCards,
     outputs,
     expandedSessionIds,
+    onCopiedToContext,
   });
 
   // ---- Arrow key card navigation (when zoomed in on a card) ----
