@@ -176,6 +176,20 @@ function stopObserving(): void {
 const ENTER_MS = 260;
 const ENTER_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 
+// The passed origin is REACT'S base at call time, but the card may still be repainting (a pill
+// entering fullscreen commits a different left/top one frame later), and a delta computed against
+// the wrong base parks the tile offset forever (the minimized-chat-to-fullscreen bug, 2026-08-06).
+// offsetLeft/offsetTop ignore transforms, so they are the layout truth to re-baseline against.
+// Derive the origin from observed reality: painted rect minus the transform we just wrote. Agent
+// cards keep their position in framer's transform (computed left is 0), browser cards in left/top
+// classes; solving painted = pan + zoom*(origin + tx) for origin absorbs every variant, and once
+// true, every later camera write applies correctly.
+function rebaseline(entry: TiledEntry, cam: Camera, tx: number, ty: number): void {
+  const r = entry.el.getBoundingClientRect();
+  entry.originX = (r.left - cam.panX) / cam.zoom - tx;
+  entry.originY = (r.top - cam.panY) / cam.zoom - ty;
+}
+
 export function registerTiledCard(id: string, zone: string, origin: { x: number; y: number }, cam: Camera): void {
   const el = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(id)}"]`);
   if (!el) return;
@@ -186,7 +200,21 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   workspace = null;
   lastCamera = cam;
   el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
-  window.setTimeout(() => { if (entries.get(id)?.el === el) el.style.transition = ''; }, ENTER_MS + 40);
+  window.setTimeout(() => {
+    const live = entries.get(id);
+    if (live?.el !== el) return;
+    // Transition is over: the rect now reflects exactly the transform we last wrote, so the
+    // origin solves cleanly (mid-transition reads would bake animation frames into it).
+    el.style.transition = '';
+    const r = zoneRect(live.zone);
+    if (r) {
+      const s2 = 1 / lastCamera.zoom;
+      const tx = (r.x - lastCamera.panX) * s2 - live.originX;
+      const ty = (r.y - lastCamera.panY) * s2 - live.originY;
+      rebaseline(live, lastCamera, tx, ty);
+    }
+    applyEntry(live, lastCamera);
+  }, ENTER_MS + 40);
   applyEntry(entry, cam);
 }
 
