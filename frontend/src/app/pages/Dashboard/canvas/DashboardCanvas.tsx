@@ -373,7 +373,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
 
       {!anyFullscreen && (
         <DesktopDock
-          sessions={sessions}
           cards={cards}
           viewCards={viewCards}
           browserCards={browserCards}
