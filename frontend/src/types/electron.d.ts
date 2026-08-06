@@ -101,6 +101,7 @@ declare global {
     onOauthClaim?: (cb: (url: string) => void) => () => void;
     notify?: (payload: OpenSwarmNotifyRequest) => Promise<boolean>;
     onNotificationAction?: (cb: (payload: OpenSwarmNotifyAction) => void) => () => void;
+    revealPath?: (filePath: string) => Promise<{ ok: boolean }>;
   }
 
   interface Window {

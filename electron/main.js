@@ -3168,6 +3168,19 @@ ipcMain.handle('get-webview-preload-path', () => {
   return `file://${path.join(__dirname, 'webview-preload.js')}`;
 });
 
+// Reveal a user-attached composer file in Finder/Explorer. Reveal-only on an existing path:
+// showItemInFolder never opens or executes the file, so the worst misuse is popping a Finder window.
+ipcMain.handle('files:reveal', (event, filePath) => {
+  try {
+    const p = path.resolve(String(filePath || ''));
+    if (!fs.existsSync(p)) return { ok: false };
+    shell.showItemInFolder(p);
+    return { ok: true };
+  } catch (_) {
+    return { ok: false };
+  }
+});
+
 // Reveal a diagnostics bundle in the file manager so the user can drag it into a GitHub issue.
 // Scoped HARD to the backend's diagnostics dir: this must never become an arbitrary-path opener.
 ipcMain.handle('help:reveal-bundle', (event, folderPath) => {

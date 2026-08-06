@@ -90,6 +90,8 @@ contextBridge.exposeInMainWorld('openswarm', {
   },
   // Reveal a diagnostics folder in Finder/Explorer (path validated in main; diagnostics dir only).
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
+  // Reveal a user-attached file in Finder/Explorer (reveal-only; main checks existence).
+  revealPath: (filePath) => ipcRenderer.invoke('files:reveal', filePath),
 
   // Native OS notification for a finished workflow run, posted by the MAIN process
   // so it survives a minimized/hidden/backgrounded renderer (the renderer's own
