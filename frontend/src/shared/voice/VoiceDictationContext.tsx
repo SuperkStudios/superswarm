@@ -9,7 +9,7 @@ import VoiceOverlay from './VoiceOverlay';
 // out-of-sync state. Mounted once near the app root.
 
 export function VoiceDictationProvider({ children }: { children: React.ReactNode }): React.ReactElement {
-  const { state, lastText, error, pct, feedback, partial, toggle, start, stop, volumeRef } = useVoiceDictation();
+  const { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, volumeRef } = useVoiceDictation();
   const holdMode = useAppSelector((s) => s.settings.data.voice_hold_to_talk ?? true);
   const dictationShortcut = useAppSelector((s) => s.settings.data.dictation_shortcut ?? null);
   const dictationModel = useAppSelector((s) => s.settings.data.dictation_model ?? null);
@@ -61,8 +61,22 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
     return () => { offHold?.(); };
   }, [pressStart, pressEnd]);
 
+  // Wispr grammar: Esc while the mic is hot throws the take away.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && stateRef.current === 'recording') {
+        e.stopPropagation();
+        cancel();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [cancel]);
+
+  const confirmRecording = useCallback((): void => { void stop(); }, [stop]);
+
   return (
-    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, partial, toggle, pressStart, pressEnd, holdMode, volumeRef }}>
+    <VoiceContext.Provider value={{ state, lastText, error, pct, feedback, partial, toggle, pressStart, pressEnd, confirmRecording, cancelRecording: cancel, holdMode, volumeRef }}>
       {children}
       <VoiceOverlay />
     </VoiceContext.Provider>
