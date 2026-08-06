@@ -65,9 +65,8 @@ const VoiceCapsule: React.FC<{
     // transcript away from the field the user is dictating into.
     onMouseDown={(e) => e.preventDefault()}
     sx={{
-      // A droplet under the chrome: sits BELOW the frameless-window drag strip (y 3-25) with extra
-      // clearance, because overshooting to the very top edge triggers the dashboard chrome.
-      position: 'fixed', top: 38, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
+      // Inline with the Help pill (top 14); the no-drag island is what beats the frameless drag strip here.
+      position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
       WebkitAppRegion: 'no-drag',
       display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, py: 0.5,
       borderRadius: '14px 14px 22px 22px',
@@ -161,7 +160,7 @@ const IdlePill: React.FC<{ onPressStart: () => void; onPressEnd: () => void }> =
       role="button"
       aria-label="Start dictation"
       sx={{
-        position: 'fixed', top: 14, left: '50%', transform: 'translateX(-50%)', zIndex: 2147482998,
+        position: 'fixed', top: hover ? 14 : 23, left: '50%', transform: 'translateX(-50%)', zIndex: 2147482998,
         WebkitAppRegion: 'no-drag', cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
         height: hover ? 24 : 8, minWidth: hover ? 74 : 44, px: hover ? 1.25 : 0,
@@ -252,7 +251,7 @@ const VoiceOverlay: React.FC = () => {
       sx={{
         // Hangs just under the droplet so the live words read as its tail.
         position: 'fixed',
-        top: 86,
+        top: 64,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 2147483000,
