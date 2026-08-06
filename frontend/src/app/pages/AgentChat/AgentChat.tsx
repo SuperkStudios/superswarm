@@ -109,9 +109,9 @@ const WINDOW_MIN_ITEMS = 60;
 // Floor on the mounted item count so a single very tall item can't strand us with an effectively empty window.
 const MIN_WINDOW_BUFFER_ITEMS = 6;
 
-// Bootstrap count for the initial bottom-anchored slice (on open and on scroll-to-bottom): enough rows to cover the viewport + buffer using the same row-height estimate the solver uses, floored. It's only a seed — the pixel solver (computeDesiredWindow) refines the window to exact from measured heights on the next frame, so this never needs to be precise.
+// Bootstrap count for the initial bottom-anchored slice (on open and on scroll-to-bottom): ONE screen's worth, so first paint mounts the minimum that fills the viewport. The post-settle recompute (scheduleWindowRecompute after the pin) widens to the full pixel band, so the buffer arrives a few frames later instead of taxing open-to-paint.
 function initialSeedItems(viewportHeight: number): number {
-  const fillPx = (1 + WINDOW_BUFFER_SCREENS_PER_SIDE) * Math.max(1, viewportHeight);
+  const fillPx = 1.25 * Math.max(1, viewportHeight);
   return Math.max(MIN_WINDOW_BUFFER_ITEMS, Math.ceil(fillPx / RENDER_ITEM_ESTIMATED_HEIGHT));
 }
 
@@ -802,6 +802,22 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     stickToBottomIfNeeded();
     // Structural triggers only: a new message lands or a stream starts/ends. Streaming content updates trigger this via <StreamingBubble onStreamGrew={stickToBottomIfNeeded} /> instead so AgentChat stays dormant during the 30Hz delta storm.
   }, [session?.messages.length, streamingMessageId, stickToBottomIfNeeded]);
+
+  // While a stream is LIVE, pin every frame: smooth-text grows between onStreamGrew callbacks, and the callback's own rAF deferral let the bottom drift up to ~100px for several frames. Parks the moment the stream ends, so idle cost is zero.
+  useEffect(() => {
+    if (!streamingMessageId) return undefined;
+    let raf = 0;
+    const pin = () => {
+      const el = scrollContainerRef.current;
+      if (el && isAtBottomRef.current && el.scrollHeight !== lastScrollHeightRef.current) {
+        lastScrollHeightRef.current = el.scrollHeight;
+        el.scrollTop = el.scrollHeight;
+      }
+      raf = requestAnimationFrame(pin);
+    };
+    raf = requestAnimationFrame(pin);
+    return () => cancelAnimationFrame(raf);
+  }, [streamingMessageId]);
 
   // Stream-end re-stick. When a stream finishes, the live bubble (smooth-revealed text) is replaced by the committed bubble rendering FULL markdown with contentVisibility placeholders; as those resolve, Chromium's overflow-anchor re-anchors to an EARLIER element (the user message), yanking the view up to "the top of the user input". A single deferred scroll loses the race because that anchor shift fires an onScroll that flips isAtBottomRef false before we run. Fix: snapshot the "was following" intent the moment streaming stops (captured continuously during the stream, before any completion re-render), then pin to bottom across a short multi-frame window that OVERRIDES the layout-induced flip. A genuine user scroll-away (wheel/touch) during that window aborts the pin, honoring "unless the user scrolls up".
   const prevStreamingIdRef = useRef<string | null>(null);
