@@ -32,7 +32,9 @@ export function useGrainTileUrl(opacity: number): string | null {
     } else {
       const img = sourceImage ?? new Image();
       sourceImage = img;
-      img.onload = () => bake(img);
+      // addEventListener, never onload=: with two consumers (shell + canvas) the second onload
+      // assignment silently erased the first, and that instance stayed grainless forever.
+      img.addEventListener('load', () => bake(img), { once: true });
       if (!img.src) img.src = './grain-texture.png';
       if (img.complete && img.naturalWidth > 0) bake(img);
     }

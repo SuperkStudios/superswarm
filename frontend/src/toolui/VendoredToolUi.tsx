@@ -39,6 +39,8 @@ interface VendoredToolUiProps {
   quietFail?: boolean;
 }
 
+const warnedShapes = new Set<string>();
+
 type Gate =
   | { state: 'pending' }
   | { state: 'ok'; parsed: Record<string, unknown> }
@@ -67,9 +69,11 @@ function repairCommonAgentShapes(props: Record<string, unknown>): Record<string,
       if (typeof o === 'string') return { id: slugFor(o, i), label: o };
       if (o && typeof o === 'object' && !Array.isArray(o)) {
         const obj = { ...(o as Record<string, unknown>) };
-        if (obj.id == null || obj.id === '') obj.id = slugFor(obj.label, i);
+        // Agents reach for value/name/key and title/text as synonyms; honor them before inventing a slug.
+        if (obj.id == null || obj.id === '') obj.id = obj.value ?? obj.key ?? obj.name ?? null;
+        if (obj.id == null || obj.id === '') obj.id = slugFor(obj.label ?? obj.title ?? obj.text, i);
         else if (typeof obj.id !== 'string') obj.id = String(obj.id);
-        if (typeof obj.label !== 'string' || !obj.label) obj.label = String(obj.label ?? obj.id);
+        if (typeof obj.label !== 'string' || !obj.label) obj.label = String(obj.label ?? obj.title ?? obj.text ?? obj.name ?? obj.id);
         return obj;
       }
       return o;
@@ -93,7 +97,14 @@ function repairCommonAgentShapes(props: Record<string, unknown>): Record<string,
     });
   }
   if (Array.isArray(out.data)) {
+    // Row arrays (instead of keyed objects) zip against the column keys, in order.
+    const colKeys = Array.isArray(out.columns)
+      ? (out.columns as Array<Record<string, unknown>>).map((c, i) => String((c && typeof c === 'object' ? (c.key ?? c.id ?? c.label) : c) ?? `col${i + 1}`))
+      : null;
     out.data = out.data.map((row) => {
+      if (Array.isArray(row) && colKeys && colKeys.length > 0) {
+        return Object.fromEntries(row.map((v, i) => [colKeys[i] ?? `col${i + 1}`, v]));
+      }
       if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
       return Object.fromEntries(Object.entries(row as Record<string, unknown>).map(([k, v]) => {
         if (v !== null && typeof v === 'object' && !Array.isArray(v)) return [k, JSON.stringify(v)];
@@ -171,12 +182,13 @@ function VendoredToolUi({ name, props, extraProps, quietFail = false }: Vendored
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry, propsKey]);
 
-  const warnedRef = useRef<string | null>(null);
   if (!entry) return null;
   if (gate.state === 'bad') {
-    // Schema jargon is for the console; the transcript gets one quiet human line. Once per payload, not per render.
-    if (warnedRef.current !== propsKey) {
-      warnedRef.current = propsKey;
+    // Schema jargon is for the console, once per component+issue SHAPE for the whole session; a
+    // transcript full of the same agent mistake used to print 37 copies of the identical warning.
+    const shapeKey = `${name}:${gate.problem}`;
+    if (!warnedShapes.has(shapeKey)) {
+      warnedShapes.add(shapeKey);
       console.warn(`[tool-ui] ${name} payload didn't validate:`, gate.problem);
     }
     if (quietFail) return null;

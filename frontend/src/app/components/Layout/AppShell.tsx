@@ -31,7 +31,8 @@ import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
-import { washBackgroundUrl, effectiveWashStops } from '@/shared/styles/washBackground';
+import { washOpaqueBackgroundUrl, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
+import { useGrainTileUrl } from '@/shared/styles/useGrainTileUrl';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
 const AppShell: React.FC = () => {
@@ -76,7 +77,8 @@ const AppShell: React.FC = () => {
   // Arc/Zen fullscreen ground: ONE themed wash across the whole window (sidebar sits on it borderless,
   // the content floats as a rounded card). Mirrors the DashboardCanvas wash formula.
   const { accent: themeAccent, gradient: themeGradient } = useThemeAccent();
-  const { washOpacity: themeWashOpacity } = useThemeWash();
+  const { washOpacity: themeWashOpacity, grain: themeWashGrain } = useThemeWash();
+  const shellGrainUrl = useGrainTileUrl(themeWashGrain);
   const fsWashStops = effectiveWashStops(themeGradient, themeAccent);
   // During an active free trial the user CAN run things, so a red "no model connected" warning is misleading and discouraging (it sits right above the working starter chips). The trial flips connection_mode back to own_key the moment it's spent, so this banner returns then, landing the connect-a-model nudge after the win, not before it.
   const freeTrialActive = useAppSelector((s) => {
@@ -410,7 +412,16 @@ const AppShell: React.FC = () => {
   return (
     <Box sx={{
       display: 'flex', flexDirection: 'column', height: '100vh', bgcolor: c.bg.secondary,
-      ...(fsWashStops ? { backgroundImage: washBackgroundUrl(fsWashStops, themeWashOpacity), backgroundSize: '100% 100%' } : {}),
+      // Identical rendering to the canvas wash (opaque pre-blend + the same baked grain tile), so any
+      // sliver of shell peeking past the viewport reads as continuous texture, never a tint/grain seam.
+      ...(fsWashStops ? {
+        backgroundColor: washUnderlayColor(fsWashStops, themeWashOpacity, c.bg.page),
+        backgroundImage: shellGrainUrl
+          ? `${shellGrainUrl}, ${washOpaqueBackgroundUrl(fsWashStops, themeWashOpacity, c.bg.page)}`
+          : washOpaqueBackgroundUrl(fsWashStops, themeWashOpacity, c.bg.page),
+        backgroundSize: shellGrainUrl ? 'auto, 100% 100%' : '100% 100%',
+        backgroundRepeat: shellGrainUrl ? 'repeat, no-repeat' : 'no-repeat',
+      } : {}),
     }}>
       {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
           spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}

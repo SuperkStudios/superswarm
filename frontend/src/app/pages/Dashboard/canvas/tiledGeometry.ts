@@ -193,7 +193,18 @@ function rebaseline(entry: TiledEntry, cam: Camera, tx: number, ty: number): voi
 export function registerTiledCard(id: string, zone: string, origin: { x: number; y: number }, cam: Camera): void {
   const el = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(id)}"]`);
   if (!el) return;
-  const entry: TiledEntry = { el, zone, originX: origin.x, originY: origin.y };
+  // Derive the TRUE origin up front from the painted rect and the element's current transform
+  // (matrix e/f are its translate in canvas units), so the enter glide heads straight for the zone
+  // instead of gliding to a wrong spot and snapping at settle (the left-then-center jerk).
+  let ox = origin.x;
+  let oy = origin.y;
+  try {
+    const r0 = el.getBoundingClientRect();
+    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    ox = (r0.left - cam.panX) / cam.zoom - m.e;
+    oy = (r0.top - cam.panY) / cam.zoom - m.f;
+  } catch { /* keep the passed origin */ }
+  const entry: TiledEntry = { el, zone, originX: ox, originY: oy };
   entries.set(id, entry);
   startObserving();
   // Tiling usually commits alongside chrome collapsing, so a cached workspace is untrustworthy here.
