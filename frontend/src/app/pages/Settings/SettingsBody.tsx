@@ -14,6 +14,9 @@ import { CommandsContent } from '@/app/pages/Commands/Commands';
 import AccountCard from './sections/subscription/AccountCard';
 import GeneralAgentDefaults from './sections/general/GeneralAgentDefaults';
 import GeneralInterface from './sections/general/GeneralInterface';
+import DictationSettings from './sections/general/DictationSettings';
+import CanvasSettings from './sections/general/CanvasSettings';
+import AgentBehaviorSettings from './sections/general/AgentBehaviorSettings';
 import GeneralAdvanced from './sections/general/GeneralAdvanced';
 import DataPrivacySection from './sections/general/DataPrivacySection';
 import ModelsTab from './sections/models/ModelsTab';
@@ -29,7 +32,7 @@ import { PROVIDER_COLORS, OPENSWARM_GRADIENT, useModelOptions } from './settings
 // Module-scope: remember the last open tab across closes (System Settings style).
 let lastOpenTab: string | null = null;
 
-const TAB_VALUES = ['account', 'general', 'appearance', 'notifications', 'privacy', 'advanced', 'models', 'commands', 'usage'] as const;
+const TAB_VALUES = ['account', 'general', 'appearance', 'dictation', 'canvas', 'agents', 'notifications', 'privacy', 'advanced', 'models', 'commands', 'usage'] as const;
 type SettingsTab = typeof TAB_VALUES[number];
 const isValidTab = (t: string | null | undefined): t is SettingsTab =>
   !!t && (TAB_VALUES as readonly string[]).includes(t);
@@ -131,6 +134,18 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) =
       ) : activeTab === 'appearance' ? (
         <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
           <GeneralInterface form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'dictation' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <DictationSettings form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'canvas' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <CanvasSettings form={form} setForm={setForm} styles={styles} />
+        </Box>
+      ) : activeTab === 'agents' ? (
+        <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
+          <AgentBehaviorSettings form={form} setForm={setForm} styles={styles} />
         </Box>
       ) : activeTab === 'privacy' ? (
         <Box sx={{ pt: 0.5, pb: 2, animation: 'fadeIn 0.2s ease', '@keyframes fadeIn': { from: { opacity: 0 }, to: { opacity: 1 } } }}>
