@@ -5,6 +5,7 @@ import { moveCards } from '@/shared/state/dashboardLayoutSlice';
 import type { CardType, useDashboardSelection } from '../state/useDashboardSelection';
 import type { CanvasActions } from './useCanvasControls';
 import { publishLiveDrag } from './liveDragChannel';
+import { publishMultiDrag } from './multiDragLiveChannel';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 
 type Selection = ReturnType<typeof useDashboardSelection>;
@@ -34,7 +35,11 @@ export function useCardDrag({
 }: UseCardDragArgs) {
   const dispatch = useAppDispatch();
 
-  const [multiDragDelta, setMultiDragDelta] = useState<{ dx: number; dy: number } | null>(null);
+  // Per-frame deltas ride multiDragLiveChannel (style writes, zero renders); this flag renders
+  // exactly twice per gesture and exists so follower cards suppress their spring on the commit.
+  const [multiDragActive, setMultiDragActive] = useState(false);
+  const multiDragActiveRef = useRef(false);
+  const followIdsRef = useRef<string[]>([]);
   const activeDragCardRef = useRef<string | null>(null);
   const isMultiDragRef = useRef(false);
 
@@ -86,6 +91,7 @@ export function useCardDrag({
     // Multi only when there is actually company: a lone selected card on this path made every drag after the first pay a setState per frame.
     if (selection.isSelected(id) && selection.selectedArray().length > 1) {
       isMultiDragRef.current = true;
+      followIdsRef.current = selection.selectedArray().filter((s) => s.id !== id).map((s) => s.id);
     } else {
       // Grabbing an unselected card SELECTS just it (was deselectAll, which left nothing selected, so the next spawn had no anchor and flew to viewport-center far from the card you just moved). Also survives the stale-read where the capture-phase click already selected it.
       selection.selectCard(id, type, false);
@@ -106,7 +112,11 @@ export function useCardDrag({
       edgePanFrameRef.current = requestAnimationFrame(tickEdgePan);
     }
     if (isMultiDragRef.current) {
-      setMultiDragDelta({ dx, dy });
+      if (!multiDragActiveRef.current) {
+        multiDragActiveRef.current = true;
+        setMultiDragActive(true);
+      }
+      publishMultiDrag({ ids: followIdsRef.current, dx, dy });
     }
     if (activeDragCardRef.current) {
       publishLiveDrag({ cardId: activeDragCardRef.current, dx, dy });
@@ -121,8 +131,16 @@ export function useCardDrag({
     document.body.classList.remove('dashboard-marquee-active');
     setCanvasInteractionActive(false);
     isMultiDragRef.current = false;
-    setMultiDragDelta(null);
+    followIdsRef.current = [];
+    publishMultiDrag(null);
     publishLiveDrag(null);
+    if (multiDragActiveRef.current) {
+      // Stay active through the moveCards commit paint (followers must snap, not spring), then release next frame.
+      requestAnimationFrame(() => {
+        multiDragActiveRef.current = false;
+        setMultiDragActive(false);
+      });
+    }
   }, [stopEdgePan, canvasActions]);
 
   const handleCardDragEnd = useCallback((dx: number, dy: number, didDrag: boolean) => {
@@ -152,7 +170,7 @@ export function useCardDrag({
   }, [clearDrag, stopEdgePan]);
 
   return {
-    multiDragDelta,
+    multiDragActive,
     handleCardDragStart,
     handleCardDragMove,
     handleCardDragEnd,

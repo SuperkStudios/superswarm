@@ -4,6 +4,7 @@ import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { addViewCard, clearTiledCard, toggleMinimizeCard, selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import DashboardHeader from './DashboardHeader';
 import TetherLayerHost from './TetherLayerHost';
+import { useLiveMultiDrag } from '../hooks/interaction/useLiveMultiDrag';
 import DashboardCardLayer from './DashboardCardLayer';
 import DashboardOverlays from './DashboardOverlays';
 import { useCanvasContextMenu } from './useCanvasContextMenu';
@@ -62,7 +63,7 @@ interface DashboardCanvasProps {
   highlightedCardId: string | null;
   autoFocusSessionId: string | null;
   focusedCardId: string | null;
-  multiDragDelta: { dx: number; dy: number } | null;
+  multiDragActive: boolean;
   shakeDirection: Direction | null;
   neighborDirections: NeighborDirections;
   toolbarOpen: boolean;
@@ -124,7 +125,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   highlightedCardId,
   autoFocusSessionId,
   focusedCardId,
-  multiDragDelta,
+  multiDragActive,
   shakeDirection,
   neighborDirections,
   toolbarOpen,
@@ -163,6 +164,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   onTidy,
   onSearchPaletteClose,
 }) => {
+  useLiveMultiDrag();
   const { accent, gradient } = useThemeAccent();
   const { washOpacity, grain } = useThemeWash();
   // A single picked color stores gradient=null, so fall back to the accent (mirrors BeatShell).
@@ -469,7 +471,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
               highlightedCardId={highlightedCardId}
               autoFocusSessionId={autoFocusSessionId}
               focusedCardId={focusedCardId}
-              multiDragDelta={multiDragDelta}
+              multiDragActive={multiDragActive}
               shakeDirection={shakeDirection}
               spawnOriginsRef={spawnOriginsRef}
               revealSpawnedRef={revealSpawnedRef}

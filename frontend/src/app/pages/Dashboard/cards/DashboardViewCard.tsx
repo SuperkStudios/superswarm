@@ -95,7 +95,7 @@ interface Props {
   cmdHeld?: boolean;
   isSelected?: boolean;
   isHighlighted?: boolean;
-  multiDragDelta?: { dx: number; dy: number } | null;
+  multiDragActive?: boolean;
   onCardSelect?: (id: string, type: 'agent' | 'view', shiftKey: boolean) => void;
   onDragStart?: (id: string, type: 'agent' | 'view') => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
@@ -142,7 +142,7 @@ const BootingBody: React.FC = () => {
 
 const DashboardViewCard: React.FC<Props> = ({
   output, cardKey: cardKeyProp, instance = 1, cardX, cardY, cardWidth, cardHeight, getCanvasState, cmdHeld = false,
-  isSelected = false, isHighlighted = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
+  isSelected = false, isHighlighted = false, multiDragActive = false, onCardSelect, onDragStart, onDragMove, onDragEnd,
   cardZOrder = 0, onDoubleClick, onBringToFront,
 }) => {
   const cardKey = cardKeyProp ?? output.id;
@@ -613,13 +613,11 @@ const DashboardViewCard: React.FC<Props> = ({
     previewRef.current?.reload();
   };
 
-  const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
-  const mdDy = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
-  const displayX = localResize?.x ?? localDragPos?.x ?? (cardX + mdDx);
-  const displayY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
+  const displayX = localResize?.x ?? localDragPos?.x ?? cardX;
+  const displayY = localResize?.y ?? localDragPos?.y ?? cardY;
   const displayW = localResize?.w ?? cardWidth;
   const displayH = localResize?.h ?? cardHeight;
-  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
+  const noTransition = isDragging || isResizing || (isSelected && multiDragActive);
   // Drag via a compositor transform, not left/top: an app card's webview surface shimmers back and forth while edge-panning otherwise (the transform and the late left/top relayout desync a frame). Same fix as BrowserCard.
   const dragging = isDragging && !!localDragPos && !localResize;
   const dragTx = dragging ? displayX - cardX : 0;

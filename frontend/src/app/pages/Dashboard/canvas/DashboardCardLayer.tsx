@@ -39,7 +39,7 @@ interface DashboardCardLayerProps {
   highlightedCardId: string | null;
   autoFocusSessionId: string | null;
   focusedCardId: string | null;
-  multiDragDelta: { dx: number; dy: number } | null;
+  multiDragActive: boolean;
   shakeDirection: Direction | null;
   spawnOriginsRef: RefObject<Record<string, SpawnOrigin>>;
   revealSpawnedRef: RefObject<Set<string>>;
@@ -71,7 +71,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
   highlightedCardId,
   autoFocusSessionId,
   focusedCardId,
-  multiDragDelta,
+  multiDragActive,
   shakeDirection,
   spawnOriginsRef,
   revealSpawnedRef,
@@ -153,7 +153,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
             isSelected={isSel}
             isHighlighted={highlightedCardId === sid}
             // Only selected cards need the live drag delta; passing it to everyone broke memo equality for unselected cards on every mouse-move during multi-drag.
-            multiDragDelta={isSel ? multiDragDelta : null}
+            multiDragActive={isSel && multiDragActive}
             onCardSelect={onCardSelect}
             onDragStart={onDragStart}
             onDragMove={onDragMove}
@@ -187,7 +187,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
             cmdHeld={cmdHeld}
             isSelected={selection.isSelected(cardKey)}
             isHighlighted={highlightedCardId === cardKey}
-            multiDragDelta={multiDragDelta}
+            multiDragActive={multiDragActive}
             onCardSelect={onCardSelect}
             onDragStart={onDragStart}
             onDragMove={onDragMove}
@@ -214,7 +214,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
           cmdHeld={cmdHeld}
           isSelected={selection.isSelected(bc.browser_id)}
           isHighlighted={highlightedCardId === bc.browser_id}
-          multiDragDelta={multiDragDelta}
+          multiDragActive={selection.isSelected(bc.browser_id) && multiDragActive}
           onCardSelect={onCardSelect}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
@@ -227,7 +227,7 @@ const DashboardCardLayer: React.FC<DashboardCardLayerProps> = ({
         workflowsHub={workflowsHub}
         selection={selection}
         highlightedCardId={highlightedCardId}
-        multiDragDelta={multiDragDelta}
+        multiDragActive={multiDragActive}
         getCanvasState={getCanvasState}
         onCardSelect={onCardSelect}
         onDragStart={onDragStart}

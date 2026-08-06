@@ -16,7 +16,7 @@ interface DashboardWindowCardsProps {
   workflowsHub: WorkflowsHubPosition | null;
   selection: ReturnType<typeof useDashboardSelection>;
   highlightedCardId: string | null;
-  multiDragDelta: { dx: number; dy: number } | null;
+  multiDragActive: boolean;
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   onCardSelect: (id: string, type: CardType, shiftKey: boolean, originTarget?: EventTarget | null) => void;
   onDragStart: (id: string, type: CardType) => void;
@@ -30,7 +30,7 @@ const DashboardWindowCards: React.FC<DashboardWindowCardsProps> = ({
   workflowsHub,
   selection,
   highlightedCardId,
-  multiDragDelta,
+  multiDragActive,
   getCanvasState,
   onCardSelect,
   onDragStart,
@@ -61,7 +61,7 @@ const DashboardWindowCards: React.FC<DashboardWindowCardsProps> = ({
           getCanvasState={getCanvasState}
           isSelected={selection.isSelected('workflows-hub')}
           isHighlighted={highlightedCardId === 'workflows-hub'}
-          multiDragDelta={selection.isSelected('workflows-hub') ? multiDragDelta : null}
+          multiDragActive={selection.isSelected('workflows-hub') && multiDragActive}
           onCardSelect={onCardSelect}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
@@ -79,7 +79,7 @@ const DashboardWindowCards: React.FC<DashboardWindowCardsProps> = ({
           getCanvasState={getCanvasState}
           isSelected={selection.isSelected(SETTINGS_CARD_ID)}
           isHighlighted={highlightedCardId === SETTINGS_CARD_ID}
-          multiDragDelta={selection.isSelected(SETTINGS_CARD_ID) ? multiDragDelta : null}
+          multiDragActive={selection.isSelected(SETTINGS_CARD_ID) && multiDragActive}
           onCardSelect={onCardSelect}
           onDragStart={onDragStart}
           onDragMove={onDragMove}
@@ -97,7 +97,7 @@ const DashboardWindowCards: React.FC<DashboardWindowCardsProps> = ({
           getCanvasState={getCanvasState}
           isSelected={selection.isSelected(MARKETPLACE_CARD_ID)}
           isHighlighted={highlightedCardId === MARKETPLACE_CARD_ID}
-          multiDragDelta={selection.isSelected(MARKETPLACE_CARD_ID) ? multiDragDelta : null}
+          multiDragActive={selection.isSelected(MARKETPLACE_CARD_ID) && multiDragActive}
           onCardSelect={onCardSelect}
           onDragStart={onDragStart}
           onDragMove={onDragMove}

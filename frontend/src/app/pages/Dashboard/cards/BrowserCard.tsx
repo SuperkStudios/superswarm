@@ -189,7 +189,7 @@ interface Props {
   cmdHeld?: boolean;
   isSelected?: boolean;
   isHighlighted?: boolean;
-  multiDragDelta?: { dx: number; dy: number } | null;
+  multiDragActive?: boolean;
   // Belongs to a non-active dashboard but kept mounted-hidden so its webContents + sessionStorage survive the switch.
   keepAliveHidden?: boolean;
   onCardSelect?: (id: string, type: 'agent' | 'view' | 'browser', shiftKey: boolean, originTarget?: EventTarget | null) => void;
@@ -204,7 +204,7 @@ interface Props {
 
 const BrowserCard: React.FC<Props> = ({
   browserId, tabs, activeTabId, cardX, cardY, cardWidth, cardHeight, getCanvasState, cmdHeld = false,
-  isSelected = false, isHighlighted = false, keepAliveHidden = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
+  isSelected = false, isHighlighted = false, keepAliveHidden = false, multiDragActive = false, onCardSelect, onDragStart, onDragMove, onDragEnd,
   cardZOrder = 0, onDoubleClick, onBringToFront,
 }) => {
   const c = useClaudeTokens();
@@ -345,11 +345,19 @@ const BrowserCard: React.FC<Props> = ({
   const hasDockRect = !!dockRect;
   useEffect(() => {
     if (!dockedTo || !hasDockRect) return undefined;
+    // Clear only after having followed: the old unconditional else cleared translate on EVERY
+    // drag frame of every other card, and would fight the multi-drag channel's writes.
+    let wasFollowing = false;
     const off = subscribeLiveDrag((info) => {
       const el = rootElRef.current;
       if (!el) return;
-      if (info && info.cardId === dockedTo) el.style.translate = `${info.dx}px ${info.dy}px`;
-      else el.style.translate = '';
+      if (info && info.cardId === dockedTo) {
+        el.style.translate = `${info.dx}px ${info.dy}px`;
+        wasFollowing = true;
+      } else if (wasFollowing) {
+        el.style.translate = '';
+        wasFollowing = false;
+      }
     });
     return () => {
       off();
@@ -1045,13 +1053,11 @@ const BrowserCard: React.FC<Props> = ({
     (e.target as HTMLElement).releasePointerCapture(e.pointerId);
   }, [computeResize, dispatch, browserId]);
 
-  const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
-  const mdDy = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
-  const displayX = localResize?.x ?? localDragPos?.x ?? (cardX + mdDx);
-  const displayY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
+  const displayX = localResize?.x ?? localDragPos?.x ?? cardX;
+  const displayY = localResize?.y ?? localDragPos?.y ?? cardY;
   const displayW = localResize?.w ?? cardWidth;
   const displayH = localResize?.h ?? cardHeight;
-  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
+  const noTransition = isDragging || isResizing || (isSelected && multiDragActive);
   // During a drag, move the card by a COMPOSITOR transform, not left/top layout: while edge-panning, the canvas transform and the card's left/top update land a frame apart, and the webview's guest surface follows the transform immediately while left/top relayouts late, so the browser visibly shimmers back and forth. A transform for the drag delta rides the same compositor path as the canvas pan, so they move together in one frame.
   const dragging = isDragging && !!localDragPos && !localResize;
   const dragTx = dragging ? displayX - cardX : 0;

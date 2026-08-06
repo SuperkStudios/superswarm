@@ -26,7 +26,7 @@ interface Props {
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   isSelected?: boolean;
   isHighlighted?: boolean;
-  multiDragDelta?: { dx: number; dy: number } | null;
+  multiDragActive?: boolean;
   onCardSelect?: (id: string, type: CardType, shiftKey: boolean) => void;
   onDragStart?: (id: string, type: CardType) => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
@@ -38,7 +38,7 @@ interface Props {
 const MarketplaceAppCard: React.FC<Props> = ({
   cardX, cardY, cardWidth, cardHeight, cardZOrder = 0,
   getCanvasState,
-  isSelected = false, isHighlighted = false, multiDragDelta = null,
+  isSelected = false, isHighlighted = false, multiDragActive = false,
   onCardSelect, onDragStart, onDragMove, onDragEnd, onBringToFront,
 }) => {
   const c = useClaudeTokens();
@@ -73,7 +73,7 @@ const MarketplaceAppCard: React.FC<Props> = ({
       getCanvasState={getCanvasState}
       isSelected={isSelected}
       isHighlighted={isHighlighted}
-      multiDragDelta={multiDragDelta}
+      multiDragActive={multiDragActive}
       onCardSelect={onCardSelect}
       onDragStart={onDragStart}
       onDragMove={onDragMove}

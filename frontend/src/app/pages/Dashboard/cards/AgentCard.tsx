@@ -268,7 +268,7 @@ interface OuterProps {
   exitTarget?: { x: number; y: number };
   isSelected?: boolean;
   isHighlighted?: boolean;
-  multiDragDelta?: { dx: number; dy: number } | null;
+  multiDragActive?: boolean;
   onCardSelect?: (id: string, type: 'agent' | 'view', shiftKey: boolean) => void;
   onDragStart?: (id: string, type: 'agent' | 'view') => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
@@ -305,7 +305,7 @@ const SNAP_THRESHOLD = 60;
 
 const AgentCard: React.FC<Props> = ({
   session, expanded: expandedInStore, cardX, cardY, cardWidth, cardHeight, getCanvasState, spawnFrom, exitTarget,
-  isSelected = false, isHighlighted = false, multiDragDelta, onCardSelect, onDragStart, onDragMove, onDragEnd,
+  isSelected = false, isHighlighted = false, multiDragActive = false, onCardSelect, onDragStart, onDragMove, onDragEnd,
   onBranch, onMeasuredHeight, snapColumn, autoFocusInput, cardZOrder = 0, onDoubleClick, onBringToFront,
   shakeDirection,
 }) => {
@@ -765,12 +765,10 @@ const AgentCard: React.FC<Props> = ({
   const browserShot = useBrowserPillShot(session.id, pillMode && !pillArtifact);
 
   // justDraggedRef: the motion.div parks at the START position for the whole imperative drag, so the end-of-drag commit must snap (not spring) to the final spot or the card visibly re-glides from where the drag began.
-  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta) || justDraggedRef.current;
+  const noTransition = isDragging || isResizing || (isSelected && multiDragActive) || justDraggedRef.current;
 
-  const mdDx = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
-  const mdDy = (!isDragging && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
-  const activeX = localResize?.x ?? localDragPos?.x ?? (cardX + mdDx);
-  const activeY = localResize?.y ?? localDragPos?.y ?? (cardY + mdDy);
+  const activeX = localResize?.x ?? localDragPos?.x ?? cardX;
+  const activeY = localResize?.y ?? localDragPos?.y ?? cardY;
   const activeW = localResize?.w ?? cardWidth;
   const activeH = localResize?.h ?? cardHeight;
   const tiledSize = useTiledCard({ cardId: session.id, zone: tileZone, active: true, originX: activeX, originY: activeY, getCamera: getCanvasState });

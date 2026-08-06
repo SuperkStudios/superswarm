@@ -42,7 +42,7 @@ interface CanvasWindowCardProps {
   background: string; highlightColor: string;
   getCanvasState: () => { panX: number; panY: number; zoom: number };
   isSelected?: boolean; isHighlighted?: boolean;
-  multiDragDelta?: { dx: number; dy: number } | null;
+  multiDragActive?: boolean;
   onCardSelect?: (id: string, type: CardType, shiftKey: boolean, originTarget?: EventTarget | null) => void;
   onDragStart?: (id: string, type: CardType) => void;
   onDragMove?: (dx: number, dy: number, mouseX?: number, mouseY?: number) => void;
@@ -64,7 +64,7 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
   cardX, cardY, cardWidth, cardHeight, cardZOrder = 0,
   minimized = false, minWidth, minHeight, background, highlightColor,
   getCanvasState,
-  isSelected = false, isHighlighted = false, multiDragDelta = null,
+  isSelected = false, isHighlighted = false, multiDragActive = false,
   onCardSelect, onDragStart, onDragMove, onDragEnd, onBringToFront,
   onCommitPosition, onCommitSize,
   onMinimize, onClose,
@@ -158,16 +158,14 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
     getCanvasState, onCommitPosition, onCommitSize, untileForResize: tiling.untileForResize,
   });
 
-  const mdDx = (!isDragging && !isResizing && isSelected && multiDragDelta) ? multiDragDelta.dx : 0;
-  const mdDy = (!isDragging && !isResizing && isSelected && multiDragDelta) ? multiDragDelta.dy : 0;
-  const dx = (localResize?.x ?? localDragPos?.x ?? cardX) + mdDx;
-  const dy = (localResize?.y ?? localDragPos?.y ?? cardY) + mdDy;
+  const dx = localResize?.x ?? localDragPos?.x ?? cardX;
+  const dy = localResize?.y ?? localDragPos?.y ?? cardY;
   const dw = localResize?.w ?? cardWidth;
   const dh = localResize?.h ?? cardHeight;
   const tiledSize = useTiledCard({ cardId, zone: tiling.zone, active: !minimized, originX: dx, originY: dy, getCamera: getCanvasState });
 
   const border = isHighlighted ? `2px solid ${highlightColor}` : isSelected ? '2px solid #3b82f6' : `1px solid ${c.border.subtle}`;
-  const noTransition = isDragging || isResizing || (isSelected && !!multiDragDelta);
+  const noTransition = isDragging || isResizing || (isSelected && multiDragActive);
 
   return (
     <div

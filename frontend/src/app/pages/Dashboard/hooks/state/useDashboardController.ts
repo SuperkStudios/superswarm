@@ -104,7 +104,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
   }), [canvas.actions]);
 
   const {
-    multiDragDelta,
+    multiDragActive,
     handleCardDragStart,
     handleCardDragMove,
     handleCardDragEnd,
@@ -342,7 +342,7 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
     cards, viewCards, browserCards, keepAliveBrowserCards, outputs, glowingAgentCards,
     workflowCards, workflowsHub,
     expandedSessionIds, tetherInputs, highlightedCardId, autoFocusSessionId,
-    focusedCardId, multiDragDelta, shakeDirection,
+    focusedCardId, multiDragActive, shakeDirection,
     neighborDirections, toolbarOpen, searchPaletteOpen, newAgentBounce, canvasEmpty,
     toolbarRef, spawnOriginsRef, revealSpawnedRef, measuredHeightsRef, getCanvasState,
     toolbarPrefill,
