@@ -64,13 +64,23 @@ const VoiceCapsule: React.FC<{
     // transcript away from the field the user is dictating into.
     onMouseDown={(e) => e.preventDefault()}
     sx={{
-      position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
-      display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, py: 0.4, borderRadius: 999,
+      // A droplet from the top edge: flat top glued to the chrome, heavy rounding below, and an
+      // entrance that stretches down then settles, like something viscous letting go.
+      position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
+      display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, pt: 0.75, pb: 0.5,
+      borderRadius: '0 0 22px 22px',
       background: 'rgba(18,16,24,0.92)',
       backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
       boxShadow: '0 10px 32px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.07)',
-      '@keyframes vcap-in': { from: { opacity: 0, transform: 'translate(-50%, 10px) scale(0.96)' }, to: { opacity: 1, transform: 'translate(-50%, 0) scale(1)' } },
-      animation: 'vcap-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both',
+      transformOrigin: 'top center',
+      '@keyframes vgloop-in': {
+        '0%': { opacity: 0, transform: 'translate(-50%, -100%) scale(0.9, 0.7)' },
+        '55%': { opacity: 1, transform: 'translate(-50%, 0) scale(0.96, 1.12)' },
+        '78%': { transform: 'translate(-50%, 0) scale(1.03, 0.94)' },
+        '100%': { transform: 'translate(-50%, 0) scale(1, 1)' },
+      },
+      animation: 'vgloop-in 0.34s cubic-bezier(0.3, 1.2, 0.4, 1) both',
+      '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
     }}
   >
     <IconButton
@@ -173,8 +183,9 @@ const VoiceOverlay: React.FC = () => {
     {content && (
     <Box
       sx={{
+        // Hangs just under the droplet so the live words read as its tail.
         position: 'fixed',
-        bottom: 84,
+        top: 52,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 2147483000,
@@ -193,7 +204,7 @@ const VoiceOverlay: React.FC = () => {
         color: 'rgba(255,255,255,0.92)',
         fontSize: '0.8125rem',
         fontWeight: 500,
-        '@keyframes vin': { from: { opacity: 0, transform: 'translate(-50%, 6px)' }, to: { opacity: 1, transform: 'translate(-50%, 0)' } },
+        '@keyframes vin': { from: { opacity: 0, transform: 'translate(-50%, -6px)' }, to: { opacity: 1, transform: 'translate(-50%, 0)' } },
         animation: 'vin 0.16s ease-out',
       }}
     >
