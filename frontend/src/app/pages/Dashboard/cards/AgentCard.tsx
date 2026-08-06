@@ -729,9 +729,10 @@ const AgentCard: React.FC<Props> = ({
   const pillMode = !expanded && !hasPending && !tileZone;
 
   // Two-phase expand: mounting a long transcript synchronously inside the expand click blocked its paint for ~630ms (the measured INP worst case), so the click paints the expanded shell first and the chat mounts on the next frame.
+  // Keep-alive: once mounted, the chat STAYS mounted across collapse (hidden, not unmounted). The transcript windowing bounds its kept DOM to ~a screen of bubbles, and re-expand becomes a display toggle instead of a full subtree rebuild + WS reconnect.
   const [chatMounted, setChatMounted] = useState(false);
   useEffect(() => {
-    if (!expanded) { setChatMounted(false); return undefined; }
+    if (!expanded) return undefined;
     const raf = requestAnimationFrame(() => setChatMounted(true));
     return () => cancelAnimationFrame(raf);
   }, [expanded]);
@@ -1255,7 +1256,7 @@ const AgentCard: React.FC<Props> = ({
       </Box>
       )}
 
-      {expanded && (
+      {(expanded || chatMounted) && (
         <Box
           onClick={(e) => e.stopPropagation()}
           sx={{
@@ -1264,7 +1265,7 @@ const AgentCard: React.FC<Props> = ({
             mt: -2,
             flex: 1,
             minHeight: 0,
-            display: 'flex',
+            display: expanded ? 'flex' : 'none',
             flexDirection: 'column',
             overflow: 'hidden',
             borderRadius: isTiled ? undefined : '20px',
