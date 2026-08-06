@@ -148,17 +148,10 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                               <SettingsIcon sx={{ fontSize: 13 }} /> Configured
                             </Typography>
                           )}
-                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.25, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
-                            <CustomToolConnect
-                              tool={tool}
-                              ig={ig}
-                              isDisabled={isDisabled}
-                              onOAuthConnect={handleOAuthConnect}
-                              onDeviceCodeConnect={handleDeviceCodeConnect}
-                              onOpenCredentialsDialog={openCredentialsDialog}
-                              onM365Disconnect={handleM365Disconnect}
-                              onDisconnectIntegration={handleDisconnectIntegration}
-                            />
+                          {ig && tool.auth_status !== 'connected' && tool.auth_status !== 'configured' && (
+                            <Typography sx={{ color: c.text.ghost, fontSize: '0.75rem' }}>Not connected</Typography>
+                          )}
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.25, minWidth: 0, maxWidth: '100%' }}>
                             {ig && (
                               <Box
                                 data-onboarding={
@@ -177,10 +170,6 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
                                   checked={tool.enabled !== false}
                                   onChange={() => handleIntegrationToggle(ig)}
                                   disabled={!!integrationLoading[ig.id]}
-                                  sx={{
-                                    '& .MuiSwitch-switchBase.Mui-checked': { color: ig.color },
-                                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ig.color },
-                                  }}
                                 />
                               </Box>
                             )}
@@ -202,6 +191,18 @@ const CustomToolCard: React.FC<CustomToolCardProps> = ({
 
                     <Collapse in={isExpanded && !isDisabled} timeout={0} unmountOnExit>
                         <Box sx={{ px: 2, pb: 2, pt: 0, borderTop: `1px solid ${c.border.subtle}` }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, mt: 1.5 }}>
+                            <CustomToolConnect
+                              tool={tool}
+                              ig={ig}
+                              isDisabled={isDisabled}
+                              onOAuthConnect={handleOAuthConnect}
+                              onDeviceCodeConnect={handleDeviceCodeConnect}
+                              onOpenCredentialsDialog={openCredentialsDialog}
+                              onM365Disconnect={handleM365Disconnect}
+                              onDisconnectIntegration={handleDisconnectIntegration}
+                            />
+                          </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1.5, mb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                               <SecurityIcon sx={{ fontSize: 14, color: c.text.muted }} />
