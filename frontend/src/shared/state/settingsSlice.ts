@@ -53,6 +53,7 @@ export interface AppSettings {
   notify_agent_completion?: boolean;
   notify_workflow_runs?: boolean;
   allow_experimental_updates: boolean;
+  overlay_pill_enabled: boolean;
   /** Managed subscription state; surfaces only when user has subscribed via cloud. */
   connection_mode?: 'own_key' | 'openswarm-pro' | 'free-trial';
   openswarm_bearer_token?: string | null;
@@ -183,6 +184,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   auto_reveal_sub_agents: true,
   dev_mode: false,
   allow_experimental_updates: false,
+  overlay_pill_enabled: false,
 };
 
 const initialState: SettingsState = {

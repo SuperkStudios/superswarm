@@ -92,6 +92,14 @@ contextBridge.exposeInMainWorld('openswarm', {
   revealBundle: (folderPath) => ipcRenderer.invoke('help:reveal-bundle', folderPath),
   // Reveal a user-attached file in Finder/Explorer (reveal-only; main checks existence).
   revealPath: (filePath) => ipcRenderer.invoke('files:reveal', filePath),
+  // Quick pill overlay: toggle the global hotkey, summon for tests, receive submitted text.
+  setOverlayEnabled: (enabled) => ipcRenderer.invoke('overlay:set-enabled', Boolean(enabled)),
+  showOverlay: () => ipcRenderer.invoke('overlay:show'),
+  onOverlaySubmit: (cb) => {
+    const listener = (_event, text) => cb(String(text || ''));
+    ipcRenderer.on('overlay:submit-text', listener);
+    return () => ipcRenderer.removeListener('overlay:submit-text', listener);
+  },
   // Cmd/Ctrl+1..9: focus the Nth dock tile (0-based index arrives here).
   onDockShortcut: (cb) => {
     const listener = (_event, index) => cb(index);

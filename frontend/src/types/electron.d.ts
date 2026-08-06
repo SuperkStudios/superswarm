@@ -103,6 +103,9 @@ declare global {
     onNotificationAction?: (cb: (payload: OpenSwarmNotifyAction) => void) => () => void;
     revealPath?: (filePath: string) => Promise<{ ok: boolean }>;
     onDockShortcut?: (cb: (index: number) => void) => () => void;
+    setOverlayEnabled?: (enabled: boolean) => Promise<{ ok: boolean }>;
+    showOverlay?: () => Promise<{ ok: boolean }>;
+    onOverlaySubmit?: (cb: (text: string) => void) => () => void;
   }
 
   interface Window {

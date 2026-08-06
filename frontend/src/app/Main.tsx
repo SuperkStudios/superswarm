@@ -211,6 +211,7 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const loaded = useAppSelector((s) => s.settings.loaded);
   const settled = useAppSelector((s) => s.settings.settled);
   const allowExperimentalUpdates = useAppSelector((s) => s.settings.data.allow_experimental_updates);
+  const overlayPillEnabled = useAppSelector((s) => Boolean((s.settings.data as { overlay_pill_enabled?: boolean }).overlay_pill_enabled));
   useEffect(() => {
     dispatch(fetchSettings());
     dispatch(fetchModels());
@@ -277,6 +278,17 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
     if (!loaded) return;
     (window as any).openswarm?.setAllowPrerelease?.(allowExperimentalUpdates);
   }, [loaded, allowExperimentalUpdates]);
+  useEffect(() => {
+    if (!loaded) return;
+    (window as any).openswarm?.setOverlayEnabled?.(overlayPillEnabled);
+  }, [loaded, overlayPillEnabled]);
+  useEffect(() => {
+    // Overlay submissions land as a prefilled composer draft, the same seam dictation's no-cursor fallback uses.
+    const off = (window as any).openswarm?.onOverlaySubmit?.((text: string) => {
+      window.dispatchEvent(new CustomEvent('openswarm:dictation-fallback', { detail: { text } }));
+    });
+    return () => { off?.(); };
+  }, []);
   // Hold paint until the settings fetch SETTLES so the user's theme renders first; Electron's ready-to-show relies on this. Settling, not succeeding: a backend that never answers used to leave a blank window forever.
   if (!settled) return null;
   return <>{children}</>;

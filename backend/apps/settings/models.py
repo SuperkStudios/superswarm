@@ -120,6 +120,8 @@ class AppSettings(BaseModel):
     auto_reveal_sub_agents: bool = True
     dev_mode: bool = False
     allow_experimental_updates: bool = False
+    # Quick pill overlay (Alt+Space): a floating command pill with the slime idle skin. Default off.
+    overlay_pill_enabled: bool = False
     # Notification toggles read by the renderer before firing native notifications.
     notify_agent_completion: bool = True
     notify_workflow_runs: bool = True
