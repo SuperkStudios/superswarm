@@ -11,7 +11,7 @@ import { onboardingBus } from '@/app/components/Onboarding/eventBus';
 import { resetTour } from '@/shared/state/onboardingProgressSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import TrustedFilePatterns from '@/app/components/overlays/TrustedFilePatterns';
-import SoftwareUpdateRow from './SoftwareUpdateRow';
+import SoftwareUpdateRow, { UpdateReadyBanner } from './SoftwareUpdateRow';
 import type { SettingsStyles } from '../settingsStyles';
 import { settingSelectAttrs } from '../settingSelect';
 
@@ -36,6 +36,7 @@ const GeneralAdvanced: React.FC<{
 
   return (
     <>
+      <UpdateReadyBanner />
 
       <Box sx={inlineRowSx} {...settingSelectAttrs('dev_mode', 'Developer mode', 'Advanced', 'Show transport details, env vars, and technical metadata throughout the app.')}>
         <Box sx={{ mr: 3 }}>

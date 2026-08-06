@@ -4,6 +4,7 @@ import Typography from '@mui/material/Typography';
 import { User, Settings2, Palette, ShieldCheck, Wrench, Boxes, SquareSlash, BarChart3, Bell, Mic, LayoutGrid, Bot, Brain } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import UpdateReadyDot from '@/app/components/UpdateReadyDot';
 
 // ChatGPT/Apple-style settings nav: a left rail of short, focused sections instead of one giant
 // General scroll. Grouped so the eye lands (account, then app-wide, then capabilities).
@@ -89,6 +90,7 @@ const SettingsRail: React.FC<{
               >
                 <s.Icon size={16} style={{ flexShrink: 0, color: c.text.secondary }} />
                 {s.label}
+                {s.value === 'advanced' && <UpdateReadyDot size={7} sx={{ ml: 'auto' }} />}
               </Box>
             );
           })}
