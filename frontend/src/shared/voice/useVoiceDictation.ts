@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/shared/config';
+import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { encodeWav, VOICE_SAMPLE_RATE } from './encodeWav';
 import { playVoiceCue } from './voiceCues';
 import { injectAtFocus } from './injectAtFocus';
@@ -38,6 +39,19 @@ export interface VoiceFeedback {
   at: number;
 }
 
+// Where the transcript will land RIGHT NOW, in the user's words; mirrors injectAtFocus's tiers so
+// the capsule's target chip never promises a destination injection would not actually pick.
+export function describeInjectTarget(): string {
+  const a = document.activeElement as HTMLElement | null;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) {
+    const hint = a.getAttribute('placeholder') || a.getAttribute('aria-label');
+    return hint ? hint.slice(0, 30) : 'text field';
+  }
+  if (a && a.tagName === 'WEBVIEW') return 'browser page';
+  if (getLastInteractedBrowser()) return 'browser page';
+  return 'chat composer';
+}
+
 // Context hint for the polisher: what the user is dictating into (a field label, a page title), so
 // names and jargon spell right. Never page CONTENT, just the one-line "where".
 function dictationContext(): string {
@@ -72,6 +86,7 @@ export function useVoiceDictation() {
   const [pct, setPct] = useState<number>(0);
   const [feedback, setFeedback] = useState<VoiceFeedback | null>(null);
   const [partial, setPartial] = useState<VoicePartial | null>(null);
+  const [targetLabel, setTargetLabel] = useState<string>('');
   const partialSeqRef = useRef<number>(0);
   const recRef = useRef<Recorder | null>(null);
   const stateRef = useRef<VoiceState>('idle');
@@ -291,6 +306,20 @@ export function useVoiceDictation() {
     if (state === 'idle' || state === 'preparing') setPartial(null);
   }, [state]);
 
+  // The target chip tracks focus LIVE while recording: clicking into a field mid-dictation retargets
+  // injection (by design), and the chip must tell that truth as it happens.
+  useEffect(() => {
+    if (state !== 'recording') { setTargetLabel(''); return undefined; }
+    setTargetLabel(describeInjectTarget());
+    const onFocus = (): void => setTargetLabel(describeInjectTarget());
+    window.addEventListener('focusin', onFocus, true);
+    window.addEventListener('focusout', onFocus, true);
+    return () => {
+      window.removeEventListener('focusin', onFocus, true);
+      window.removeEventListener('focusout', onFocus, true);
+    };
+  }, [state]);
+
   // A dangling recorder (unmount mid-capture) must release the mic.
   useEffect(() => () => { teardown(); }, [teardown]);
 
@@ -299,5 +328,5 @@ export function useVoiceDictation() {
     setFeedback({ tone: 'warn', icon: 'info', text, at: Date.now() });
   }, []);
 
-  return { state, lastText, error, pct, feedback, partial, toggle, start, stop, cancel, notify, volumeRef };
+  return { state, lastText, error, pct, feedback, partial, targetLabel, toggle, start, stop, cancel, notify, volumeRef };
 }

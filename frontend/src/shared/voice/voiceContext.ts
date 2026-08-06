@@ -10,17 +10,22 @@ export interface VoiceContextValue {
   pct: number;
   feedback: VoiceFeedback | null;
   partial: VoicePartial | null;
+  // Where the transcript will land right now, in user words ("chat composer", a field's label).
+  targetLabel: string;
   toggle: () => void;
   // Mic-button press semantics that respect the hold/toggle setting: press starts (or toggles),
   // release stops only in hold mode. Buttons wire onPointerDown/Up to these and stay mode-agnostic.
   pressStart: () => void;
   pressEnd: () => void;
+  // The recording capsule's two endings: keep the take (transcribe + inject) or throw it away.
+  confirmRecording: () => void;
+  cancelRecording: () => void;
   holdMode: boolean;
   volumeRef: React.MutableRefObject<number>;
 }
 
 const NOOP_REF = { current: 0 };
-const NOOP: VoiceContextValue = { state: 'idle', lastText: '', error: null, pct: 0, feedback: null, partial: null, toggle: () => {}, pressStart: () => {}, pressEnd: () => {}, holdMode: true, volumeRef: NOOP_REF };
+const NOOP: VoiceContextValue = { state: 'idle', lastText: '', error: null, pct: 0, feedback: null, partial: null, targetLabel: '', toggle: () => {}, pressStart: () => {}, pressEnd: () => {}, confirmRecording: () => {}, cancelRecording: () => {}, holdMode: true, volumeRef: NOOP_REF };
 
 export const VoiceContext = createContext<VoiceContextValue>(NOOP);
 

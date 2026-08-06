@@ -147,8 +147,43 @@ const LiveTranscript: React.FC<{ committed: string; tentative: string }> = ({ co
   );
 };
 
+// Always-there entry point at the top edge, Wispr's idle bar translated to our gloop position:
+// a sliver that expands on hover into mic + hotkey hint; press semantics match the hotkey.
+const IdlePill: React.FC<{ onPressStart: () => void; onPressEnd: () => void }> = ({ onPressStart, onPressEnd }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <Box
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onMouseDown={(e) => e.preventDefault()}
+      onPointerDown={onPressStart}
+      onPointerUp={onPressEnd}
+      role="button"
+      aria-label="Start dictation"
+      sx={{
+        position: 'fixed', top: 6, left: '50%', transform: 'translateX(-50%)', zIndex: 2147482998,
+        WebkitAppRegion: 'no-drag', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
+        height: hover ? 24 : 8, minWidth: hover ? 74 : 44, px: hover ? 1.25 : 0,
+        borderRadius: 999,
+        background: hover ? 'rgba(18,16,24,0.92)' : 'rgba(120,116,134,0.28)',
+        boxShadow: hover ? '0 6px 20px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.08)' : 'inset 0 0 0 1px rgba(255,255,255,0.14)',
+        transition: 'all 0.18s cubic-bezier(0.32, 0.72, 0, 1)',
+        overflow: 'hidden',
+      }}
+    >
+      {hover && (
+        <>
+          <MicIcon sx={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }} />
+          <Box component="span" sx={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.6875rem', fontWeight: 700, letterSpacing: '0.04em' }}>fn</Box>
+        </>
+      )}
+    </Box>
+  );
+};
+
 const VoiceOverlay: React.FC = () => {
-  const { state, pct, feedback, partial, volumeRef, confirmRecording, cancelRecording } = useVoice();
+  const { state, pct, feedback, partial, targetLabel, volumeRef, confirmRecording, cancelRecording, pressStart, pressEnd } = useVoice();
   const [showFeedback, setShowFeedback] = useState(false);
   // The capsule lingers past its state for one out-animation beat, so it glides back up instead of vanishing.
   const [capsuleLeaving, setCapsuleLeaving] = useState(false);
@@ -175,8 +210,9 @@ const VoiceOverlay: React.FC = () => {
   }, [feedback]);
 
   const live = state !== 'idle';
+  const desktop = !!(window as unknown as { openswarm?: { voiceTranscribe?: unknown } }).openswarm?.voiceTranscribe;
   const visible = live || capsuleMounted || (showFeedback && !!feedback);
-  if (!visible) return null;
+  if (!visible) return desktop ? <IdlePill onPressStart={pressStart} onPressEnd={pressEnd} /> : null;
 
   const capsule = capsuleMounted ? (
     <VoiceCapsule transcribing={state === 'transcribing'} leaving={capsuleLeaving} volumeRef={volumeRef} onCancel={cancelRecording} onConfirm={confirmRecording} />
@@ -185,8 +221,12 @@ const VoiceOverlay: React.FC = () => {
   const hasPartial = !!partial && !!(partial.committed || partial.tentative);
   let content: React.ReactElement | null;
   if (state === 'recording' || state === 'transcribing') {
-    // The capsule says "listening"; the card appears only once there are live words to show.
-    content = hasPartial ? <LiveTranscript committed={partial.committed} tentative={partial.tentative} /> : null;
+    // Words once there are words; before that, the chip says WHERE they will land.
+    content = hasPartial
+      ? <LiveTranscript committed={partial.committed} tentative={partial.tentative} />
+      : (state === 'recording' && targetLabel
+        ? <Box component="span" sx={{ color: 'rgba(255,255,255,0.65)', fontSize: '0.75rem' }}>{'→'} {targetLabel}</Box>
+        : null);
   } else if (state === 'preparing') {
     content = (<><CircularProgress size={13} thickness={5} sx={{ color: 'rgba(255,255,255,0.7)' }} /><span>Downloading voice model {pct}%</span></>);
   } else if (feedback) {
@@ -210,7 +250,7 @@ const VoiceOverlay: React.FC = () => {
       sx={{
         // Hangs just under the droplet so the live words read as its tail.
         position: 'fixed',
-        top: 52,
+        top: 78,
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 2147483000,
