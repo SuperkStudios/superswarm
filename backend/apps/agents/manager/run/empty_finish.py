@@ -20,14 +20,23 @@ NUDGE_PROMPT = (
 logger = logging.getLogger(__name__)
 
 
+NUDGE_HARD_CAP = 3
+
+
 @typechecked
 def maybe_nudge_empty_finish(session: AgentSession, session_id: str) -> bool:
-    """Arm one hidden continue nudge when the finished turn quit silently; the loop's existing
-    auto-continuation block dispatches it. Capped per user ask; never loops."""
-    if getattr(session, "pending_continuation", False) or session.empty_finish_nudges >= 1:
+    """Arm a hidden continue nudge when the finished turn quit silently; the loop's existing
+    auto-continuation block dispatches it. A re-nudge must be EARNED by new tool work since the
+    last one (the model is visibly still working, just mute); a stalled continuation surfaces
+    honestly, so this can never ping-pong a model that has nothing left to do."""
+    if getattr(session, "pending_continuation", False) or session.empty_finish_nudges >= NUDGE_HARD_CAP:
         return False
     if not turn_finished_empty(session):
         return False
+    p_tool_calls = p_count_tool_calls(session)
+    if session.empty_finish_nudges >= 1 and p_tool_calls <= session.empty_finish_progress_mark:
+        return False
+    session.empty_finish_progress_mark = p_tool_calls
     session.empty_finish_nudges += 1
     session.pending_continuation = True
     session.pending_continuation_prompt = NUDGE_PROMPT
@@ -41,6 +50,11 @@ def maybe_nudge_empty_finish(session: AgentSession, session_id: str) -> bool:
 
 # A turn legitimately ENDS on these tools: the rendered widget or delegation IS the answer.
 P_ANSWER_TOOL_MARKERS = ("openswarm-ui", "ShowUI", "AskUI", "AskUserQuestion")
+
+
+@typechecked
+def p_count_tool_calls(session: AgentSession) -> int:
+    return sum(1 for m in get_branch_messages(session) if getattr(m, "role", "") == "tool_call")
 
 
 def p_tool_name_of(msg: object) -> str:

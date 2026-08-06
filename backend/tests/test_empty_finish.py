@@ -1,13 +1,19 @@
-"""The silent-quit seal: a turn that runs tools and ends with no visible answer gets one hidden
-continue nudge, never a loop. Detector shapes pinned here; the loop wiring is pinned in
-test_context_pressure_valve-style fashion against run_agent_loop."""
+"""The silent-quit seal: a turn that runs tools and ends with no visible answer gets a hidden
+continue nudge. Re-nudges must be EARNED by new tool work (the model is working but mute); a
+stalled continuation surfaces honestly, and a hard cap bounds the worst case. Detector shapes
+pinned here; the loop wiring is pinned against run_agent_loop."""
 
 import asyncio
 
 from backend.apps.agents.agent_manager import agent_manager
 import backend.apps.agents.agent_manager as agent_manager_module
 from backend.apps.agents.core.models import AgentSession, Message
-from backend.apps.agents.manager.run.empty_finish import NUDGE_PROMPT, turn_finished_empty
+from backend.apps.agents.manager.run.empty_finish import (
+    NUDGE_HARD_CAP,
+    NUDGE_PROMPT,
+    maybe_nudge_empty_finish,
+    turn_finished_empty,
+)
 
 
 def p_session(*msgs) -> AgentSession:
@@ -66,7 +72,7 @@ def p_install_run_fakes(monkeypatch, run_turn_fake) -> None:
     monkeypatch.setattr(agent_manager_module, "save_session", lambda sid, data: None)
 
 
-def test_loop_nudges_a_silent_quit_once(monkeypatch) -> None:
+def test_loop_renudges_while_progressing_then_caps(monkeypatch) -> None:
     session = AgentSession(name="t", model="sonnet", dashboard_id="d")
     agent_manager.sessions[session.id] = session
     continues: list = []
@@ -74,7 +80,7 @@ def test_loop_nudges_a_silent_quit_once(monkeypatch) -> None:
     async def fake_run_turn(sess, session_id, prompt_content, options, options_kwargs,
                             turn, thinking, stderr, resolved_model, api_type,
                             global_settings, force_respawn=False):
-        # Every turn ends as a silent quit: tools ran, no answer text.
+        # Every turn ends as a silent quit: NEW tool work ran, no answer text.
         sess.messages.append(Message(role="tool_call", content={"tool": "Bash", "input": {}}, branch_id="main"))
         sess.messages.append(Message(role="tool_result", content={"text": "out"}, branch_id="main"))
 
@@ -88,12 +94,33 @@ def test_loop_nudges_a_silent_quit_once(monkeypatch) -> None:
         await agent_manager.run_agent_loop(session.id, "audit everything")
         await asyncio.sleep(0)
 
-    asyncio.run(main())
-    assert continues == [{"prompt": NUDGE_PROMPT, "hidden": True}]
-    assert session.empty_finish_nudges == 1
+    # Each silent quit made fresh tool progress, so each earns a nudge, up to the hard cap.
+    for expected in range(1, NUDGE_HARD_CAP + 1):
+        continues.clear()
+        asyncio.run(main())
+        assert continues == [{"prompt": NUDGE_PROMPT, "hidden": True}]
+        assert session.empty_finish_nudges == expected
 
-    # The nudged turn ALSO quits silently: the cap must hold, no second nudge, no loop.
+    # At the cap even a progressing silent quit surfaces honestly: no nudge, no loop.
     continues.clear()
     asyncio.run(main())
     assert continues == []
-    assert session.empty_finish_nudges == 1
+    assert session.empty_finish_nudges == NUDGE_HARD_CAP
+
+
+def test_stalled_continuation_is_not_renudged() -> None:
+    s = p_session(("user", "audit"),
+                  ("tool_call", {"tool": "Bash", "input": {}}),
+                  ("tool_result", {"text": "ok"}))
+    assert maybe_nudge_empty_finish(s, "sid") is True
+    assert s.empty_finish_nudges == 1
+    # The continuation dispatched, added NOTHING, and quit silently again: no second nudge.
+    s.pending_continuation = False
+    assert maybe_nudge_empty_finish(s, "sid") is False
+    assert s.empty_finish_nudges == 1
+    # New tool work arrives: the re-nudge is earned again.
+    s.messages.append(Message(role="tool_call", content={"tool": "Grep", "input": {}}, branch_id="main"))
+    s.messages.append(Message(role="tool_result", content={"text": "hit"}, branch_id="main"))
+    s.pending_continuation = False
+    assert maybe_nudge_empty_finish(s, "sid") is True
+    assert s.empty_finish_nudges == 2

@@ -135,6 +135,8 @@ class AgentSession(BaseModel):
     pending_continuation_prompt: Optional[str] = None
     # Silent-quit nudges spent since the user's last real message; capped at 1 so an agent that keeps ending empty can't loop.
     empty_finish_nudges: int = 0
+    # Tool-call count at the last nudge: a re-nudge is only earned by NEW tool work since then.
+    empty_finish_progress_mark: int = 0
     # Sanitized server names model has explicitly activated this session; _build_mcp_servers intersects connected MCPs with this. Non-bypassable; dispatch-layer gate.
     active_mcps: list[str] = Field(default_factory=list)
     # Heuristic preamble tokens (preset + tool defs + MCP descs + composed prompt); subtracted from displayed input.
