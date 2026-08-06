@@ -49,6 +49,8 @@ interface ActionResult {
 type Result = DashboardResult | SessionResult | ActionResult;
 
 // Spotlight-style commands; matched against name + keywords once the user types.
+const EMPTY_SESSIONS: Record<string, never> = {};
+
 const ACTIONS: ActionResult[] = [
   { kind: 'action', id: 'new-dashboard', name: 'New dashboard', keywords: 'create board canvas workspace' },
   { kind: 'action', id: 'settings', name: 'Open Settings', keywords: 'preferences general theme options' },
@@ -68,7 +70,8 @@ const GlobalSearchPalette: React.FC<Props> = ({ open, onClose }) => {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const dashboards = useAppSelector((s) => s.dashboards.items);
-  const sessions = useAppSelector((s) => s.agents.sessions);
+  // Closed palette = constant selector result: an always-mounted overlay must not re-render on every stream tick of every session.
+  const sessions = useAppSelector((s) => (open ? s.agents.sessions : EMPTY_SESSIONS));
   const history = useAppSelector((s) => s.agents.history);
   const searchResults = useAppSelector((s) => s.agents.historySearch.results);
   const searchLoading = useAppSelector((s) => s.agents.historySearch.loading);

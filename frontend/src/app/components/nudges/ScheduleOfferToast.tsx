@@ -12,6 +12,7 @@ import type { PersonalizedStarter } from '@/shared/state/settingsSlice';
 
 // Identity-stable fallback so an absent settings field can't re-render this per store tick.
 const EMPTY_STARTERS: PersonalizedStarter[] = [];
+const EMPTY_SESSIONS: Record<string, never> = {};
 
 const OFFER_DONE_KEY = 'openswarm.schedule-offer.v1';
 
@@ -36,7 +37,8 @@ const ScheduleOfferToast: React.FC<{ dashboardId: string }> = ({ dashboardId }) 
   const [resolved, setResolved] = useState(offerAlreadyResolved);
   const [confirmText, setConfirmText] = useState<string | null>(null);
   const starters = useAppSelector((s) => s.settings.data.personalized_starters) ?? EMPTY_STARTERS;
-  const sessions = useAppSelector((s) => s.agents.sessions);
+  // Resolved (or starterless) installs get a constant: this toast is mounted app-wide and must not re-render per stream tick.
+  const sessions = useAppSelector((s) => (!resolved && starters.length > 0 ? s.agents.sessions : EMPTY_SESSIONS));
   const model = useAppSelector((s) => s.settings.data.default_model);
 
   const offer = useMemo(() => {
