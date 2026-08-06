@@ -1624,6 +1624,50 @@ function sendToRenderer(channel, ...args) {
 // em/en dashes per repo style.
 // Extracted to electron/updateErrorMessage.js so the mapping is unit-testable; see node --test there.
 const { friendlyUpdateError } = require('./updateErrorMessage');
+const { diagnoseSilentUpdateCheck } = require('./updateCheckDiagnosis');
+
+// Squirrel's built-in updater reports only via events; when AV or a proxy kills its request
+// internally, no event EVER arrives and the renderer's spinner spins forever. This watchdog turns
+// that silence into a diagnosed update-error. Settled by every real updater event.
+let p_squirrelCheckWatchdog = null;
+function settleUpdateCheckWatchdog() {
+  if (p_squirrelCheckWatchdog) {
+    clearTimeout(p_squirrelCheckWatchdog);
+    p_squirrelCheckWatchdog = null;
+  }
+}
+
+// Reachability probe through Electron's net stack, so a system proxy that blocks Squirrel blocks this the same way. Any HTTP response (even a redirect) proves the feed is reachable.
+function probeUpdateFeed(timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    try {
+      const { net } = require('electron');
+      const req = net.request({ method: 'HEAD', url: 'https://github.com/openswarm-ai/openswarm/releases/latest/download/RELEASES' });
+      const timer = setTimeout(() => { try { req.abort(); } catch (_) {} resolve(false); }, timeoutMs);
+      req.on('response', () => { clearTimeout(timer); resolve(true); });
+      req.on('error', () => { clearTimeout(timer); resolve(false); });
+      req.end();
+    } catch (_) {
+      resolve(false);
+    }
+  });
+}
+
+function armSquirrelCheckWatchdog() {
+  settleUpdateCheckWatchdog();
+  p_squirrelCheckWatchdog = setTimeout(async () => {
+    p_squirrelCheckWatchdog = null;
+    let updateExeExists = false;
+    try {
+      updateExeExists = fs.existsSync(path.resolve(path.dirname(process.execPath), '..', 'Update.exe'));
+    } catch (_) {}
+    const feedReachable = await probeUpdateFeed();
+    const msg = diagnoseSilentUpdateCheck({ updateExeExists, feedReachable });
+    console.warn('[updater] Squirrel check went silent; diagnosis:', msg);
+    cachedUpdateStatus = { status: 'error', info: null, error: msg };
+    sendToRenderer('update-error', msg);
+  }, 15000);
+}
 
 // Phase 2 provenance: which exact commit produced this build. The build
 // scripts write electron/build-info.json (gitignored, regenerated each build)
@@ -1669,6 +1713,17 @@ async function clearStaleFrontendCache() {
 
 function setupAutoUpdater() {
   if (!autoUpdater) return;
+  // Proactive, not post-mortem: an app running off the DMG or a Gatekeeper-translocated copy can NEVER self-update (Squirrel.Mac refuses read-only volumes, proven in the packaged smoke). Tell that cohort what to do at boot instead of after a failed check they may never click.
+  if (process.platform === 'darwin' && isPackaged) {
+    const exe = process.execPath || '';
+    if (exe.includes('/AppTranslocation/') || exe.startsWith('/Volumes/')) {
+      const msg = 'OpenSwarm is running from the disk image, so macOS blocks self-update. Drag OpenSwarm to Applications, then relaunch it from there.';
+      console.warn('[updater] read-only launch detected at boot:', exe);
+      cachedUpdateStatus = { status: 'error', info: null, error: msg };
+      sendToRenderer('update-error', msg);
+      return;
+    }
+  }
   if (isSquirrelUpdater) {
     // Squirrel.Windows fetches its RELEASES feed from GH /latest/download/. The
     // built-in autoUpdater has no autoDownload/allowPrerelease/allowDowngrade knobs.
@@ -1695,6 +1750,7 @@ function setupAutoUpdater() {
   // args and update-downloaded with positional (event, releaseNotes, releaseName,
   // releaseDate, updateURL). Normalize so these handlers work for both.
   autoUpdater.on('update-available', (info) => {
+    settleUpdateCheckWatchdog();
     const norm = info && info.version ? info : { version: '' };
     console.log(`Update available: ${norm.version || '(version not reported by Squirrel)'}`);
     cachedUpdateStatus = { status: 'available', info: norm, error: null };
@@ -1702,6 +1758,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-not-available', (info) => {
+    settleUpdateCheckWatchdog();
     console.log('App is up to date');
     cachedUpdateStatus = { status: 'not-available', info: info || {}, error: null };
     sendToRenderer('update-not-available', info || {});
@@ -1713,6 +1770,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', (info, releaseNotes, releaseName) => {
+    settleUpdateCheckWatchdog();
     const version = (info && info.version) || releaseName || '';
     console.log(`Update downloaded: ${version || '(ready to install)'}`);
     const norm = info && info.version ? info : { version };
@@ -1721,6 +1779,7 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (err) => {
+    settleUpdateCheckWatchdog();
     // Squirrel throws "AutoUpdater process ... is already running" when a check or
     // download is already in flight (e.g. the user clicked Check twice). Benign.
     if (/already running/i.test((err && err.message) || '')) {
@@ -3447,6 +3506,8 @@ ipcMain.handle('check-for-updates', async () => {
     // update-available / update-not-available events, so don't expect a result.
     if (isSquirrelUpdater) {
       autoUpdater.checkForUpdates();
+      // Silence past this point would leave the spinner forever; the watchdog diagnoses it instead.
+      armSquirrelCheckWatchdog();
       return { success: true };
     }
     const result = await autoUpdater.checkForUpdates();
