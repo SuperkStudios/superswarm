@@ -55,32 +55,41 @@ const Waveform: React.FC<{ volumeRef: React.MutableRefObject<number> }> = ({ vol
 
 const VoiceCapsule: React.FC<{
   transcribing: boolean;
+  leaving: boolean;
   volumeRef: React.MutableRefObject<number>;
   onCancel: () => void;
   onConfirm: () => void;
-}> = ({ transcribing, volumeRef, onCancel, onConfirm }) => (
+}> = ({ transcribing, leaving, volumeRef, onCancel, onConfirm }) => (
   <Box
     // Buttons must never steal focus: a mousedown that moved focus here would redirect the
     // transcript away from the field the user is dictating into.
     onMouseDown={(e) => e.preventDefault()}
     sx={{
-      // A droplet from the top edge: flat top glued to the chrome, heavy rounding below, and an
-      // entrance that stretches down then settles, like something viscous letting go.
-      position: 'fixed', top: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
-      display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, pt: 0.75, pb: 0.5,
-      borderRadius: '0 0 22px 22px',
+      // A droplet under the chrome: sits BELOW the frameless-window drag strip (y 3-25), which
+      // otherwise swallows clicks on the X/check; no-drag makes the capsule its own island anyway.
+      position: 'fixed', top: 30, left: '50%', transform: 'translateX(-50%)', zIndex: 2147483001,
+      WebkitAppRegion: 'no-drag',
+      display: 'flex', alignItems: 'center', gap: 0.75, pl: 0.5, pr: 0.5, py: 0.5,
+      borderRadius: '14px 14px 22px 22px',
       background: 'rgba(18,16,24,0.92)',
       backdropFilter: 'blur(18px) saturate(150%)', WebkitBackdropFilter: 'blur(18px) saturate(150%)',
       boxShadow: '0 10px 32px rgba(0,0,0,0.45), inset 0 0 0 1px rgba(255,255,255,0.07)',
       transformOrigin: 'top center',
       '@keyframes vgloop-in': {
-        '0%': { opacity: 0, transform: 'translate(-50%, -100%) scale(0.9, 0.7)' },
-        '55%': { opacity: 1, transform: 'translate(-50%, 0) scale(0.96, 1.12)' },
-        '78%': { transform: 'translate(-50%, 0) scale(1.03, 0.94)' },
+        '0%': { opacity: 0, transform: 'translate(-50%, -130%) scale(0.92, 0.74)' },
+        '55%': { opacity: 1, transform: 'translate(-50%, 0) scale(0.97, 1.1)' },
+        '78%': { transform: 'translate(-50%, 0) scale(1.02, 0.95)' },
         '100%': { transform: 'translate(-50%, 0) scale(1, 1)' },
       },
-      animation: 'vgloop-in 0.34s cubic-bezier(0.3, 1.2, 0.4, 1) both',
-      '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+      '@keyframes vgloop-out': {
+        '0%': { opacity: 1, transform: 'translate(-50%, 0) scale(1, 1)' },
+        '30%': { transform: 'translate(-50%, 4%) scale(0.97, 1.06)' },
+        '100%': { opacity: 0, transform: 'translate(-50%, -130%) scale(0.92, 0.74)' },
+      },
+      animation: leaving
+        ? 'vgloop-out 0.26s cubic-bezier(0.32, 0.72, 0, 1) both'
+        : 'vgloop-in 0.34s cubic-bezier(0.3, 1.2, 0.4, 1) both',
+      '@media (prefers-reduced-motion: reduce)': { animation: 'none', opacity: leaving ? 0 : 1 },
     }}
   >
     <IconButton
@@ -141,6 +150,22 @@ const LiveTranscript: React.FC<{ committed: string; tentative: string }> = ({ co
 const VoiceOverlay: React.FC = () => {
   const { state, pct, feedback, partial, volumeRef, confirmRecording, cancelRecording } = useVoice();
   const [showFeedback, setShowFeedback] = useState(false);
+  // The capsule lingers past its state for one out-animation beat, so it glides back up instead of vanishing.
+  const [capsuleLeaving, setCapsuleLeaving] = useState(false);
+  const capsuleAlive = state === 'recording' || state === 'transcribing';
+  const [capsuleMounted, setCapsuleMounted] = useState(capsuleAlive);
+
+  useEffect(() => {
+    if (capsuleAlive) {
+      setCapsuleMounted(true);
+      setCapsuleLeaving(false);
+      return undefined;
+    }
+    if (!capsuleMounted) return undefined;
+    setCapsuleLeaving(true);
+    const t = setTimeout(() => { setCapsuleMounted(false); setCapsuleLeaving(false); }, 270);
+    return () => clearTimeout(t);
+  }, [capsuleAlive, capsuleMounted]);
 
   useEffect(() => {
     if (!feedback) return undefined;
@@ -150,11 +175,11 @@ const VoiceOverlay: React.FC = () => {
   }, [feedback]);
 
   const live = state !== 'idle';
-  const visible = live || (showFeedback && !!feedback);
+  const visible = live || capsuleMounted || (showFeedback && !!feedback);
   if (!visible) return null;
 
-  const capsule = (state === 'recording' || state === 'transcribing') ? (
-    <VoiceCapsule transcribing={state === 'transcribing'} volumeRef={volumeRef} onCancel={cancelRecording} onConfirm={confirmRecording} />
+  const capsule = capsuleMounted ? (
+    <VoiceCapsule transcribing={state === 'transcribing'} leaving={capsuleLeaving} volumeRef={volumeRef} onCancel={cancelRecording} onConfirm={confirmRecording} />
   ) : null;
 
   const hasPartial = !!partial && !!(partial.committed || partial.tentative);
