@@ -21,6 +21,12 @@ def test_notes_are_written_for_users_not_committers():
             assert "—" not in line and "–" not in line, "house style: no em/en dashes"
 
 
+def test_no_em_dashes_anywhere_in_a_release_body():
+    # House rule, and the header was the one place the earlier test did not look.
+    md = as_markdown(latest_release())
+    assert "\u2014" not in md and "\u2013" not in md, "release bodies use plain punctuation"
+
+
 def test_markdown_body_carries_the_same_words_as_the_app():
     note = latest_release()
     md = as_markdown(note)

@@ -64,7 +64,7 @@ def latest_release() -> ReleaseNote:
 @typechecked
 def as_markdown(note: ReleaseNote) -> str:
     """The GitHub release body; identical words to the in-app card, so nobody reads two stories."""
-    lines = [f"## {note.version} — {note.headline}", ""]
+    lines = [f"## {note.version}: {note.headline}", ""]
     if note.highlights:
         lines.append("### New")
         lines += [f"- {h}" for h in note.highlights]
