@@ -131,6 +131,7 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             submit_diagnostic({
                 "kind": "cli_binary_missing",
                 "where": "manager.run.handle_run_error",
+                "flight": flight_recorder.build_envelope(session_id, "cli_binary_missing", "missing", session.model, "stream" if turn.current_turn_emitted else "spawn", -1),
                 "session_id": session_id,
                 "model": session.model,
                 "error_preview": redact_for_telemetry(str(e), limit=400),
