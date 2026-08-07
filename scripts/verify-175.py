@@ -22,14 +22,11 @@ import time
 import urllib.request
 from typing import List, Optional, Tuple
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from scripts.verify175.forced import check_forced_router_unavailable, check_forced_silent_noop
+
+from scripts.verify175.shared import ROOT, ROWS, p_api, row
+
 PY = os.path.join(ROOT, "backend", ".venv", "bin", "python")
-ROWS: List[Tuple[str, str, str]] = []
-
-
-def row(name: str, verdict: str, detail: str) -> None:
-    ROWS.append((name, verdict, detail))
-    print(f"  {verdict:5}  {name:38} {detail}", flush=True)
 
 
 def run(cmd: List[str], timeout: int = 900) -> Tuple[int, str]:
@@ -102,17 +99,6 @@ def check_changelog() -> None:
         row("changelog + Help context", "FAIL", out.strip()[:70])
 
 
-def p_api(path: str, token: str, body: Optional[dict] = None, timeout: int = 60) -> dict:
-    req = urllib.request.Request(
-        "http://127.0.0.1:8324/api" + path,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST" if body is not None else "GET",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read() or b"{}")
-
-
 def check_live_ttft(token: str) -> None:
     """Always paired with a same-window provider floor: an absolute TTFT number with no floor beside
     it cannot distinguish our regression from the provider having a bad hour."""
@@ -163,14 +149,16 @@ def check_live_ttft(token: str) -> None:
 
 
 def main() -> None:
-    live = "--live" in sys.argv
+    live = "--live" in sys.argv or "--live-only" in sys.argv
+    only = "--live-only" in sys.argv
     print("\n1.7.5 verification\n" + "=" * 78)
-    print("\ndeterministic checks:")
-    check_suite()
-    check_linter()
-    check_sensor_cost()
-    check_envelope_coverage()
-    check_changelog()
+    if not only:
+        print("\ndeterministic checks:")
+        check_suite()
+        check_linter()
+        check_sensor_cost()
+        check_envelope_coverage()
+        check_changelog()
     if live:
         print("\nlive checks (need a running backend):")
         try:
@@ -179,7 +167,16 @@ def main() -> None:
         except Exception:
             row("live checks", "SKIP", "backend not reachable on :8324")
         else:
+            sink = os.environ.get("OPENSWARM_DIAG_SINK", "")
+            # Order matters: boot and TTFT run on a clean stack, the forced-failure checks below
+            # kill the router and must come last or they poison both numbers.
+            check_boot_lifespan()
             check_live_ttft(token)
+            check_forced_silent_noop(token)
+            if sink:
+                check_forced_router_unavailable(token, sink)
+            else:
+                row("forced: router unavailable", "SKIP", "run the backend with OPENSWARM_DIAG_SINK set")
     else:
         print("\nlive checks: skipped (pass --live with a backend running)")
     print("\n" + "=" * 78)
@@ -188,8 +185,9 @@ def main() -> None:
     print(f"{len(ROWS) - len(fails) - len(skips)} pass, {len(fails)} fail, {len(skips)} skipped")
     if fails:
         print("FAILING: " + ", ".join(f"{n} ({d})" for n, _, d in fails))
-    print("\nNot covered here, run by hand and recorded on ENG-175: the 8 forced failure classes,")
-    print("the CDP UI proofs (scroll/fly-to-fit/overlay/dictation), and the packaged-build check.")
+    print("\nCovered by hand, recorded on ENG-175 (need a stack, a hidden CLI binary, or a GUI):")
+    print("  6 of the 8 forced classes (401 shims, overflow, missing CLI, webview kill, renderer wedge),")
+    print("  the CDP UI proofs (scroll/fly-to-fit/overlay/dictation), and the packaged-build check.")
     sys.exit(1 if fails else 0)
 
 
