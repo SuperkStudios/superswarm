@@ -351,9 +351,12 @@ def p_report_start_failure(reason: str, *, detail: str = "", **fields: Any) -> N
     try:
         from backend.apps.agents.core.redact_for_telemetry import redact_for_telemetry
         from backend.apps.service.client import submit_diagnostic
+        from backend.apps.agents.core.flight_recorder import journey_auth_context
         payload: dict[str, Any] = {
             "kind": "9router_start_failed",
             "reason": reason,
+            # No session owns this failure, but WHO it happened to still decides the fix.
+            "journey": journey_auth_context(),
             "packaged": os.environ.get("OPENSWARM_PACKAGED") == "1",
             **fields,
         }

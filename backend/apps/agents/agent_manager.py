@@ -275,9 +275,11 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
                 try:
                     from backend.apps.service.client import submit_diagnostic
                     from backend.apps.agents.core.redact_for_telemetry import redact_for_telemetry
+                    from backend.apps.agents.core import flight_recorder as p_fr
                     submit_diagnostic({
                         "kind": "context_pressure_valve",
                         "trigger": "overflow" if p_overflow else "pressure_death",
+                        "flight": p_fr.build_envelope(session_id, "context_pressure_valve", "overflow" if p_overflow else "pressure_death", session.model, "stream", turn.compact_boundaries),
                         "session_id": session_id,
                         "model": session.model,
                         "compact_boundaries": turn.compact_boundaries,
