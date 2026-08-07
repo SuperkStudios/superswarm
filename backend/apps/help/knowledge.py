@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict
 from typeguard import typechecked
 
 from backend.apps.help.help_topics import HELP_TOPICS, HelpTopic
+from backend.apps.help.changelog import help_context_block
 from backend.apps.help.known_issues import KNOWN_ISSUES, HelpKnownIssue
 from backend.apps.help.prompt_rules import GROUNDING_RULES, ROLE
 
@@ -136,9 +137,6 @@ def p_issues_block() -> str:
 
 
 @typechecked
-from backend.apps.help.changelog import help_context_block
-
-
 def build_system_prompt(shortcuts: List[HelpShortcut], app_version: str) -> str:
     shortcut_lines = "\n".join(f"- {s.keys}: {s.action}" for s in shortcuts)
     os_name = "macOS" if IS_MAC else platform.system()
