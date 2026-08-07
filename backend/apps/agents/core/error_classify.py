@@ -50,6 +50,25 @@ NON_TRANSIENT_PATTERNS = re.compile(
 
 
 @typechecked
+def is_router_unreachable_error(text: str) -> bool:
+    """True when a turn-result error is the CLI failing to REACH its endpoint (our localhost
+    9Router, which every provider call goes through). A dev reload kills and respawns the router,
+    so this is a seconds-long outage: the caller re-ensures the router and resumes the turn
+    instead of surfacing a terminal error card."""
+    if not text.strip():
+        return False
+    return bool(re.search(
+        r"unable\s+to\s+connect"
+        r"|econnrefused"
+        r"|connection\s+refused"
+        r"|fetch\s+failed"
+        r"|connection\s+error",
+        text,
+        re.IGNORECASE,
+    ))
+
+
+@typechecked
 def is_long_context_error(exc: BaseException, extra_text: str = "") -> bool:
     """True when the upstream error is the 'long context tier required' 429.
 

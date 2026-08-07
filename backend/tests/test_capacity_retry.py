@@ -77,3 +77,34 @@ def test_an_auth_failure_stays_non_transient_even_when_it_is_a_transport_type():
 def test_a_transport_error_that_says_nothing_at_all_still_retries():
     # An exception stringifying to "" used to bail out before it was ever classified.
     assert capacity_retry_wait(httpx.ConnectError(""), 0) == 5
+
+
+# --- the router-respawn family: turn-RESULT errors, which bypass capacity_retry_wait entirely ---
+# The CLI reports "API Error: Unable to connect" as an error-shaped ResultMessage when our
+# localhost 9Router is mid-respawn (a dev reload kills it, the watchdog revives it in seconds).
+# TurnRunner consults is_router_unreachable_error on the TurnResultError text and resumes the turn
+# instead of surfacing a terminal card; these pin exactly which texts qualify.
+
+from backend.apps.agents.core.error_classify import is_router_unreachable_error
+
+
+def test_the_cli_unable_to_connect_text_is_router_unreachable():
+    live = ("The agent runtime reported this turn failed (error_during_execution). "
+            "API Error: Unable to connect. Is the computer able to access the url?")
+    assert is_router_unreachable_error(live)
+
+
+def test_connection_refused_variants_are_router_unreachable():
+    for text in ("ECONNREFUSED 127.0.0.1:20128", "connect: Connection refused", "fetch failed", "Connection error."):
+        assert is_router_unreachable_error(text), text
+
+
+def test_ordinary_turn_failures_are_not_router_unreachable():
+    for text in (
+        "The model hit its maximum output length before finishing (max_tokens).",
+        "The model refused to continue this turn (refusal).",
+        "invalid_request_error: tool schema rejected",
+        "denied tools: Bash",
+        "",
+    ):
+        assert not is_router_unreachable_error(text), text
