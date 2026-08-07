@@ -448,6 +448,10 @@ async def p_generate_metadata_for_steps(
 
 _PLACEHOLDER_TITLES = {"", "New workflow", "Untitled workflow", "Scheduled workflow"}
 
+# Ceiling on the cosmetic label/title aux call, which runs INSIDE the step-edit request. The SDK's own
+# stream timeout is minutes, long enough that a stalled lane reads as the editor being dead.
+AUX_LABEL_TIMEOUT_S = 20.0
+
 
 def p_fallback_title_for_steps(steps: list[WorkflowStep]) -> str:
     """Deterministic title derived from the steps, used when the aux model is
@@ -510,9 +514,16 @@ async def p_relabel_steps(
     if not regen_idxs and not need_autoname:
         return
     try:
-        title, description, labels = await p_generate_metadata_for_steps(steps, model)
+        title, description, labels = await asyncio.wait_for(
+            p_generate_metadata_for_steps(steps, model), timeout=AUX_LABEL_TIMEOUT_S,
+        )
     except Exception:
-        return
+        # Every caller awaits this INSIDE the PATCH request, so an aux lane that stalls used to hold
+        # the whole edit open and the editor just span: an agent editing a step bricked the app. This
+        # is decoration with deterministic fallbacks right below, so failing here must cost a nicer
+        # label, never the edit itself.
+        logger.info("workflow meta gen unavailable; using deterministic labels", exc_info=True)
+        title, description, labels = "", "", []
     # One aux call covers labels AND auto-naming. A manual rename sets auto_named=False, so the title/description below are left untouched then.
     if need_autoname:
         if title:
