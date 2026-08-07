@@ -4,13 +4,21 @@
 // rectangle (the same class as the 1.5.9 dot-grid white-patch bug; see DashboardCanvas's grid note).
 export function washBackgroundUrl(stops: string[], washOpacity: number): string {
   const alpha = Math.max(0, Math.min(1, washOpacity));
+  // A native CSS gradient, not an SVG data-URL. The data-URL version was a decoded IMAGE resource:
+  // Chromium can evict its tiles under GPU memory pressure (many webviews, external displays) and
+  // paints the layer's background-color there instead, which is the hard-edged band users report.
+  // A gradient is a paint op on the layer itself, so there is no separate texture to drop, and it
+  // also stops shipping a ~119KB data-URL string on every theme render.
   const stopEls = stops.map((hex, i) => {
     const offset = stops.length > 1 ? (i / (stops.length - 1)) * 100 : 100;
-    return `<stop offset='${offset}%' stop-color='${hex}' stop-opacity='${alpha}'/>`;
-  }).join('');
-  // x2/y2 approximate the CSS 115deg direction (25 degrees below horizontal).
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100' preserveAspectRatio='none'><defs><linearGradient id='w' x1='0%' y1='0%' x2='90%' y2='42%'>${stopEls}</linearGradient></defs><rect width='100' height='100' fill='url(%23w)'/></svg>`;
-  return `url("data:image/svg+xml,${svg.replace(/#/g, '%23').replace(/'/g, '%27')}")`;
+    return `${p_rgba(hex, alpha)} ${offset}%`;
+  }).join(', ');
+  return `linear-gradient(115deg, ${stopEls})`;
+}
+
+function p_rgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
 }
 
 function mixHex(a: string, b: string, t: number): string {
