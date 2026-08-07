@@ -35,9 +35,9 @@ def test_a_deleted_workflow_never_runs_from_any_trigger(trigger):
     assert run.error == "Workflow deleted"
 
 
-@pytest.mark.parametrize("trigger", ["schedule", "retry"])
-def test_a_paused_workflow_never_runs_unattended(trigger):
-    """The scheduler, an agent tool, an invoke and a retry are all unattended paths."""
+@pytest.mark.parametrize("trigger", ["schedule", "retry", "manual"])
+def test_a_paused_workflow_never_runs_from_any_trigger(trigger):
+    """Off means off: even the Run Now route cannot start a workflow the user switched off."""
     wf = p_wf(enabled=False)
     with patch.object(executor.storage, "get_workflow", return_value=wf):
         run = asyncio.run(executor.execute(wf, triggered_by=trigger))
@@ -45,14 +45,10 @@ def test_a_paused_workflow_never_runs_unattended(trigger):
     assert run.error == "Workflow is paused"
 
 
-def test_a_human_run_now_on_a_paused_workflow_is_still_allowed_to_start():
-    """The one deliberate exception: a person pressing Run Now is attended and explicit.
-
-    Asserted so that if the product decision changes, this test is what has to change with it.
-    """
-    wf = p_wf(enabled=False)
+def test_turning_it_back_on_lets_it_run_again():
+    """The guard must be about state, not a permanent block."""
+    wf = p_wf(enabled=True)
     with patch.object(executor.storage, "get_workflow", return_value=wf):
         with patch.object(executor.storage, "record_run"):
             with patch.object(executor, "_monthly_spend_so_far", return_value=0.0):
-                # It gets past the entry guard; we do not run the whole agent here.
-                assert executor.storage.get_workflow(wf.id) is wf
+                assert executor.storage.get_workflow(wf.id).schedule.enabled is True

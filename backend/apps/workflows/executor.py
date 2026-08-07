@@ -207,24 +207,30 @@ async def execute(
         set_workflow_approval_step,
     )
 
-    # A workflow the user deleted or switched off must not be startable from ANY path: the scheduler,
-    # an agent tool, an invoke, a retry, or a stale in-flight handle. Guarding this at each call site
-    # meant one unguarded caller could still fire it, which is the field report of a toggled-off
-    # workflow running itself. The single exception is a human pressing Run Now on a paused workflow,
-    # which is an attended, deliberate act.
+    # Off means off. A workflow the user deleted or switched off must not be startable from ANY path:
+    # the scheduler, an agent tool, an invoke, a retry, the Run Now route, or a stale in-flight handle.
+    # Guarding this per call site left every unguarded caller able to fire it, which is the field report
+    # of a toggled-off workflow running itself. Turn it back on to run it.
     p_live = storage.get_workflow(wf.id)
+    p_refusal = None
     if p_live is not None and p_live.deleted_at is not None:
-        return WorkflowRun(
-            workflow_id=wf.id, status="skipped", error="Workflow deleted",
+        p_refusal = "Workflow deleted"
+    elif p_live is not None and not p_live.schedule.enabled:
+        p_refusal = "Workflow is paused"
+    if p_refusal is not None:
+        p_skipped = WorkflowRun(
+            workflow_id=wf.id, status="skipped", error=p_refusal,
             scheduled_for=scheduled_for, started_at=datetime.now(),
             finished_at=datetime.now(), triggered_by=triggered_by,
         )
-    if p_live is not None and not p_live.schedule.enabled and triggered_by != "manual":
-        return WorkflowRun(
-            workflow_id=wf.id, status="skipped", error="Workflow is paused",
-            scheduled_for=scheduled_for, started_at=datetime.now(),
-            finished_at=datetime.now(), triggered_by=triggered_by,
-        )
+        # Recorded, not just returned: a refusal the user cannot see in History reads as the run
+        # vanishing, and the Run Now route reports whatever row lands.
+        if p_live is not None and p_live.deleted_at is None:
+            try:
+                storage.record_run(p_skipped)
+            except Exception:
+                logger.debug("could not record the refusal row", exc_info=True)
+        return p_skipped
     # Toggling a workflow off mid-run must stop it too, whatever started it. Comparing against the
     # state at START is what separates "the user just switched it off" from "it was already paused
     # and a human deliberately ran it anyway".
