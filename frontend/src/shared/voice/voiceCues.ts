@@ -9,7 +9,7 @@ type CueKind = 'start' | 'stop' | 'lock';
 
 // Pushed from Settings (dictation_sounds / dictation_sound_volume); defaults match the shipped feel.
 let cueEnabled = true;
-let cueVolume = 0.35;
+let cueVolume = 0.7;
 
 export function configureVoiceCues(enabled: boolean, volume: number): void {
   cueEnabled = enabled;

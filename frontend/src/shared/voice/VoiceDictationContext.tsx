@@ -48,7 +48,7 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
 
   // Cue sounds honor the user's toggle and loudness.
   const cueSounds = useAppSelector((s) => s.settings.data.dictation_sounds ?? true);
-  const cueVolume = useAppSelector((s) => s.settings.data.dictation_sound_volume ?? 0.35);
+  const cueVolume = useAppSelector((s) => s.settings.data.dictation_sound_volume ?? 0.7);
   useEffect(() => {
     configureVoiceCues(cueSounds, cueVolume);
   }, [cueSounds, cueVolume]);

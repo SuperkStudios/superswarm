@@ -105,7 +105,7 @@ const DictationSettings: React.FC<{
             min={0}
             max={100}
             disabled={!(form.dictation_sounds ?? true)}
-            value={Math.round((form.dictation_sound_volume ?? 0.35) * 100)}
+            value={Math.round((form.dictation_sound_volume ?? 0.7) * 100)}
             onChange={(_, v) => setForm({ ...form, dictation_sound_volume: (v as number) / 100 })}
             sx={{ width: 110 }}
           />
