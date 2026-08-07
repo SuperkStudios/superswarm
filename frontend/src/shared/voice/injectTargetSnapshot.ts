@@ -21,10 +21,16 @@ export function isUsableTarget(el: HTMLElement | null): boolean {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'WEBVIEW' || el.isContentEditable;
 }
 
+export interface TakenSnapshot extends InjectSnapshot {
+  /** We aimed at a real field and it died mid-decode. Distinct from never having aimed anywhere. */
+  targetLost: boolean;
+}
+
 /** Consumes the snapshot: reading it once is the whole contract, so a stale one can never linger. */
-export function takeInjectSnapshot(): InjectSnapshot {
+export function takeInjectSnapshot(): TakenSnapshot {
   const snap = p_snapshot;
   p_snapshot = null;
-  if (!snap) return { el: null, browserId: null };
-  return { el: isUsableTarget(snap.el) ? snap.el : null, browserId: snap.browserId };
+  if (!snap) return { el: null, browserId: null, targetLost: false };
+  const usable = isUsableTarget(snap.el);
+  return { el: usable ? snap.el : null, browserId: snap.browserId, targetLost: !!snap.el && !usable };
 }

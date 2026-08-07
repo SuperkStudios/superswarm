@@ -1,6 +1,6 @@
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
-import { takeInjectSnapshot, setInjectSnapshot } from './injectTargetSnapshot';
+import { takeInjectSnapshot, setInjectSnapshot, isUsableTarget } from './injectTargetSnapshot';
 
 // Dictation lands where the user's cursor actually is, like every real dictation tool: a focused
 // in-app field gets the text typed in (undo-friendly, fires React input events), a focused browser
@@ -9,6 +9,9 @@ export type InjectTarget = 'field' | 'webview' | 'composer' | null;
 
 export function injectAtFocus(text: string): InjectTarget {
   const snap = takeInjectSnapshot();
+  // The field the user dictated into is gone. Whatever holds focus now is a stranger's box, and
+  // typing their words into it is worse than dropping them, so drop them.
+  if (snap.targetLost && !snap.browserId) return null;
   const active = snap.el || (document.activeElement as HTMLElement | null);
   if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
     try {
@@ -49,8 +52,11 @@ export function injectAtFocus(text: string): InjectTarget {
 
 /** Called at press-start so the words land where the user was looking, not where focus drifted. */
 export function snapshotInjectTarget(): void {
+  // Only a typeable element counts as "aimed at". document.activeElement is <body> when nothing is
+  // focused, and storing that would read as a lost target later and swallow the composer fallback.
+  const active = document.activeElement as HTMLElement | null;
   setInjectSnapshot({
-    el: document.activeElement as HTMLElement | null,
+    el: isUsableTarget(active) ? active : null,
     browserId: getLastInteractedBrowser(),
   });
 }
