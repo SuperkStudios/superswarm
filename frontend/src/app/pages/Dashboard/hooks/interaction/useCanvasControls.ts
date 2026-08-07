@@ -23,7 +23,7 @@ const FIT_PADDING = 200;
 const TIDY_PADDING = { x: 120, y: 56 };
 const TIDY_MIN_ZOOM = REVEAL_MIN_ZOOM;
 // Card-framing (spawn, click-to-focus, arrow-nav) snaps as fast as the zoom buttons so a new card lands under you now, not after a lazy glide.
-const FIT_DURATION = 150;
+const FIT_DURATION = 340;
 // Must outlast FIT_DURATION so the drift re-snap lands after the glide, never mid-flight.
 const FIT_SETTLE_DELAY = FIT_DURATION + 60;
 // A mouse notch lands as deltaY 100 where a trackpad sends ~1-10, so cap the per-event zoom delta: uncapped, one notch is a ~24% jump and macOS wheel acceleration stacks them. No-op for trackpads.
@@ -234,7 +234,9 @@ export function useCanvasControls(
 
     const step = (now: number) => {
       const t = Math.min((now - startTime) / duration, 1);
-      const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+      // Quintic ease-out: leaves fast, lands soft. The old cubic at 150ms read as a snap; the eye
+      // reads the long tail as "the camera settled" rather than "the world jumped".
+      const ease = 1 - Math.pow(1 - t, 5);
       applyLive({
         panX: start.panX + (target.panX - start.panX) * ease,
         panY: start.panY + (target.panY - start.panY) * ease,
