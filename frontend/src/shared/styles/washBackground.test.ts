@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { washIsUniform, washBackgroundLayers, washUnderlayColor, washOpaqueBackgroundUrl } from './washBackground.ts';
+import { washIsUniform, washBackgroundLayers, washUnderlayColor, washOpaqueBackgroundUrl, DEFAULT_WASH_STOPS, effectiveWashStops } from './washBackground.ts';
 
 const PAGE = '#F5F4ED';
 
@@ -57,4 +57,19 @@ test('grain stacks above the gradient, in that order', () => {
 test('no stops and no grain means no background image at all', () => {
   assert.equal(washBackgroundLayers([], 0.17, PAGE, null), null);
   assert.equal(washIsUniform([]), true);
+});
+
+test('the STOCK theme is uniform, so a default install cannot tear', () => {
+  // Everyone who never opened the theme pad lands here. Making this multi-stop again would put a
+  // full-window texture back under every default install, which is the band, so it is asserted.
+  assert.equal(washIsUniform(DEFAULT_WASH_STOPS), true, 'default wash must stay one flat colour');
+  assert.equal(washBackgroundLayers(DEFAULT_WASH_STOPS, 0.17, PAGE, null), null);
+  assert.equal(washIsUniform(effectiveWashStops(null, null)), true, 'no accent, no gradient');
+  assert.equal(washIsUniform(effectiveWashStops(null, '#B7CDEA')), true, 'a picked accent is one stop');
+});
+
+test('a user who picks a real gradient still gets one, texture and all', () => {
+  const chosen = ['#B7CDEA', '#E7BDD1'];
+  assert.equal(washIsUniform(effectiveWashStops(chosen, null)), false);
+  assert.ok(washBackgroundLayers(chosen, 0.17, PAGE, null));
 });

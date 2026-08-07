@@ -79,9 +79,13 @@ export function washUnderlayColor(stops: string[], washOpacity: number, pageBg: 
   return mixHex(pageBg, mean, alpha);
 }
 
-// Stock wallpaper when the user hasn't picked an accent yet: a designed blue-to-cream-to-pink
-// gradient (contrasting stops), so a fresh install and the onboarding stage never look flat/white.
-export const DEFAULT_WASH_STOPS = ['#B7CDEA', '#EFE0D2', '#E7BDD1'];
+// Stock wallpaper when the user hasn't picked an accent yet. ONE stop on purpose: a multi-stop
+// default needs a full-window texture, and Chromium fills any tile it drops with the layer's single
+// background colour, which is why the gradient used to tear into a hard-edged rectangle under GPU
+// pressure. This is the mean of the old blue-cream-pink trio, i.e. exactly the colour those torn
+// tiles already painted, so the stock look is now what the worst case used to be. Picking any accent
+// is also one stop; only a user-chosen gradient opts back into the texture.
+export const DEFAULT_WASH_STOPS = ['#DACEDA'];
 
 export function effectiveWashStops(gradient: string[] | null, accent: string | null): string[] {
   if (gradient && gradient.length > 0) return gradient;
