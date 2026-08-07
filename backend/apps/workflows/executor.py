@@ -213,9 +213,13 @@ async def execute(
     # of a toggled-off workflow running itself. Turn it back on to run it.
     p_live = storage.get_workflow(wf.id)
     p_refusal = None
-    if p_live is not None and p_live.deleted_at is not None:
+    if p_live is None:
+        # A hard delete leaves nothing to look up, and reading that as "no objection" is how a
+        # deleted workflow still ran to the end and then wrote itself back to life.
         p_refusal = "Workflow deleted"
-    elif p_live is not None and not p_live.schedule.enabled:
+    elif p_live.deleted_at is not None:
+        p_refusal = "Workflow deleted"
+    elif not p_live.schedule.enabled:
         p_refusal = "Workflow is paused"
     if p_refusal is not None:
         p_skipped = WorkflowRun(

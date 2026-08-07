@@ -906,7 +906,7 @@ async def restore_workflow(workflow_id: str):
     if not wf or wf.deleted_at is None:
         raise HTTPException(status_code=404, detail="Workflow not in trash")
     wf.deleted_at = None
-    storage.save_workflow(wf)
+    storage.save_workflow(wf, untrash=True)
     enriched = _enriched(wf)
     try:
         from backend.apps.agents.core.ws_manager import ws_manager
@@ -1453,6 +1453,10 @@ async def run_workflow_now(workflow_id: str, body: Optional[dict] = None):
     wf = storage.get_workflow(workflow_id)
     if not wf:
         raise HTTPException(status_code=404, detail="Workflow not found")
+    # The executor refuses a trashed workflow but writes no history for it, so without this the caller
+    # got run_id "" with a null status and no idea why nothing happened.
+    if wf.deleted_at is not None:
+        raise HTTPException(status_code=409, detail="This workflow is in Trash. Restore it to run it.")
     # executor.execute() owns the run record. Don't pre-create a stub here or we end up with two rows per manual fire (one orphan "running" row from this handler plus the real one from the executor).
     pre_ids = {r.id for r in storage.list_runs(wf.id, limit=10)}
     tested_signature = body.get("signature") if isinstance(body, dict) else None
