@@ -63,6 +63,17 @@ async def outputs_lifespan():
         recover_orphaned_apps()
     except Exception:
         logger.exception("orphaned-app recovery failed; apps stay hidden but nothing else breaks")
+    # Ghosts from a session that died badly keep running forever: stop_all only fires on a clean
+    # shutdown, and the port-collision path routes AROUND a squatter instead of killing it. Measured
+    # on a dev box: runtimes still alive after 2 days 19 hours. Boot is the one safe moment, since we
+    # have not spawned any of our own yet.
+    try:
+        from backend.apps.outputs.reap_ghost_runtimes import reap_ghost_runtimes
+        ghosts = reap_ghost_runtimes()
+        if ghosts:
+            logger.warning("outputs lifespan: reaped %d ghost runtime(s) from a previous session", ghosts)
+    except Exception:
+        logger.exception("ghost-runtime reap failed; stale processes stay but boot continues")
     try:
         yield
     finally:
