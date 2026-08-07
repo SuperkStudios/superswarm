@@ -18,10 +18,13 @@ import ApplicationsWindow from '../desktop/ApplicationsWindow';
 import type { ClaudeTokens } from '@/shared/styles/claudeTokens';
 import { useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import { useGrainTileUrl } from '@/shared/styles/useGrainTileUrl';
-import { washOpaqueBackgroundUrl, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
+import { washBackgroundLayers, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
 
-// How far the dot grid bleeds past the viewport; must exceed one tile period (24px * max zoom) so the compositor phase translate can never expose an edge.
-const GRID_BLEED_PX = 256;
+// How far the dot grid bleeds past the viewport. The phase translate is `pan % dotSpacing`, so it
+// can never exceed one tile period; deriving the bleed from that bound keeps the layer as small as
+// it can be (a hardcoded 256 made it 3.5x bigger than needed, all of it evictable texture) and a
+// future max-zoom bump can't silently uncover an edge.
+const GRID_BLEED_PX = 24 * MAX_ZOOM;
 import type { AgentSession } from '@/shared/state/agentsSlice';
 import type {
   CardPosition,
@@ -32,7 +35,7 @@ import type {
 } from '@/shared/state/dashboardLayoutSlice';
 import type { Output } from '@/shared/state/outputsSlice';
 import type { CardType, useDashboardSelection } from '../hooks/state/useDashboardSelection';
-import type { useCanvasControls } from '../hooks/interaction/useCanvasControls';
+import { MAX_ZOOM, type useCanvasControls } from '../hooks/interaction/useCanvasControls';
 import { useWebviewSuspend } from '../hooks/interaction/useWebviewSuspend';
 import { deleteSelectedCards } from '../hooks/interaction/deleteSelectedCards';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
@@ -174,8 +177,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   const dotSpacing = 24 * canvas.zoom;
   // Memoized: this component re-renders every card-drag frame, and rebuilding these strings (SVG encode + hex blends) per frame is pure waste.
   const washUnderlay = React.useMemo(() => washUnderlayColor(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
-  const washUrl = React.useMemo(() => washOpaqueBackgroundUrl(washStops, washOpacity, c.bg.page), [washStops, washOpacity, c.bg.page]);
   const grainTileUrl = useGrainTileUrl(grain);
+  const washLayers = React.useMemo(() => washBackgroundLayers(washStops, washOpacity, c.bg.page, grainTileUrl), [washStops, washOpacity, c.bg.page, grainTileUrl]);
   const gridTileUrl = React.useMemo(() => `url("data:image/svg+xml,${encodeURIComponent(
     `<svg xmlns='http://www.w3.org/2000/svg' width='${dotSpacing}' height='${dotSpacing}'><circle cx='${dotSpacing / 2}' cy='${dotSpacing / 2}' r='${dotSize}' fill='${c.border.medium}'/></svg>`,
   )}")`, [dotSpacing, dotSize, c.border.medium]);
@@ -427,11 +430,12 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           backgroundColor: washUnderlay,
           // Wash + grain paint HERE rather than on a child: two stacked full-viewport layers meant two
           // rasters the compositor could evict independently, and a dropped one exposed the flat tint
-          // as a hard-edged band. One element, one raster, one fewer thing to lose.
-          ...(washStops && washStops.length > 0 ? {
-            backgroundImage: grainTileUrl ? `${grainTileUrl}, ${washUrl}` : washUrl,
-            backgroundSize: grainTileUrl ? 'auto, 100% 100%' : '100% 100%',
-            backgroundRepeat: grainTileUrl ? 'repeat, no-repeat' : 'no-repeat',
+          // as a hard-edged band. One element, one raster, one fewer thing to lose. A uniform wash
+          // drops the image entirely, because backgroundColor above already IS that colour.
+          ...(washLayers ? {
+            backgroundImage: washLayers.image,
+            backgroundSize: washLayers.size,
+            backgroundRepeat: washLayers.repeat,
           } : {}),
           cursor: canvas.isPanning
             ? 'grabbing'

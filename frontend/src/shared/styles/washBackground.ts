@@ -1,7 +1,5 @@
-// Theme wash as an SVG IMAGE, not a CSS linear-gradient: Chromium caches a decoded image as a GPU
-// texture, while a window-sized procedural gradient re-rasterizes on resize and, under GPU memory
-// pressure (webviews, external monitors), those rasters get DROPPED and paint as a half/blank
-// rectangle (the same class as the 1.5.9 dot-grid white-patch bug; see DashboardCanvas's grid note).
+// The theme wash. Anything painted here is a full-window layer, so it is the app's single biggest
+// piece of evictable GPU texture: keep it as cheap as the theme allows (see washIsUniform).
 export function washBackgroundUrl(stops: string[], washOpacity: number): string {
   const alpha = Math.max(0, Math.min(1, washOpacity));
   // A native CSS gradient, not an SVG data-URL. The data-URL version was a decoded IMAGE resource:
@@ -33,6 +31,44 @@ export function washOpaqueBackgroundUrl(stops: string[], washOpacity: number, pa
   const alpha = Math.max(0, Math.min(1, washOpacity));
   const blended = stops.map((hex) => mixHex(pageBg, hex, alpha));
   return washBackgroundUrl(blended, 1);
+}
+
+/**
+ * True when the wash is one flat colour, so painting it as an image would be pure waste.
+ *
+ * A single-accent theme (the common case) resolves to `linear-gradient(115deg, C 100%)` while the
+ * element's background-color is already exactly C, measured delta 0/255. That redundant image still
+ * costs a full-window texture, and a texture is the only thing Chromium can EVICT: dropping its
+ * tiles is what paints the hard-edged rectangle of flat tint people report. A background-color is a
+ * compositor solid-colour quad, which can never be evicted, so skipping the image doesn't just save
+ * memory, it makes the band unrepresentable for these themes.
+ */
+export function washIsUniform(stops: string[]): boolean {
+  return stops.length < 2 || stops.every((s) => s.toLowerCase() === stops[0].toLowerCase());
+}
+
+export interface WashLayers {
+  image: string;
+  size: string;
+  repeat: string;
+}
+
+/**
+ * The background layers a full-window wash surface should paint, or null for "colour is enough".
+ *
+ * Both painters (the shell and the canvas viewport) need the identical stack, and getting it wrong
+ * is what brings the band back, so it is derived once here rather than re-spelled at each site.
+ */
+export function washBackgroundLayers(
+  stops: string[], washOpacity: number, pageBg: string, grainUrl: string | null,
+): WashLayers | null {
+  const wash = stops.length > 0 && !washIsUniform(stops)
+    ? washOpaqueBackgroundUrl(stops, washOpacity, pageBg)
+    : '';
+  if (!wash && !grainUrl) return null;
+  if (!wash) return { image: grainUrl as string, size: 'auto', repeat: 'repeat' };
+  if (!grainUrl) return { image: wash, size: '100% 100%', repeat: 'no-repeat' };
+  return { image: `${grainUrl}, ${wash}`, size: 'auto, 100% 100%', repeat: 'repeat, no-repeat' };
 }
 
 // What an evicted/unrastered wash tile should paint as: the wash's mean tint, never raw page color.

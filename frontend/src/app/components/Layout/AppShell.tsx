@@ -32,7 +32,7 @@ import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
 import { useClaudeTokens, useThemeAccent, useThemeWash } from '@/shared/styles/ThemeContext';
 import SpacesStrip from '@/app/pages/Dashboard/desktop/SpacesStrip';
-import { washOpaqueBackgroundUrl, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
+import { washBackgroundLayers, washUnderlayColor, effectiveWashStops } from '@/shared/styles/washBackground';
 import { useGrainTileUrl } from '@/shared/styles/useGrainTileUrl';
 import { ErrorSlime } from '@/app/components/feedback/ErrorSlime';
 
@@ -343,6 +343,14 @@ const AppShell: React.FC = () => {
   // unpinned fullscreen keeps the hover-peek overlay.
   const [fsSidebarPinned, setFsSidebarPinned] = useState(false);
   const sidebarAway = (sidebarCollapsed || (fsActive && !fsSidebarPinned)) && isDashboardViewActive;
+  // The dashboard canvas paints the identical wash and grain over everything but a 6px frame of
+  // shell, so painting them here too just buys a second full-window texture for the compositor to
+  // evict. Skip it while the canvas is up; on every other route the shell is the only painter.
+  const shellWashLayers = React.useMemo(
+    () => (fsWashStops
+      ? washBackgroundLayers(fsWashStops, themeWashOpacity, c.bg.page, isDashboardViewActive ? null : shellGrainUrl)
+      : null),
+    [fsWashStops, themeWashOpacity, c.bg.page, shellGrainUrl, isDashboardViewActive]);
   // When the sidebar docks away, the canvas runs flush to the window's left edge, so the floating
   // dashboard header would sit right under the macOS traffic lights. Publish an inset the header reads
   // (only on macOS, where the lights exist) so it clears them; the sidebar carries its own clearance.
@@ -353,6 +361,15 @@ const AppShell: React.FC = () => {
     else root.style.removeProperty('--osw-header-inset');
     return () => { root.style.removeProperty('--osw-header-inset'); };
   }, [sidebarAway]);
+  // Hand the boot paint back. index.html puts the wash gradient on <html> so a reload never flashes
+  // white, but nothing ever took it off: it stayed for the whole session as a full-window,
+  // background-attachment:fixed root layer that the shell already paints over. That is a permanently
+  // resident evictable texture bought for the first frame only, and evicting it is what shows the
+  // hard-edged band. The shell covers the viewport by the time this runs, so a flat colour is all the
+  // backdrop that is left to want.
+  useEffect(() => {
+    document.documentElement.style.background = c.bg.page;
+  }, [c.bg.page]);
   // Global text-size ratio (Settings > Interface). Scaling the root font-size scales every rem-based
   // size in one shot, so type grows or shrinks together with no layout breakage. Clamped to a sane band
   // so a corrupt value can never wreck the whole UI.
@@ -417,11 +434,11 @@ const AppShell: React.FC = () => {
       // sliver of shell peeking past the viewport reads as continuous texture, never a tint/grain seam.
       ...(fsWashStops ? {
         backgroundColor: washUnderlayColor(fsWashStops, themeWashOpacity, c.bg.page),
-        backgroundImage: shellGrainUrl
-          ? `${shellGrainUrl}, ${washOpaqueBackgroundUrl(fsWashStops, themeWashOpacity, c.bg.page)}`
-          : washOpaqueBackgroundUrl(fsWashStops, themeWashOpacity, c.bg.page),
-        backgroundSize: shellGrainUrl ? 'auto, 100% 100%' : '100% 100%',
-        backgroundRepeat: shellGrainUrl ? 'repeat, no-repeat' : 'no-repeat',
+        ...(shellWashLayers ? {
+          backgroundImage: shellWashLayers.image,
+          backgroundSize: shellWashLayers.size,
+          backgroundRepeat: shellWashLayers.repeat,
+        } : {}),
       } : {}),
     }}>
       {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the

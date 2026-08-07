@@ -14,7 +14,7 @@ const MIN_ZOOM = 0.15;
 // measured 100% -> 88% -> 79% -> 61% -> 36% -> 18% over one ordinary session, at which point no word
 // on the canvas is readable. A hand-driven zoom can still go all the way to MIN_ZOOM.
 
-const MAX_ZOOM = 3.0;
+export const MAX_ZOOM = 3.0;
 const ZOOM_IN_FACTOR = 1.1;
 const ZOOM_OUT_FACTOR = 1 / ZOOM_IN_FACTOR;
 const FIT_PADDING = 200;
