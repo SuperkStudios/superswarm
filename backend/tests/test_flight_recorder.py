@@ -1,7 +1,6 @@
 """The flight recorder's contract: cheap crumbs, bounded rings, envelopes that name everything,
 and a near-miss ledger that counts silent recoveries."""
 
-import time
 
 from backend.apps.agents.core import flight_recorder as fr
 

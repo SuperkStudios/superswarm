@@ -17,6 +17,7 @@ from backend.apps.agents.manager.streaming.state import ThinkingState, TurnState
 from backend.apps.agents.manager.streaming.handle_stream_event import handle_stream_event
 from backend.apps.agents.manager.streaming.handle_assistant_message import handle_assistant_message
 from backend.apps.agents.manager.streaming.handle_result_message import TurnResultError, handle_result_message
+from backend.apps.agents.manager.streaming.note_provider_retry import note_provider_retry, settle_provider_retries
 from backend.apps.agents.manager.run.client_pool import (
     SdkClientLike,
     acquire_client,
@@ -110,8 +111,11 @@ class TurnRunner(AgentManagerProtocol):
                 if isinstance(message, SystemMessage):
                     raw = message.__dict__ if hasattr(message, '__dict__') else str(message)
                     logger.info(f"[MCP-DEBUG] SystemMessage: {raw}")
-                    if getattr(message, "subtype", "") == "compact_boundary":
+                    p_subtype = getattr(message, "subtype", "")
+                    if p_subtype == "compact_boundary":
                         turn.compact_boundaries += 1
+                    elif p_subtype == "api_retry":
+                        note_provider_retry(session_id, raw, turn)
 
                 if isinstance(message, StreamEvent):
                     await handle_stream_event(
@@ -201,6 +205,7 @@ class TurnRunner(AgentManagerProtocol):
                         attempts=p_router_retry_attempt + capacity_retry_attempt,
                         sessions=self.sessions,
                     )
+                settle_provider_retries(session_id, turn, resolved_model, self.sessions)
                 break
             except TurnResultError as p_result_err:
                 # "Unable to connect" in a turn result is the CLI failing to reach our own localhost

@@ -533,8 +533,8 @@ def handle_delete_step(args: dict) -> dict:
 
 # How long a synchronous test may hold the turn. Long enough for a real multi-step workflow, short
 # enough that a wedged test returns an honest "still running" instead of hanging the conversation.
-P_TEST_WAIT_S = 240
-P_TEST_POLL_S = 3
+TEST_WAIT_S = 240
+TEST_POLL_S = 3
 
 
 def handle_test_workflow(args: dict) -> dict:
@@ -549,10 +549,10 @@ def handle_test_workflow(args: dict) -> dict:
     # to "call ReadTestTranscript once it finishes", but a model has no way to know when that is, so
     # it ended its turn and the HUMAN had to keep re-pinging it. A test whose result the caller
     # cannot observe is not a tool, it is homework for the user.
-    deadline = time.time() + P_TEST_WAIT_S
+    deadline = time.time() + TEST_WAIT_S
     last_status = "running"
     while time.time() < deadline:
-        time.sleep(P_TEST_POLL_S)
+        time.sleep(TEST_POLL_S)
         t = _call("GET", f"/{wid}/test-transcript")
         if "_error" in t:
             continue
@@ -562,7 +562,7 @@ def handle_test_workflow(args: dict) -> dict:
         transcript = t.get("transcript") or "(empty transcript)"
         return _ok(f"Test finished (status: {last_status}). Transcript:\n\n{transcript}")
     return _ok(
-        f"Test Agent (session {sid[:8]}) is still running after {P_TEST_WAIT_S}s, so it is a long one. "
+        f"Test Agent (session {sid[:8]}) is still running after {TEST_WAIT_S}s, so it is a long one. "
         f"Last status: {last_status}. Call ReadTestTranscript to pick up the result."
     )
 

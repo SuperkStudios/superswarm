@@ -127,7 +127,7 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
             # off), so an empty prewarm prompt would boot a different thinking config than a typical
             # first message and fingerprint-miss into a respawn. 50+ chars matches the common case.
             p_representative = "prewarm placeholder prompt of representative length for boot"
-            (options, options_kwargs, _pc, _stderr, _gs) = await self.build_agent_options(
+            (options, options_kwargs, _, _, _) = await self.build_agent_options(
                 session, session_id, p_representative, "", builtin_perms,
                 None, None, None, False, p_router_model_id, p_api_type)
             from claude_agent_sdk import ClaudeSDKClient
