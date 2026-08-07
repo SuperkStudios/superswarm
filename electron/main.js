@@ -1478,6 +1478,10 @@ function createWindow() {
   // Frozen-but-not-crashed is the silent class no crash log sees; Chromium's own unresponsive
   // signal costs nothing and the report fires from the renderer AFTER it recovers.
   let wedgeStartedAt = 0;
+  try {
+    const { startMemorySensor } = require('./memorySensor');
+    startMemorySensor(app, () => mainWindow);
+  } catch (e) { console.warn('[diag] memory sensor unavailable:', e && e.message); }
   mainWindow.webContents.on('unresponsive', () => {
     wedgeStartedAt = Date.now();
     console.error('[diag][main] renderer unresponsive');

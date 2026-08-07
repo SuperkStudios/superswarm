@@ -67,9 +67,13 @@ export function installUxSignals(): () => void {
     report('process', 'wedge_recovered', { wedge_ms: info?.ms ?? -1, source: 'chromium' });
   });
   const offObserver = installWedgeObserver();
+  const offMem = (bridge.openswarm as { onMemoryAlert?: (cb: (i: Record<string, number | string>) => void) => () => void } | undefined)?.onMemoryAlert?.((info) => {
+    report('process', 'memory_alert', info);
+  });
   return () => {
     window.removeEventListener('click', onClick, true);
     offWedge?.();
     offObserver();
+    offMem?.();
   };
 }
