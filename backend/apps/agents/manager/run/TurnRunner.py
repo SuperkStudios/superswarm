@@ -12,6 +12,7 @@ from typeguard import typechecked
 from backend.apps.agents.core.models import AgentSession
 from backend.apps.agents.core.ws_manager import ws_manager
 from backend.apps.agents.core.error_classify import CAPACITY_BACKOFFS, capacity_retry_wait, is_router_unreachable_error
+from backend.apps.agents.core import flight_recorder
 from backend.apps.agents.manager.streaming.state import ThinkingState, TurnState
 from backend.apps.agents.manager.streaming.handle_stream_event import handle_stream_event
 from backend.apps.agents.manager.streaming.handle_assistant_message import handle_assistant_message
@@ -182,6 +183,16 @@ class TurnRunner(AgentManagerProtocol):
                     await p_run_streaming_turn_persistent()
                 else:
                     await p_run_streaming_turn()
+                # The near-miss ledger: a turn that needed retries and still finished is a net that
+                # FIRED, and "how often do the nets fire" needs a denominator in analytics.
+                if p_router_retry_attempt or capacity_retry_attempt:
+                    flight_recorder.record_recovery(
+                        session_id,
+                        net="router-resume" if p_router_retry_attempt else "transient-backoff",
+                        model=resolved_model,
+                        attempts=p_router_retry_attempt + capacity_retry_attempt,
+                        sessions=self.sessions,
+                    )
                 break
             except TurnResultError as p_result_err:
                 # "Unable to connect" in a turn result is the CLI failing to reach our own localhost
@@ -190,6 +201,7 @@ class TurnRunner(AgentManagerProtocol):
                 # conversation without re-executing side effects: re-ensure the router, resume, go.
                 if p_router_retry_attempt < 2 and is_router_unreachable_error(str(p_result_err)):
                     p_router_retry_attempt += 1
+                    flight_recorder.crumb(session_id, "router-retry", attempt=p_router_retry_attempt, err=str(p_result_err)[:160])
                     logger.warning(
                         f"Router unreachable mid-turn on session {session_id} "
                         f"(attempt {p_router_retry_attempt}/2); re-ensuring router and resuming. "
@@ -228,6 +240,7 @@ class TurnRunner(AgentManagerProtocol):
                         wait = 0.0
                 if wait is not None:
                     capacity_retry_attempt += 1
+                    flight_recorder.crumb(session_id, "transient-retry", attempt=capacity_retry_attempt, wait=wait, err=str(e)[:160])
                     mid_stream = turn.current_turn_emitted
                     logger.warning(
                         f"Transient upstream error on session {session_id} "

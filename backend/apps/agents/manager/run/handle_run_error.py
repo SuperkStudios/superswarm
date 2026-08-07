@@ -24,6 +24,7 @@ from backend.apps.agents.core.error_classify import (
 )
 from backend.apps.agents.core.extract_reset_hint import extract_reset_hint
 from backend.apps.agents.core.redact_for_telemetry import redact_for_telemetry
+from backend.apps.agents.core import flight_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,7 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             submit_diagnostic({
                 "kind": "model_error",
                 "subkind": "unknown_model",
+                "flight": flight_recorder.build_envelope(session_id, "model_error", "unknown_model", session.model, "stream" if turn.current_turn_emitted else "spawn", -1),
                 "model": session.model,
                 "provider": session.provider,
                 "connection_mode": getattr(load_settings(), "connection_mode", "own_key"),
@@ -258,6 +260,7 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             submit_diagnostic({
                 "kind": "model_error",
                 "subkind": "unclassified",
+                "flight": flight_recorder.build_envelope(session_id, "model_error", "unclassified", session.model, "stream" if turn.current_turn_emitted else "spawn", -1),
                 "model": session.model,
                 "provider": session.provider,
                 "connection_mode": getattr(load_settings(), "connection_mode", "own_key"),
