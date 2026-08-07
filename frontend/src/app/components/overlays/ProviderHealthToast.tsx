@@ -23,7 +23,8 @@ export default function ProviderHealthToast() {
     dispatch(hideProviderHealthToast());
   }, [dispatch]);
 
-  const labels = dead.map((d) => d.label).join(' and ');
+  // Defensive dedupe: duplicate provider rows upstream once rendered "ChatGPT and ChatGPT".
+  const labels = Array.from(new Set(dead.map((d) => d.label))).join(' and ');
 
   return (
     <Snackbar
