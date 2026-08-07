@@ -425,6 +425,14 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
           overflow: 'hidden',
           // Last line of the never-white guarantee: if every background layer's raster is gone, the viewport itself still paints tint (solid colors are compositor quads, not evictable textures).
           backgroundColor: washUnderlay,
+          // Wash + grain paint HERE rather than on a child: two stacked full-viewport layers meant two
+          // rasters the compositor could evict independently, and a dropped one exposed the flat tint
+          // as a hard-edged band. One element, one raster, one fewer thing to lose.
+          ...(washStops && washStops.length > 0 ? {
+            backgroundImage: grainTileUrl ? `${grainTileUrl}, ${washUrl}` : washUrl,
+            backgroundSize: grainTileUrl ? 'auto, 100% 100%' : '100% 100%',
+            backgroundRepeat: grainTileUrl ? 'repeat, no-repeat' : 'no-repeat',
+          } : {}),
           cursor: canvas.isPanning
             ? 'grabbing'
             : (canvas.spaceHeld || canvas.cmdHeld)
@@ -434,21 +442,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
                 : 'default',
         }}
       >
-        {/* Gradient wash: the user's theme-pad stops tint the canvas, Arc-window style; intensity + grain come from the theme device; sits under the dot grid. Pre-blended opaque + declared backgroundColor so a GPU-evicted tile paints as tint, never raw white/black (the ENG-151 band). */}
-        {washStops && washStops.length > 0 && (
-          <Box
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              pointerEvents: 'none',
-              backgroundColor: washUnderlay,
-              // Grain rides the SAME element (alpha pre-baked): one raster, so an evicted tile drops both and paints the tint, never a grain-only seam.
-              backgroundImage: grainTileUrl ? `${grainTileUrl}, ${washUrl}` : washUrl,
-              backgroundSize: grainTileUrl ? 'auto, 100% 100%' : '100% 100%',
-              backgroundRepeat: grainTileUrl ? 'repeat, no-repeat' : 'no-repeat',
-            }}
-          />
-        )}
 
         {/* Dot grid background; gestures move it imperatively via gridRef (phase + scale), commits re-render it here (dot radius included). The tile is an SVG IMAGE, not a procedural gradient: Chromium caches a decoded image as a GPU texture, while a radial-gradient re-rasterizes the whole layer every backgroundSize change, and under GPU memory pressure (many webviews, external monitors) those rasters get dropped and paint as a giant blank rectangle, the 1.5.9 white-patch bug. Same backgroundSize/Position write contract, so the per-frame camera writer is untouched. */}
         <Box
