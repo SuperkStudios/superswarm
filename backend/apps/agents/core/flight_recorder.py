@@ -3,6 +3,7 @@ flushed into a diagnostic envelope ONLY when an error surfaces (or a silent reco
 The happy path pays one O(1) deque append per event and nothing else; nothing here touches disk
 or network on its own."""
 
+import os
 import threading
 import time
 from collections import deque
@@ -10,6 +11,9 @@ from typing import Dict, List, Optional
 
 from typeguard import typechecked
 
+# Kill switch: OSW_FLIGHT=0 turns every sensor into a no-op, which is also how the A/B that proves
+# the recorder costs nothing is run.
+P_ENABLED = os.environ.get("OSW_FLIGHT", "1") != "0"
 P_RING_SIZE = 64
 p_lock = threading.Lock()
 p_rings: Dict[str, deque] = {}
@@ -26,6 +30,8 @@ def set_sessions_provider(provider) -> None:
 @typechecked
 def crumb(session_id: str, label: str, **meta: object) -> None:
     """Append one breadcrumb; cheap enough for every retry decision and phase stamp."""
+    if not P_ENABLED:
+        return
     entry = {"l": label, "t": round(time.time(), 3)}
     for k, v in meta.items():
         if v is not None:
