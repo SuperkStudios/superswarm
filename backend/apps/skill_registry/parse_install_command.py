@@ -41,11 +41,17 @@ def parse_install_command(raw: str) -> Optional[str]:
         rest = [t for t in tokens[1:] if not t.startswith("-")]
         # The verb and the package name arrive in either order ("npx skills add x", "npm i skills x"),
         # so strip both, in whichever order they appear.
+        named_registry = False
         for _ in range(2):
             if rest and rest[0].lower() in ("skills", "skill", "@skills/cli", "openswarm"):
                 rest = rest[1:]
+                named_registry = True
             elif rest and rest[0].lower() in P_VERBS:
                 rest = rest[1:]
+        # Without the registry name this is just some other npx command, and `npx create-react-app foo`
+        # must never read as "install the create-react-app skill".
+        if not named_registry:
+            return None
         candidate = rest[0] if rest else ""
         return candidate if candidate and P_SKILL_ID.match(candidate) else None
 
