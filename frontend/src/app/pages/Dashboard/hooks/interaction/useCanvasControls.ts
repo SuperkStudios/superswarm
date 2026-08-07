@@ -3,7 +3,6 @@ import { store } from '@/shared/state/store';
 import { selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
-import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import { syncTiledGeometry } from '../../canvas/tiledGeometry';
@@ -346,9 +345,7 @@ export function useCanvasControls(
       // App windows (Settings, Marketplace, app previews) own every wheel inside them. Their inner
       // panels are often scroll containers whose exact hit target isn't itself scrollable, and the
       // old walk-up handed those to the canvas: reaching the end of Settings zoomed the world out.
-      const windowEl = (e.target as HTMLElement | null)?.closest?.(
-        '[data-select-type="settings-card"], [data-select-type="marketplace-card"], [data-select-type="view-card"]',
-      ) as HTMLElement | null;
+      const windowEl = (e.target as HTMLElement | null)?.closest?.('[data-select-type]') as HTMLElement | null;
       if (windowEl && !(e.ctrlKey || e.metaKey)) {
         containedEl = windowEl;
         containedAt = Date.now();
@@ -390,12 +387,6 @@ export function useCanvasControls(
 
         if (cls === 'scrollable' && !isModifierWheel) {
           // Google Maps model: plain scroll acts on the CANVAS over a CARD (chat, scheduled task) UNLESS you've clicked INTO it. Only a card that isn't scroll-focused diverts to the canvas gesture; non-card scrollable UI (dropdowns, menus, nested panels) always scrolls natively, and a focused card scrolls its content.
-          const cardEl = target.closest('[data-select-id]');
-          const cardId = cardEl?.getAttribute('data-select-id') ?? null;
-          if (cardId && cardId !== getScrollFocusedCard()) {
-            target = target.parentElement;
-            continue;
-          }
           // Re-read scrollHeight/clientHeight; cached decision is structural, scroll position is dynamic.
           const canScrollY = target.scrollHeight > target.clientHeight;
           const canScrollX = target.scrollWidth > target.clientWidth;
