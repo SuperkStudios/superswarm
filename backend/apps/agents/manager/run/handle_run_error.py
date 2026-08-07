@@ -78,6 +78,7 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             submit_diagnostic({
                 "kind": "context_overflow",
                 "where": "manager.run.handle_run_error",
+                "flight": flight_recorder.build_envelope(session_id, "context_overflow", "overflow", session.model, "stream" if turn.current_turn_emitted else "spawn", -1),
                 "session_id": session_id,
                 "model": session.model,
                 "provider": session.provider,
@@ -221,6 +222,18 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             reason = "anthropic_auth_invalid"
         error_msg = Message(role="system", content=friendly_msg, branch_id=session.active_branch_id)
         session.messages.append(error_msg)
+        try:
+            from backend.apps.service.client import submit_diagnostic
+            submit_diagnostic({
+                "kind": "model_error",
+                "subkind": "auth",
+                "model": session.model,
+                "provider": session.provider,
+                "error_preview": redact_for_telemetry(str(e), limit=400),
+                "flight": flight_recorder.build_envelope(session_id, "model_error", reason, session.model, "stream" if turn.current_turn_emitted else "spawn", -1),
+            })
+        except Exception:
+            logger.debug("submit_diagnostic auth failed", exc_info=True)
         await ws_manager.send_to_session(session_id, "agent:auth_error", {
             "session_id": session_id,
             "reason": reason,
