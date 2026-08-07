@@ -9,10 +9,13 @@ export type InjectTarget = 'field' | 'webview' | 'composer' | null;
 
 export function injectAtFocus(text: string): InjectTarget {
   const snap = takeInjectSnapshot();
-  // The field the user dictated into is gone. Whatever holds focus now is a stranger's box, and
-  // typing their words into it is worse than dropping them, so drop them.
-  if (snap.targetLost && !snap.browserId) return null;
-  const active = snap.el || (document.activeElement as HTMLElement | null);
+  // The cursor wins, not where you started. Wispr's grammar, and Eric's call: you dictate, you click
+  // where you want it, it lands there. This deliberately reverts the snapshot-first version, which
+  // pinned the text to the origin field and dropped it outright when that field went away.
+  // The snapshot is still the fallback for the case it was really built for: focus drifting to
+  // nothing typeable (a button, the body) while you were talking.
+  const live = document.activeElement as HTMLElement | null;
+  const active = isUsableTarget(live) ? live : snap.el;
   if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
     try {
       active.focus();

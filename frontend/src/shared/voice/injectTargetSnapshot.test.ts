@@ -8,13 +8,13 @@ const field = (connected = true) => ({ tagName: 'TEXTAREA', isConnected: connect
 
 beforeEach(() => clearInjectSnapshot());
 
-test('the snapshotted field wins over whatever is focused later', () => {
+test('the snapshot keeps the field it was given (injectAtFocus decides precedence, not this)', () => {
   const a = field();
   setInjectSnapshot({ el: a, browserId: null });
   assert.equal(takeInjectSnapshot().el, a);
 });
 
-test('a detached field is refused so injection falls back to live focus', () => {
+test('a detached field is refused, so a dead origin can never be the destination', () => {
   setInjectSnapshot({ el: field(false), browserId: null });
   assert.equal(takeInjectSnapshot().el, null);
 });
@@ -36,4 +36,17 @@ test('a cancelled take leaves nothing behind', () => {
   setInjectSnapshot({ el: field(), browserId: 'b2' });
   clearInjectSnapshot();
   assert.equal(takeInjectSnapshot().el, null);
+});
+
+// Precedence lives in injectAtFocus, and Eric's call is Wispr's: the CURSOR wins, not the origin.
+// injectAtFocus needs a live DOM, so what is pinned here is the predicate that decides whether the
+// live element is allowed to win at all. Getting this wrong is how the text lands in a stranger's box.
+test('a live click target only beats the origin when it is really typeable', () => {
+  const typeable = { tagName: 'INPUT', isConnected: true, isContentEditable: false } as unknown as HTMLElement;
+  const button = { tagName: 'BUTTON', isConnected: true, isContentEditable: false } as unknown as HTMLElement;
+  const body = { tagName: 'BODY', isConnected: true, isContentEditable: false } as unknown as HTMLElement;
+  assert.equal(isUsableTarget(typeable), true, 'clicking another field must take the text');
+  assert.equal(isUsableTarget(button), false, 'clicking a button must NOT take the text');
+  assert.equal(isUsableTarget(body), false, 'clicking empty space must NOT take the text');
+  assert.equal(isUsableTarget(null), false);
 });
