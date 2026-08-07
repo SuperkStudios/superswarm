@@ -23,6 +23,7 @@ import AddIcon from '@mui/icons-material/Add';
 import LockIcon from '@mui/icons-material/Lock';
 import SearchIcon from '@mui/icons-material/Search';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
+import { report } from '@/shared/serviceClient';
 import RunInDesktopMessage from '@/app/components/RunInDesktopMessage';
 import {
   setBrowserCardPosition,
@@ -518,6 +519,18 @@ const BrowserCard: React.FC<Props> = ({
         tagSurface();
         wv.addEventListener('dom-ready', tagSurface);
         cleanups.push(() => wv.removeEventListener('dom-ready', tagSurface));
+        // A dead browser card used to report NOTHING: the guest process vanishes, the surface goes
+        // blank, and no crash log or telemetry ever mentions it (verified by forcing a crash).
+        const onGuestGone = (e: Event): void => {
+          const d = e as Event & { reason?: string; exitCode?: number };
+          report('process', 'webview_gone', { reason: d.reason ?? 'crashed', exit_code: d.exitCode ?? null });
+        };
+        wv.addEventListener('render-process-gone', onGuestGone);
+        wv.addEventListener('crashed', onGuestGone);
+        cleanups.push(() => {
+          wv.removeEventListener('render-process-gone', onGuestGone);
+          wv.removeEventListener('crashed', onGuestGone);
+        });
       }
 
       // Every guest sits at about:blank before its real load (lazy tabs never leave it); mirroring
