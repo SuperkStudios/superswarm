@@ -540,6 +540,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         onToolbarCancel={onToolbarCancel}
         onToolbarSend={onToolbarSend}
         onAddView={onAddView}
+        onOpenApplications={handleToggleApps}
         onHistoryResume={onHistoryResume}
         onAddBrowser={onAddBrowser}
         onNewAgentBounceEnd={onNewAgentBounceEnd}
