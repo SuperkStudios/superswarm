@@ -52,7 +52,6 @@ interface DashboardCanvasProps {
   canvas: Canvas;
   selection: Selection;
   sessions: Record<string, AgentSession>;
-  sessionList: AgentSession[];
   cards: Record<string, CardPosition>;
   viewCards: Record<string, ViewCardPosition>;
   browserCards: Record<string, BrowserCardPosition>;
@@ -114,7 +113,6 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
   canvas,
   selection,
   sessions,
-  sessionList,
   cards,
   viewCards,
   browserCards,
@@ -515,7 +513,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
             />
           </div>
         )}
-        {sessionList.length === 0 && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0 && Object.keys(workflowCards).length === 0 && !workflowsHub && !fullscreenCardId && (
+        {canvasEmpty && !fullscreenCardId && (
           <DashboardEmptyState c={c} onLaunch={onToolbarSend} onStarter={onStarter} />
         )}
       </Box>

@@ -90,12 +90,16 @@ export function useDashboardController(dashboardId: string, isActive: boolean) {
 
   // Nudge the chat button while the canvas is empty; the first click dismisses it for this visit.
   const bounceDismissedRef = useRef(false);
-  // Truly-empty canvas: matches the empty-state hero's own render condition (fullscreen is handled
+  const settingsWindowOpen = useAppSelector((s) => !!s.dashboardLayout.settingsCard);
+  const marketplaceWindowOpen = useAppSelector((s) => !!s.dashboardLayout.marketplaceCard);
+  // Truly-empty canvas: IS the empty-state hero's render condition (fullscreen is handled
   // separately, it display:none's the whole overlay layer), so "pill hidden" always coincides with
-  // "hero shown" and a workflow-card-only canvas never ends up with no composer at all.
+  // "hero shown". The singleton windows (Settings, Marketplace, Run Monitor) count as content,
+  // otherwise the hero floats on top of an open window.
   const canvasEmpty = layoutInitialized && sessionList.length === 0
     && Object.keys(viewCards).length === 0 && Object.keys(browserCards).length === 0
-    && Object.keys(workflowCards).length === 0 && !workflowsHub;
+    && Object.keys(workflowCards).length === 0 && !workflowsHub
+    && !settingsWindowOpen && !marketplaceWindowOpen && !workflowsMonitorCard;
   useEffect(() => {
     setNewAgentBounce(canvasEmpty && !bounceDismissedRef.current);
   }, [canvasEmpty, setNewAgentBounce]);

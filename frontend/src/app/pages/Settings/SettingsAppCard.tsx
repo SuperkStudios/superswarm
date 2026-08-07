@@ -1,5 +1,4 @@
 import React, { useCallback } from 'react';
-import SettingsIcon from '@mui/icons-material/Settings';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import {
   closeSettingsCard,
@@ -109,10 +108,6 @@ const SettingsAppCard: React.FC<Props> = ({
             >
               <WindowControls onClose={close} onMinimize={minimize} onTile={onTileZone} tiled={!!tileZone} />
             </span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <SettingsIcon sx={{ fontSize: 18, color: c.text.secondary, display: 'block' }} />
-              <span style={{ fontSize: 14, fontWeight: 600, color: c.text.primary, lineHeight: 1 }}>Settings</span>
-            </div>
           </div>
           <SettingsBody active onRequestClose={close} />
         </>
