@@ -19,6 +19,28 @@ function describeTarget(el: Element | null): string {
   return el.tagName.toLowerCase();
 }
 
+// A main-thread task this long IS the freeze the user felt; measured live at 40,001ms in a forced
+// wedge where Chromium's own `unresponsive` never fired, so this is the primary wedge sensor.
+const WEDGE_MS = 3000;
+const WEDGE_THROTTLE_MS = 60_000;
+let p_lastWedgeReport = 0;
+
+function installWedgeObserver(): () => void {
+  if (typeof PerformanceObserver === 'undefined') return () => {};
+  if (!PerformanceObserver.supportedEntryTypes?.includes('longtask')) return () => {};
+  const obs = new PerformanceObserver((list) => {
+    for (const entry of list.getEntries()) {
+      const now = Date.now();
+      if (entry.duration >= WEDGE_MS && now - p_lastWedgeReport > WEDGE_THROTTLE_MS) {
+        p_lastWedgeReport = now;
+        report('process', 'wedge_recovered', { wedge_ms: Math.round(entry.duration), source: 'longtask' });
+      }
+    }
+  });
+  obs.observe({ entryTypes: ['longtask'] });
+  return () => obs.disconnect();
+}
+
 export function installUxSignals(): () => void {
   const onClick = (e: MouseEvent): void => {
     const now = Date.now();
@@ -39,11 +61,15 @@ export function installUxSignals(): () => void {
   };
   window.addEventListener('click', onClick, true);
   const bridge = window as unknown as { openswarm?: { onWedge?: (cb: (info: { ms: number }) => void) => () => void } };
+  // Chromium's own hang signal stays wired as a second, independent witness (it costs nothing and
+  // catches hangs the observer can't see, e.g. a renderer stuck outside a task).
   const offWedge = bridge.openswarm?.onWedge?.((info) => {
-    report('process', 'wedge_recovered', { wedge_ms: info?.ms ?? -1 });
+    report('process', 'wedge_recovered', { wedge_ms: info?.ms ?? -1, source: 'chromium' });
   });
+  const offObserver = installWedgeObserver();
   return () => {
     window.removeEventListener('click', onClick, true);
     offWedge?.();
+    offObserver();
   };
 }
