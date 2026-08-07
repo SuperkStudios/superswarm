@@ -312,6 +312,22 @@ function countCrashDumps() {
   } catch (_) { return -1; }
 }
 
+// A native main-process crash runs none of our JS, so the app just vanishes and leaves a .dmp
+// nobody reads. On the next boot we read the CAUSE out of any dump written since last time.
+function newCrashDumps() {
+  try {
+    const scan = require('./crashDumpScan');
+    const base = path.join(app.getPath('userData'), 'Crashpad');
+    const markFile = path.join(app.getPath('userData'), 'crash-scan.json');
+    let since = 0;
+    try { since = JSON.parse(fs.readFileSync(markFile, 'utf8')).last_scan_ms || 0; } catch (_) { since = 0; }
+    // First run has no watermark; reporting the whole historical pile would look like a crash storm.
+    const rows = since ? scan.newDumpsSince(base, since, 5) : [];
+    try { fs.writeFileSync(markFile, JSON.stringify({ last_scan_ms: Date.now() })); } catch (_) {}
+    return rows;
+  } catch (_) { return []; }
+}
+
 // Fleet self-report: POST a compact boot outcome to the LOCAL backend, which forwards it via the existing service client (opt-out honored). No PII. Fire-and-forget, guarded.
 function sendBootBeacon() {
   try {
@@ -323,7 +339,7 @@ function sendBootBeacon() {
       props: {
         sha: bi.shortSha, channel: bi.channel, version: app.getVersion(),
         os: process.platform, arch: process.arch,
-        perf: _perfValues, preflight: _preflightInfo, preflight2: _preflightVerdict ? { verdict: _preflightVerdict.verdict, totalMs: _preflightVerdict.totalMs, names: (_preflightVerdict.results || []).map((r) => `${r.name}:${r.status}`) } : null, crash_dumps: countCrashDumps(),
+        perf: _perfValues, preflight: _preflightInfo, preflight2: _preflightVerdict ? { verdict: _preflightVerdict.verdict, totalMs: _preflightVerdict.totalMs, names: (_preflightVerdict.results || []).map((r) => `${r.name}:${r.status}`) } : null, crash_dumps: countCrashDumps(), new_crashes: newCrashDumps(),
       },
     });
     const req = http.request({
