@@ -207,6 +207,29 @@ async def execute(
         set_workflow_approval_step,
     )
 
+    # A workflow the user deleted or switched off must not be startable from ANY path: the scheduler,
+    # an agent tool, an invoke, a retry, or a stale in-flight handle. Guarding this at each call site
+    # meant one unguarded caller could still fire it, which is the field report of a toggled-off
+    # workflow running itself. The single exception is a human pressing Run Now on a paused workflow,
+    # which is an attended, deliberate act.
+    p_live = storage.get_workflow(wf.id)
+    if p_live is not None and p_live.deleted_at is not None:
+        return WorkflowRun(
+            workflow_id=wf.id, status="skipped", error="Workflow deleted",
+            scheduled_for=scheduled_for, started_at=datetime.now(),
+            finished_at=datetime.now(), triggered_by=triggered_by,
+        )
+    if p_live is not None and not p_live.schedule.enabled and triggered_by != "manual":
+        return WorkflowRun(
+            workflow_id=wf.id, status="skipped", error="Workflow is paused",
+            scheduled_for=scheduled_for, started_at=datetime.now(),
+            finished_at=datetime.now(), triggered_by=triggered_by,
+        )
+    # Toggling a workflow off mid-run must stop it too, whatever started it. Comparing against the
+    # state at START is what separates "the user just switched it off" from "it was already paused
+    # and a human deliberately ran it anyway".
+    p_started_enabled = bool(p_live.schedule.enabled) if p_live is not None else bool(wf.schedule.enabled)
+
     run = WorkflowRun(
         workflow_id=wf.id,
         status="running",
@@ -362,7 +385,7 @@ async def execute(
             if fresh_wf is None or fresh_wf.deleted_at is not None:
                 step_error = "Workflow deleted"
                 break
-            if triggered_by == "schedule" and not fresh_wf.schedule.enabled:
+            if p_started_enabled and not fresh_wf.schedule.enabled:
                 step_error = "Workflow paused"
                 break
             # Broadcast the step bump before sending so RunningView flips the disc immediately, not after the agent finishes the step. Advancing means we're not paused; keep the broadcast authoritative so it never races a stale paused=True from the watcher.
