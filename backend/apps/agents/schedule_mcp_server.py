@@ -440,6 +440,19 @@ def handle_run_now(args: dict) -> dict:
     wid = args.get("workflow_id") or ""
     if not wid:
         return _err("workflow_id is required.")
+    # A human clicking Run Now on a paused workflow can see it is paused and chose anyway, so the
+    # route ignores `enabled` on purpose. An agent reaching the same route is NOT the same act: the
+    # user never asked, and a workflow they deliberately switched off starting itself is the field
+    # report ("a workflow that had been toggled off just started running again").
+    info = _call("GET", f"/{wid}")
+    if "_error" not in info:
+        sched = info.get("schedule") or {}
+        if isinstance(sched, dict) and sched.get("enabled") is False:
+            title = info.get("title") or wid
+            return _err(
+                f"'{title}' is paused, so I did not run it. Tell the user it is switched off and ask "
+                "them to turn it back on (or to confirm they want a one-off run) before trying again."
+            )
     r = _call("POST", f"/{wid}/run")
     if "_error" in r:
         return _err(r["_error"])
