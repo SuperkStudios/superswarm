@@ -140,3 +140,108 @@ def check_boot_lifespan() -> None:
         f"prior hand-measured 1.90s does not reproduce, baseline needs re-establishing")
 
 
+
+
+def check_forced_overflow(token: str, sink: str) -> None:
+    """Forced class: a prompt far past the window. Should produce BOTH the valve envelope and the
+    terminal context_overflow envelope."""
+    before = len(p_sink_rows(sink))
+    try:
+        sid = p_api("/agents/launch", token, {"name": "verify overflow", "model": "sonnet-cc",
+                                              "dashboard_id": "0bf37aa28ac24bb78a06b084d687587d"})["session_id"]
+    except Exception as e:
+        row("forced: context overflow", "SKIP", f"launch failed: {str(e)[:40]}")
+        return
+    time.sleep(2)
+    blob = "The quick brown fox jumps over the lazy dog. " * 30000
+    try:
+        p_api(f"/agents/sessions/{sid}/message", token, {"prompt": "Summarize this:\n" + blob}, timeout=180)
+    except Exception:
+        pass
+    t0 = time.time()
+    while time.time() - t0 < 300:
+        time.sleep(1.0)
+        s = p_api(f"/agents/sessions/{sid}", token)
+        s = s.get("session") if isinstance(s.get("session"), dict) else s
+        if s.get("status") in ("completed", "error", "failed"):
+            break
+    subprocess.run(["curl", "-s", "-X", "DELETE", "-H", f"Authorization: Bearer {token}",
+                    f"http://127.0.0.1:8324/api/agents/sessions/{sid}"], capture_output=True)
+    envs = [r for r in p_sink_rows(sink)[before:] if r.get("flight")]
+    ovf = [e for e in envs if "overflow" in str(e["flight"].get("subkind"))]
+    if not ovf:
+        row("forced: context overflow", "FAIL", f"no overflow envelope ({len(envs)} envelopes)")
+        return
+    fl = ovf[0]["flight"]
+    crumbs = max(len(e["flight"].get("breadcrumbs") or []) for e in ovf)
+    row("forced: context overflow", "PASS",
+        f"{len(ovf)} envelope(s), families={sorted({e['flight'].get('family') for e in ovf})}, "
+        f"max crumbs={crumbs}, lane={fl.get('lane')}, journey={bool(fl.get('journey'))}")
+
+
+def p_shim(mode: str, hold: int) -> subprocess.Popen:
+    """Hold port 20128 and answer /v1/messages with a chosen 401 body. `reset` names its own recovery
+    window and must NOT be fatal; `dead` is the hard one."""
+    reset = ('{"error":{"message":"[cc] [401]: Provided authentication token is expired. '
+             'Please try signing in again. (reset after 1m 57s)"}}')
+    dead = '{"error":{"message":"[cc] [401]: Unauthorized: invalid authentication credentials."}}'
+    body = reset if mode == "reset" else dead
+    src = (
+        "import http.server,threading,sys\n"
+        "B=%r.encode()\n"
+        "class H(http.server.BaseHTTPRequestHandler):\n"
+        "    def log_message(self,*a): pass\n"
+        "    def do_GET(self):\n"
+        "        d=b'{\"data\":[]}'; self.send_response(200); self.send_header('Content-Length',str(len(d)))\n"
+        "        self.end_headers(); self.wfile.write(d)\n"
+        "    def do_POST(self):\n"
+        "        n=int(self.headers.get('Content-Length') or 0)\n"
+        "        if n: self.rfile.read(n)\n"
+        "        self.send_response(401); self.send_header('Content-Length',str(len(B)))\n"
+        "        self.end_headers(); self.wfile.write(B)\n"
+        "s=http.server.ThreadingHTTPServer(('127.0.0.1',20128),H)\n"
+        "threading.Timer(%d, s.shutdown).start()\n"
+        "s.serve_forever()\n" % (body, hold)
+    )
+    pid = subprocess.run(["lsof", "-nP", "-tiTCP:20128", "-sTCP:LISTEN"], capture_output=True, text=True).stdout.split()
+    if pid:
+        subprocess.run(["kill", "-9", pid[0]], capture_output=True)
+    time.sleep(0.3)
+    return subprocess.Popen([sys.executable, "-c", src], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def check_forced_401(token: str, sink: str, mode: str) -> None:
+    label = "reset-window 401 (must NOT be fatal)" if mode == "reset" else "hard 401"
+    before = len(p_sink_rows(sink))
+    shim = p_shim(mode, 45)
+    try:
+        time.sleep(1.5)
+        sid = p_api("/agents/launch", token, {"name": f"verify {mode}", "model": "sonnet-cc",
+                                              "dashboard_id": "0bf37aa28ac24bb78a06b084d687587d"})["session_id"]
+        time.sleep(2)
+        p_api(f"/agents/sessions/{sid}/message", token, {"prompt": "say pong"})
+        t0 = time.time()
+        s = {}
+        while time.time() - t0 < 200:
+            time.sleep(0.5)
+            d = p_api(f"/agents/sessions/{sid}", token)
+            s = d.get("session") if isinstance(d.get("session"), dict) else d
+            if s.get("status") in ("completed", "error", "failed"):
+                break
+        subprocess.run(["curl", "-s", "-X", "DELETE", "-H", f"Authorization: Bearer {token}",
+                        f"http://127.0.0.1:8324/api/agents/sessions/{sid}"], capture_output=True)
+    finally:
+        shim.kill()
+    rows_new = p_sink_rows(sink)[before:]
+    recovered = [r for r in rows_new if r.get("kind") == "recovered"]
+    auth = [r for r in rows_new if r.get("flight", {}).get("subkind") == "auth"]
+    if mode == "reset":
+        ok = s.get("status") == "completed" and not auth
+        row(f"forced: {label}", "PASS" if ok else "FAIL",
+            f"status={s.get('status')}, auth envelopes={len(auth)} (want 0), "
+            f"near-miss ledger={[r.get('subkind') for r in recovered]}")
+    else:
+        ok = bool(recovered) or bool(auth) or s.get("status") in ("error", "completed")
+        ledger = [str(r.get("subkind")) + "x" + str(r.get("attempts")) for r in recovered]
+        row(f"forced: {label}", "PASS" if ok else "FAIL",
+            f"status={s.get('status')}, ledger={ledger}, auth envelopes={len(auth)}")

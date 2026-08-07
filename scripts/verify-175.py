@@ -22,8 +22,8 @@ import time
 import urllib.request
 from typing import List, Optional, Tuple
 
-from scripts.verify175.forced import (check_boot_lifespan, check_forced_router_unavailable,
-                                       check_forced_silent_noop)
+from scripts.verify175.forced import (check_boot_lifespan, check_forced_401, check_forced_overflow,
+                                       check_forced_router_unavailable, check_forced_silent_noop)
 from scripts.verify175.ui import check_dictation, check_idle_raf, check_inp, check_scroll_both_halves
 
 from scripts.verify175.shared import ROOT, ROWS, p_api, row
@@ -175,6 +175,10 @@ def main() -> None:
             check_boot_lifespan()
             check_live_ttft(token)
             check_forced_silent_noop(token)
+            if sink:
+                check_forced_overflow(token, sink)
+                check_forced_401(token, sink, "reset")
+                check_forced_401(token, sink, "dead")
             print("\nCDP checks (need headless Chrome on :9223 against the dev frontend):")
             check_idle_raf()
             check_inp()
