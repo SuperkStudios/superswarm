@@ -14,6 +14,7 @@ TRANSIENT_CAPACITY_PATTERNS = re.compile(
     r"|internal\s+server\s+error"
     r"|rate[_\s-]?limit(?:_error)?"
     r"|ECONNRESET|ETIMEDOUT|ENETUNREACH|fetch\s+failed"
+    r"|reset\s+after\s+\d"
     r"|resource[_\s-]?exhausted"
     r"|upstream\s+connect\s+error)",
     re.IGNORECASE,
@@ -154,6 +155,10 @@ def is_auth_error(exc: BaseException, extra_text: str = "") -> bool:
     # A tool-schema translation 400 can carry provider/connection wording that trips the auth regex below; it isn't auth, so don't claim it is.
     if is_translation_error(exc, extra_text):
         return False
+    # A 401 that names its own recovery window ("reset after 1m 57s") is a token mid-refresh; it
+    # heals itself, so the reconnect card would lie. The transient classifier retries it instead.
+    if re.search(r"reset\s+after|try\s+again\s+in", combined, re.IGNORECASE):
+        return False
     return bool(re.search(
         r"\b(401|403)\b"
         r"|invalid\s+authentication\s+credentials"
@@ -244,10 +249,14 @@ def p_get_transient_exc_types() -> Tuple[type, ...]:
 def is_transient_capacity_error(exc: BaseException, extra_text: str = "") -> bool:
     # The Claude CLI's underlying ProcessError stringifies to a generic "Command failed with exit code 1 / Check stderr output for details"; the real cause (rate_limit_error / No pool capacity available / 429 / overloaded) only surfaces in the subprocess's stderr stream, which we capture via the SDK's `stderr` callback and pass in as extra_text. Classify against both so we catch capacity errors regardless of which channel carried the message.
     combined = f"{exc!s}\n{extra_text}".strip()
-    if combined and NON_TRANSIENT_PATTERNS.search(combined):
-        return False
     # An overflow can arrive dressed as a 429 ("request too large"); retrying the identical oversized request is guaranteed futile, the valve owns it.
     if is_context_overflow_error(exc, extra_text):
+        return False
+    # A failure that names its own recovery window ("reset after 1m 57s") heals itself, even when
+    # it's dressed as a 401; the reset hint outranks the auth-shaped non-transient veto (caught live).
+    if combined and re.search(r"reset\s+after\s+\d", combined, re.IGNORECASE):
+        return True
+    if combined and NON_TRANSIENT_PATTERNS.search(combined):
         return False
     # Ahead of the empty-string bail on purpose: what the exception IS doesn't depend on whether it bothered to say anything.
     if isinstance(exc, p_get_transient_exc_types()):

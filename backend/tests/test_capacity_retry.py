@@ -108,3 +108,19 @@ def test_ordinary_turn_failures_are_not_router_unreachable():
         "",
     ):
         assert not is_router_unreachable_error(text), text
+
+
+# --- self-healing 401s: mid-refresh tokens must retry, never flash the reconnect card ------------
+from backend.apps.agents.core.error_classify import is_auth_error
+
+
+def test_reset_window_401_is_transient_not_auth():
+    # Verbatim live codex body (2026-08-06): healed itself two minutes later, chats were fine.
+    body = '[codex/gpt-5.2] [401]: Provided authentication token is expired. Please try signing in again. (reset after 1m 57s)'
+    assert not is_auth_error(Exception(body)), "a self-healing 401 must not show the reconnect card"
+    assert capacity_retry_wait(Exception(body), 0) == 5, "and the turn silently retries through the window"
+
+
+def test_genuine_auth_death_still_cards():
+    assert is_auth_error(Exception("401 unauthorized: invalid authentication credentials"))
+    assert capacity_retry_wait(Exception("401 unauthorized: invalid api key"), 0) is None
