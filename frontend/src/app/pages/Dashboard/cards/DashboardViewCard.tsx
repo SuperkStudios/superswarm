@@ -592,10 +592,19 @@ const DashboardViewCard: React.FC<Props> = ({
         const tok = getAuthToken();
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (tok) headers.Authorization = `Bearer ${tok}`;
-        await fetch(`${API_BASE}/outputs/workspace/${wsId}/runtime/restart?instance=${instance}`, {
+        const res = await fetch(`${API_BASE}/outputs/workspace/${wsId}/runtime/restart?instance=${instance}`, {
           method: 'POST',
           headers,
         });
+        // Restart no-ops when the registry lost the runtime (backend bounced); the user is asking
+        // for a working app, so fall through to a fresh start instead of reloading a dead port.
+        const status = (await res.json().catch(() => null)) as { running?: boolean } | null;
+        if (status && status.running === false) {
+          await fetch(`${API_BASE}/outputs/workspace/${wsId}/runtime/start?instance=${instance}`, {
+            method: 'POST',
+            headers,
+          });
+        }
       } catch { /* failures surface via the runtime log WS */ }
     }
     previewRef.current?.reload();
