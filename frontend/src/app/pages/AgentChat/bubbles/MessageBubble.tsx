@@ -232,6 +232,22 @@ function parseOpenSwarmError(text: string, ctx?: OverflowContext): OpenSwarmErro
       detail: "We couldn't reach the service. Once your connection is back, send a new message to continue.",
     };
   }
+  // The local relay (9router) mid-restart: recovers by itself in seconds, so the card says so instead of the generic snag.
+  if (/API Error:\s*Unable to connect|Connection refused|fetch failed/i.test(text)) {
+    return {
+      kind: 'network',
+      title: 'Brief connection hiccup',
+      detail: 'The local AI connection restarted mid-request. It recovers on its own; send again and it should go through.',
+    };
+  }
+  // A failure that named its own recovery window healed itself; say when, not just "something broke".
+  if (/reset after\s+\d/i.test(text)) {
+    return {
+      kind: 'network',
+      title: 'Provider is refreshing',
+      detail: 'The model provider asked for a short wait and recovers on its own. Send again in a minute or two.',
+    };
+  }
   // Last resort: a raw API error or SDK traceback we don't have specific copy for. Never let JSON or a stack trace land in the card; give a calm retry instead (the raw text is in the console).
   if (/API Error:|invalid_request_error|"type"\s*:\s*"error"|Command failed with exit code/i.test(text)) {
     return {
