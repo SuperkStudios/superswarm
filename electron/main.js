@@ -1475,6 +1475,20 @@ function createWindow() {
   mainWindow.webContents.on('preload-error', (_event, preloadPath, err) => {
     console.error('[diag][main:preload-error]', preloadPath, err && err.stack || err);
   });
+  // Frozen-but-not-crashed is the silent class no crash log sees; Chromium's own unresponsive
+  // signal costs nothing and the report fires from the renderer AFTER it recovers.
+  let wedgeStartedAt = 0;
+  mainWindow.webContents.on('unresponsive', () => {
+    wedgeStartedAt = Date.now();
+    console.error('[diag][main] renderer unresponsive');
+  });
+  mainWindow.webContents.on('responsive', () => {
+    if (!wedgeStartedAt) return;
+    const ms = Date.now() - wedgeStartedAt;
+    wedgeStartedAt = 0;
+    console.error('[diag][main] renderer responsive again after', ms, 'ms');
+    try { mainWindow.webContents.send('diag:wedge', { ms }); } catch (_) { /* window mid-teardown */ }
+  });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     const reason = details && details.reason;
     if (reason === 'clean-exit') return;
