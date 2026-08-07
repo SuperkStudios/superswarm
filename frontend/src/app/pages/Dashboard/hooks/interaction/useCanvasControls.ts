@@ -3,6 +3,7 @@ import { store } from '@/shared/state/store';
 import { selectFullscreenCardId } from '@/shared/state/dashboardLayoutSlice';
 import { setCanvasInteractionActive } from '@/shared/canvasInteractionState';
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
+import { getScrollFocusedCard } from '@/shared/cardScrollFocus';
 import { getWebview } from '@/shared/browserRegistry';
 import { applyBrowserZoom } from '@/shared/browserZoom';
 import { syncTiledGeometry } from '../../canvas/tiledGeometry';
@@ -355,9 +356,16 @@ export function useCanvasControls(
       // old walk-up handed those to the canvas: reaching the end of Settings zoomed the world out.
       const windowEl = (e.target as HTMLElement | null)?.closest?.('[data-select-type]') as HTMLElement | null;
       if (windowEl && !(e.ctrlKey || e.metaKey)) {
-        containedEl = windowEl;
-        containedAt = Date.now();
-        return;
+        // Only a card you have clicked INTO owns the wheel. Claiming every card unconditionally
+        // killed the Google Maps model: with cards under the pointer the canvas stopped responding
+        // to scroll at all. Singleton windows (Settings, Marketplace) carry no select-id and are
+        // always owners, since their inner panels are exactly the "hit target isn't the scroller" case.
+        const windowId = windowEl.getAttribute('data-select-id');
+        if (!windowId || windowId === getScrollFocusedCard()) {
+          containedEl = windowEl;
+          containedAt = Date.now();
+          return;
+        }
       }
       // ctrl/cmd wheel is the zoom gesture on every surface: a physically held key or a trackpad pinch (which also sets ctrlKey). It bypasses scrollable children so zoom is always reachable, even over a chat you're typing in.
       const isModifierWheel = e.ctrlKey || e.metaKey;
@@ -395,27 +403,16 @@ export function useCanvasControls(
 
         if (cls === 'scrollable' && !isModifierWheel) {
           // Google Maps model: plain scroll acts on the CANVAS over a CARD (chat, scheduled task) UNLESS you've clicked INTO it. Only a card that isn't scroll-focused diverts to the canvas gesture; non-card scrollable UI (dropdowns, menus, nested panels) always scrolls natively, and a focused card scrolls its content.
-          // Re-read scrollHeight/clientHeight; cached decision is structural, scroll position is dynamic.
-          const canScrollY = target.scrollHeight > target.clientHeight;
-          const canScrollX = target.scrollWidth > target.clientWidth;
-
-          // Horizontal-dominant gestures over a container that only scrolls vertically (e.g., chat) should pan the canvas instead of being silently absorbed by the child's no-op horizontal handling.
-          if (Math.abs(dx) > Math.abs(dy) && !canScrollX) {
+          const cardEl = target.closest('[data-select-id]');
+          const cardId = cardEl?.getAttribute('data-select-id') ?? null;
+          if (cardId && cardId !== getScrollFocusedCard()) {
             target = target.parentElement;
             continue;
           }
-
-          const atYBoundary = !canScrollY ||
-            (dy > 0 && target.scrollTop + target.clientHeight >= target.scrollHeight - 1) ||
-            (dy < 0 && target.scrollTop <= 1);
-          const atXBoundary = !canScrollX ||
-            (dx > 0 && target.scrollLeft + target.clientWidth >= target.scrollWidth - 1) ||
-            (dx < 0 && target.scrollLeft <= 1);
-
-          if (atYBoundary && atXBoundary) {
-            target = target.parentElement;
-            continue;
-          }
+          // Past this point the gesture belongs to THIS surface for its whole life. Reaching the end
+          // of a chat, or swiping sideways in a list that only scrolls down, used to fall through to
+          // the canvas and drag the world out from under you; a scroll that starts inside a card now
+          // ends inside it. Zoom still gets through, because isModifierWheel never reaches here.
           containedEl = target;
           containedAt = Date.now();
           return;
