@@ -688,7 +688,10 @@ const BrowserCard: React.FC<Props> = ({
 
     return () => cleanups.forEach((fn) => fn());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabIdKey, browserId, dispatch, updateTabLocal, suspendedSnap, throttleUrlMirror]);
+    // attachSlotReady is load-bearing: the <webview> elements do not exist until the attach queue
+    // releases this card, so without it this effect runs once against an empty map, registers no
+    // dom-ready listener, and every card after the first sits at about:blank forever.
+  }, [tabIdKey, browserId, dispatch, updateTabLocal, suspendedSnap, throttleUrlMirror, attachSlotReady]);
 
   const navigate = useCallback((targetUrl: string) => {
     const finalUrl = resolveInput(targetUrl);
