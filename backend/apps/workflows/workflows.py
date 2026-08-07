@@ -226,6 +226,14 @@ async def p_sync_cloud_copy(wf: Workflow, data: dict) -> None:
         raise HTTPException(status_code=502, detail=outcome.message or "The cloud copy could not be updated; try again.")
 
 
+def p_drop_pending_missed(workflow_id: str) -> None:
+    """Forget queued missed fires for a workflow. Switching one off has to clear the queue the same
+    way trashing does, or the launch review card still offers to run it and the run is then refused."""
+    stale = [m.id for m in storage.list_missed() if m.workflow_id == workflow_id]
+    if stale:
+        storage.remove_missed(stale)
+
+
 def _normalize_schedule_state(wf: Workflow, source_allowed_tools: Optional[list[str]] = None) -> None:
     if wf.schedule.timezone == "local" and wf.schedule.enabled:
         wf.schedule.timezone = scheduler.host_timezone_name()
@@ -685,7 +693,9 @@ async def list_missed_runs(limit: int = 50):
     out: list[dict] = []
     for m in missed[:limit]:
         wf = storage.get_workflow(m.workflow_id)
-        if not wf:
+        # Paused counts as gone here, same as trashed: offering to run a switched-off workflow is an
+        # action we would then refuse, and the card is the one place a stale entry is visible.
+        if not wf or wf.deleted_at is not None or not wf.schedule.enabled:
             continue
         out.append({
             "id": m.id,
@@ -713,7 +723,7 @@ async def run_missed_runs(body: MissedRunAction):
     started = 0
     for wid, fors in by_wf.items():
         wf = storage.get_workflow(wid)
-        if not wf:
+        if not wf or wf.deleted_at is not None or not wf.schedule.enabled:
             continue
         started += len(fors)
         asyncio.create_task(scheduler.run_missed_sequence(wf, fors))
@@ -848,6 +858,8 @@ async def update_workflow(
     if not wf.icon:
         wf.icon = _derive_icon(wf)
     _normalize_schedule_state(wf)
+    if not wf.schedule.enabled:
+        p_drop_pending_missed(wf.id)
     await p_sync_cloud_copy(wf, data)
     storage.save_workflow(wf)
     audit.log_change(wf.id, "user", before, wf.model_dump(mode="json"))
@@ -897,9 +909,7 @@ async def delete_workflow(workflow_id: str):
     # A trashed workflow's in-flight run was previously un-stoppable even by hand (the manual Stop path filters deleted); halt it now, with the executor's per-step deleted-recheck as backstop.
     await _stop_in_flight_run(workflow_id)
     # Drop any pending missed fires so a trashed workflow can't haunt the card.
-    stale = [m.id for m in storage.list_missed() if m.workflow_id == workflow_id]
-    if stale:
-        storage.remove_missed(stale)
+    p_drop_pending_missed(workflow_id)
     scheduler.kick()
     try:
         from backend.apps.agents.core.ws_manager import ws_manager
