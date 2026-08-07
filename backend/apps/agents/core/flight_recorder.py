@@ -88,6 +88,26 @@ def concurrency_snapshot(sessions: Dict[str, object]) -> dict:
 
 
 @typechecked
+def journey_auth_context() -> dict:
+    """Who the user is and where they are in the product when it broke. An error during onboarding
+    on a free trial is a DIFFERENT bug from the same error for a returning own-key user, and without
+    this they look identical in analytics."""
+    try:
+        from backend.apps.settings.store import load_settings
+        st = load_settings()
+        onboarding = getattr(st, "onboarding_v3", None)
+        return {
+            "stage": "onboarding" if onboarding in (None, "", "in_progress") else "returning",
+            "signed_in": bool(getattr(st, "user_id", None)),
+            "signin_method": getattr(st, "signin_method", None),
+            "connection_mode": getattr(st, "connection_mode", "own_key"),
+            "has_own_key": bool(getattr(st, "anthropic_api_key", None) or getattr(st, "openai_api_key", None)),
+        }
+    except Exception:
+        return {"stage": "unknown", "signed_in": False}
+
+
+@typechecked
 def build_envelope(
     session_id: str,
     family: str,
@@ -106,6 +126,7 @@ def build_envelope(
         "phase": phase,
         "attempts": attempts,
         "breadcrumbs": breadcrumbs(session_id),
+        "journey": journey_auth_context(),
         "concurrency": concurrency_snapshot(sessions if sessions is not None else (p_sessions_provider() if p_sessions_provider else {})),
     }
 

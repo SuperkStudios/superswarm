@@ -103,6 +103,7 @@ class TurnRunner(AgentManagerProtocol):
 
                 if turn.first_event:
                     logger.info(f"[MCP-DEBUG] First event received: {type(message).__name__}")
+                    flight_recorder.crumb(session_id, "first-event", kind=type(message).__name__)
                     turn.first_event = False
 
                 # Log system messages (MCP server status, errors, etc.)
@@ -118,10 +119,12 @@ class TurnRunner(AgentManagerProtocol):
                     )
 
                 elif isinstance(message, AssistantMessage):
+                    flight_recorder.crumb(session_id, "assistant-msg")
                     await handle_assistant_message(
                         message, session, session_id, turn, thinking, self.live_partial, self.sessions
                     )
                 elif isinstance(message, ResultMessage):
+                    flight_recorder.crumb(session_id, "result-msg", subtype=str(getattr(message, "subtype", "")))
                     await handle_result_message(
                         message, session, session_id, turn, thinking, self.sessions,
                         resolved_model, api_type, global_settings,
@@ -133,12 +136,15 @@ class TurnRunner(AgentManagerProtocol):
             async def p_connect():
                 p_client = ClaudeSDKClient(options=options)
                 logger.info(f"[SPAWN-PHASE] cli-connect start session={session_id[:8]} t={time.monotonic():.3f}")
+                flight_recorder.crumb(session_id, "cli-connect-start")
                 await p_client.connect()
                 logger.info(f"[SPAWN-PHASE] cli-connect done session={session_id[:8]} t={time.monotonic():.3f}")
+                flight_recorder.crumb(session_id, "cli-connect-done")
                 return p_client
 
             fp = boot_fingerprint(options_kwargs, session)
             logger.info(f"[SPAWN-PHASE] client-acquire start session={session_id[:8]} t={time.monotonic():.3f}")
+            flight_recorder.crumb(session_id, "client-acquire")
             handle = await acquire_client(
                 self.client_pool, session_id, fp, p_connect, force_respawn=force_respawn,
             )

@@ -61,3 +61,25 @@ def test_recovery_ledger_emits_a_countable_diagnostic(monkeypatch):
     d = sent[0]
     assert d["kind"] == "recovered" and d["subkind"] == "router-resume" and d["lane"] == "cc" and d["attempts"] == 1
     fr.drop_session("t-rec-12345678")
+
+
+def test_envelope_carries_journey_and_auth_context():
+    sid = "t-journey"
+    fr.drop_session(sid)
+    env = fr.build_envelope(sid, "model_error", "auth", "sonnet-cc", "spawn", 1, {})
+    j = env["journey"]
+    assert set(j) >= {"stage", "signed_in"}, "stage + signed_in are the minimum honest context"
+    assert j["stage"] in ("onboarding", "returning", "unknown")
+    fr.drop_session(sid)
+
+
+def test_breadcrumb_trail_reaches_ten_across_a_normal_spawn():
+    # The spawn pipeline now crumbs every phase; ten is the bar for reconstructing a turn.
+    sid = "t-trail"
+    fr.drop_session(sid)
+    for label in ["turn-start", "options-build", "mcp-build", "provider-env", "context-guard",
+                  "client-acquire", "cli-connect-start", "cli-connect-done", "first-event",
+                  "assistant-msg", "result-msg"]:
+        fr.crumb(sid, label)
+    assert len(fr.breadcrumbs(sid, last=20)) >= 10
+    fr.drop_session(sid)
