@@ -1,3 +1,4 @@
+import inspect
 """Clause: every surfaced error carries the full flight envelope.
 
 `cli_binary_missing` shipped without one and nobody noticed, because the only way to see it is to
@@ -40,3 +41,12 @@ def test_the_cli_missing_class_specifically_is_covered():
     block = [b for b in p_diagnostic_blocks(src) if '"cli_binary_missing"' in b]
     assert block, "the cli_binary_missing diagnostic disappeared"
     assert '"flight"' in block[0]
+
+
+def test_silent_quit_diagnostic_carries_a_full_envelope():
+    """A silent quit is the hardest class to diagnose later, so it must not ship envelope-less.
+    Found live: empty_finish_nudge was the ONE family writing only kind/model/session_id."""
+    import backend.apps.agents.manager.run.empty_finish as ef
+    src = inspect.getsource(ef.maybe_nudge_empty_finish) if hasattr(ef, "maybe_nudge_empty_finish") else inspect.getsource(ef)
+    assert "build_envelope" in src, "empty_finish_nudge must attach a flight envelope"
+    assert '"flight"' in src, "the envelope must ride under the standard 'flight' key"
