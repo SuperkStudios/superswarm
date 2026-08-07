@@ -50,18 +50,6 @@ const GeneralAdvanced: React.FC<{
         />
       </Box>
 
-      <Box sx={inlineRowSx} {...settingSelectAttrs('overlay_pill_enabled', 'Quick pill overlay', 'Advanced', 'Alt+Space summons a floating ask-anything pill over any app.')}>
-        <Box sx={{ mr: 3 }}>
-          <Typography sx={labelSx}>Quick pill overlay</Typography>
-          <Typography sx={descSx}>Alt+Space summons a floating pill over whatever you are doing; what you type lands in the composer. The slime keeps you company.</Typography>
-        </Box>
-        <Switch
-          checked={form.overlay_pill_enabled === true}
-          onChange={(e) => setForm({ ...form, overlay_pill_enabled: e.target.checked })}
-          sx={switchSx}
-        />
-      </Box>
-
       <Box sx={inlineRowLastSx} {...settingSelectAttrs('allow_experimental_updates', 'Experimental updates', 'Advanced', 'Receive pre-release builds with new features earlier.')}>
         <Box sx={{ mr: 3 }}>
           <Typography sx={labelSx}>Experimental updates</Typography>
@@ -127,6 +115,7 @@ const GeneralAdvanced: React.FC<{
           Restart tour
         </Button>
       </Box>
+
     </>
   );
 };

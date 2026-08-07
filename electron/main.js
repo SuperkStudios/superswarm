@@ -1972,17 +1972,6 @@ app.whenReady().then(async () => {
   // (module missing, or macOS without the Accessibility grant). Tiers live in voiceHotkey.js.
   installVoiceHotkey(() => mainWindow);
 
-  // Quick pill overlay (Alt+Space, Settings-gated, default off): submitted text lands in the main
-  // renderer as a prefilled composer draft through the same seam dictation uses.
-  const { initOverlayPill } = require('./overlayPill');
-  initOverlayPill((text) => {
-    try {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.show();
-        mainWindow.webContents.send('overlay:submit-text', text);
-      }
-    } catch (_) {}
-  });
 
   // PASSKEY SPIKE (macOS only): turn on the Secure-Enclave/Touch ID WebAuthn authenticator that Electron 42 added. Without this, isUserVerifyingPlatformAuthenticatorAvailable() is hardwired false (why the old reject-shim existed). keychainAccessGroup MUST match the keychain-access-groups entitlement (Y26NUZH4NG.<bundle>.webauthn) or this throws. Windows has no equivalent, so the reject-shim still runs there.
   if (process.platform === 'darwin' && typeof app.configureWebAuthn === 'function') {
@@ -3299,26 +3288,6 @@ ipcMain.handle('get-webview-preload-path', () => {
   return `file://${path.join(__dirname, 'webview-preload.js')}`;
 });
 
-// Quick pill overlay: the renderer pushes the Settings toggle here; show is exposed so the
-// renderer (and tests) can summon the pill without the OS-level hotkey.
-ipcMain.handle('overlay:set-enabled', (_e, enabled) => {
-  try {
-    const { setOverlayEnabled } = require('./overlayPill');
-    setOverlayEnabled(Boolean(enabled));
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err && err.message };
-  }
-});
-ipcMain.handle('overlay:show', () => {
-  try {
-    const { showOverlay } = require('./overlayPill');
-    showOverlay();
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err && err.message };
-  }
-});
 
 // Reveal a user-attached composer file in Finder/Explorer. Reveal-only on an existing path:
 // showItemInFolder never opens or executes the file, so the worst misuse is popping a Finder window.
