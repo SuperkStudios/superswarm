@@ -22,7 +22,9 @@ import time
 import urllib.request
 from typing import List, Optional, Tuple
 
-from scripts.verify175.forced import check_forced_router_unavailable, check_forced_silent_noop
+from scripts.verify175.forced import (check_boot_lifespan, check_forced_router_unavailable,
+                                       check_forced_silent_noop)
+from scripts.verify175.ui import check_dictation, check_idle_raf, check_inp, check_scroll_both_halves
 
 from scripts.verify175.shared import ROOT, ROWS, p_api, row
 
@@ -173,6 +175,11 @@ def main() -> None:
             check_boot_lifespan()
             check_live_ttft(token)
             check_forced_silent_noop(token)
+            print("\nCDP checks (need headless Chrome on :9223 against the dev frontend):")
+            check_idle_raf()
+            check_inp()
+            check_dictation()
+            check_scroll_both_halves()
             if sink:
                 check_forced_router_unavailable(token, sink)
             else:
@@ -185,9 +192,9 @@ def main() -> None:
     print(f"{len(ROWS) - len(fails) - len(skips)} pass, {len(fails)} fail, {len(skips)} skipped")
     if fails:
         print("FAILING: " + ", ".join(f"{n} ({d})" for n, _, d in fails))
-    print("\nCovered by hand, recorded on ENG-175 (need a stack, a hidden CLI binary, or a GUI):")
-    print("  6 of the 8 forced classes (401 shims, overflow, missing CLI, webview kill, renderer wedge),")
-    print("  the CDP UI proofs (scroll/fly-to-fit/overlay/dictation), and the packaged-build check.")
+    print("\nStill hand-run, recorded on ENG-175 (need a hidden CLI binary, Electron, or a signed bundle):")
+    print("  forced classes: 401 shims, overflow, missing CLI, webview kill, renderer wedge")
+    print("  plus the fly-to-fit/overlay proofs and the packaged-build check.")
     sys.exit(1 if fails else 0)
 
 

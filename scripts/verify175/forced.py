@@ -4,6 +4,7 @@ Split from verify-175.py only to stay under the file-size cap; it is the same ru
 
 import json
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -11,6 +12,8 @@ import urllib.request
 from typing import List
 
 from scripts.verify175.shared import ROOT, p_api, row
+
+PY = os.path.join(ROOT, "backend", ".venv", "bin", "python")
 
 
 def p_sink_rows(path: str) -> List[dict]:
