@@ -519,11 +519,12 @@ const BrowserCard: React.FC<Props> = ({
         // about:blank (deferred) so a many-tab card doesn't load every page at once; it's woken
         // the instant it becomes active OR an agent command resolves it (browserRegistry wake).
         const onReady = () => {
-          // The guest is attached; let the next card in the queue take its turn. An attach costs
-          // 60-140ms, longer than a frame, so releasing on a timer would let them overlap again.
-          releaseWebviewAttachSlot();
           if (tabId === activeTabIdRef.current) doLoad();
           else registerPendingLoad(wv, targetUrl, doLoad);
+          // Release AFTER this card's own post-attach work (loadURL, capsule, zoom limits), not
+          // before: releasing first let that work run against the next card's attach and put six
+          // long tasks in one open where an isolated attach produces two.
+          releaseWebviewAttachSlot();
         };
         wv.addEventListener('dom-ready', onReady, { once: true });
         cleanups.push(() => wv.removeEventListener('dom-ready', onReady));
