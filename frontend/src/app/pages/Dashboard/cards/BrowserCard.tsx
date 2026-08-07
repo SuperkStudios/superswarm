@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { requestWebviewAttachSlot } from './webviewAttachQueue';
+import { requestWebviewAttachSlot, releaseWebviewAttachSlot } from './webviewAttachQueue';
 import { createPortal } from 'react-dom';
 import { subscribeLiveDrag } from '../hooks/interaction/liveDragChannel';
 import Box from '@mui/material/Box';
@@ -519,6 +519,9 @@ const BrowserCard: React.FC<Props> = ({
         // about:blank (deferred) so a many-tab card doesn't load every page at once; it's woken
         // the instant it becomes active OR an agent command resolves it (browserRegistry wake).
         const onReady = () => {
+          // The guest is attached; let the next card in the queue take its turn. An attach costs
+          // 60-140ms, longer than a frame, so releasing on a timer would let them overlap again.
+          releaseWebviewAttachSlot();
           if (tabId === activeTabIdRef.current) doLoad();
           else registerPendingLoad(wv, targetUrl, doLoad);
         };
