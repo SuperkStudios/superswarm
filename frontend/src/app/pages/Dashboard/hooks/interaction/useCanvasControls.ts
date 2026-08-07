@@ -323,6 +323,13 @@ export function useCanvasControls(
 
     // Cache "is this element a scrollable child" decision per node. The Cache getComputedStyle ancestor walks; uncached was the dominant cost of trackpad two-finger nav. ResizeObserver below invalidates on scroll-capacity change.
     const scrollableCache: WeakMap<HTMLElement, 'scrollable' | 'not'> = new WeakMap();
+    // Scroll containment: once a wheel GESTURE is being served by a scrollable surface, the rest of
+    // that gesture stays there even after it hits the surface's end. Without this, reaching the
+    // bottom of Settings (or any list) chains into a canvas pan, which reads as the whole world
+    // sliding out from under you. A new gesture (a pause, or a different surface) starts fresh.
+    const GESTURE_GAP_MS = 220;
+    let containedEl: HTMLElement | null = null;
+    let containedAt = 0;
 
     const onWheel = (e: WheelEvent) => {
       // Full size view owns the whole surface: any wheel that escapes the chat's scroll container
@@ -330,6 +337,23 @@ export function useCanvasControls(
       // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period. The selector's
       // existence check matters: a stale tile entry for a removed card would wedge the wheel forever.
       if (selectFullscreenCardId(store.getState())) return;
+      // Same gesture, still over the surface that owns it: let it scroll (or hit its end) natively.
+      if (containedEl && Date.now() - containedAt < GESTURE_GAP_MS && containedEl.isConnected
+          && (e.target instanceof Node) && containedEl.contains(e.target as Node) && !(e.ctrlKey || e.metaKey)) {
+        containedAt = Date.now();
+        return;
+      }
+      // App windows (Settings, Marketplace, app previews) own every wheel inside them. Their inner
+      // panels are often scroll containers whose exact hit target isn't itself scrollable, and the
+      // old walk-up handed those to the canvas: reaching the end of Settings zoomed the world out.
+      const windowEl = (e.target as HTMLElement | null)?.closest?.(
+        '[data-select-type="settings-card"], [data-select-type="marketplace-card"], [data-select-type="view-card"]',
+      ) as HTMLElement | null;
+      if (windowEl && !(e.ctrlKey || e.metaKey)) {
+        containedEl = windowEl;
+        containedAt = Date.now();
+        return;
+      }
       // ctrl/cmd wheel is the zoom gesture on every surface: a physically held key or a trackpad pinch (which also sets ctrlKey). It bypasses scrollable children so zoom is always reachable, even over a chat you're typing in.
       const isModifierWheel = e.ctrlKey || e.metaKey;
       // The setting swaps which of the two a bare mouse notch does. A PINCH must keep zooming
@@ -393,10 +417,13 @@ export function useCanvasControls(
             target = target.parentElement;
             continue;
           }
+          containedEl = target;
+          containedAt = Date.now();
           return;
         }
         target = target.parentElement;
       }
+      containedEl = null;
 
       e.preventDefault();
       if (inertiaFrameRef.current) {
