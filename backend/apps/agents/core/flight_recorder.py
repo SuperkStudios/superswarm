@@ -145,6 +145,7 @@ def record_recovery(session_id: str, net: str, model: Optional[str], attempts: i
             "lane": lane_for_model(model),
             "model": model,
             "attempts": attempts,
+            "journey": journey_auth_context(),
             "concurrency": concurrency_snapshot(sessions or {}),
         })
     except Exception:

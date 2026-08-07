@@ -469,7 +469,14 @@ async def death_watch(proc_handle: "subprocess.Popen[Any]") -> None:
     # The revive IS a safety net firing; the near-miss ledger counts it so router flap rates are queryable.
     try:
         from backend.apps.service.client import submit_diagnostic
-        submit_diagnostic({"kind": "recovered", "subkind": "router-revive"})
+        from backend.apps.agents.core.flight_recorder import journey_auth_context
+        # scope says WHY there is no session or lane here: the watchdog outlives any one turn.
+        submit_diagnostic({
+            "kind": "recovered",
+            "subkind": "router-revive",
+            "scope": "watchdog",
+            "journey": journey_auth_context(),
+        })
     except Exception:
         pass
     p_is_running_last_ok = 0.0
