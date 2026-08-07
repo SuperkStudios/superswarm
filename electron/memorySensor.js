@@ -3,10 +3,12 @@
 // crossings, so a healthy session ships nothing at all.
 'use strict';
 
-const SAMPLE_MS = 60_000;
+// Overridable so support can ask a user to run with a tighter cap, and so the wire is testable
+// without allocating gigabytes on someone's machine.
+const SAMPLE_MS = Number(process.env.OSW_MEM_SAMPLE_MS || 60_000);
 // Crossed once, reported once: a leak is a trend, not a per-minute alarm.
-const TOTAL_MB_CAP = 3000;
-const GROWTH_MB_PER_MIN = 40;
+const TOTAL_MB_CAP = Number(process.env.OSW_MEM_CAP_MB || 3000);
+const GROWTH_MB_PER_MIN = Number(process.env.OSW_MEM_GROWTH_MB || 40);
 const GROWTH_WINDOW = 10;
 
 let p_timer = null;
