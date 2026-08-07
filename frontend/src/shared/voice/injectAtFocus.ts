@@ -1,5 +1,6 @@
 import { getLastInteractedBrowser } from '@/shared/browserFocus';
 import { getWebview } from '@/shared/browserRegistry';
+import { takeInjectSnapshot, setInjectSnapshot } from './injectTargetSnapshot';
 
 // Dictation lands where the user's cursor actually is, like every real dictation tool: a focused
 // in-app field gets the text typed in (undo-friendly, fires React input events), a focused browser
@@ -7,7 +8,8 @@ import { getWebview } from '@/shared/browserRegistry';
 export type InjectTarget = 'field' | 'webview' | 'composer' | null;
 
 export function injectAtFocus(text: string): InjectTarget {
-  const active = document.activeElement as HTMLElement | null;
+  const snap = takeInjectSnapshot();
+  const active = snap.el || (document.activeElement as HTMLElement | null);
   if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
     try {
       active.focus();
@@ -33,7 +35,7 @@ export function injectAtFocus(text: string): InjectTarget {
     try { void focusedTag.insertText(text); return 'webview'; } catch { /* fall through */ }
   }
   // Last-interacted browser card: the user clicked a page field, then hit the hotkey.
-  const browserId = getLastInteractedBrowser();
+  const browserId = snap.browserId || getLastInteractedBrowser();
   if (browserId) {
     const wv = getWebview(browserId) as unknown as { insertText?: (t: string) => Promise<void>; focus?: () => void } | undefined;
     if (wv?.insertText) {
@@ -43,4 +45,12 @@ export function injectAtFocus(text: string): InjectTarget {
   // No cursor anywhere: open the dashboard composer with the transcript typed in. Words are never dropped.
   window.dispatchEvent(new CustomEvent('openswarm:dictation-fallback', { detail: { text } }));
   return 'composer';
+}
+
+/** Called at press-start so the words land where the user was looking, not where focus drifted. */
+export function snapshotInjectTarget(): void {
+  setInjectSnapshot({
+    el: document.activeElement as HTMLElement | null,
+    browserId: getLastInteractedBrowser(),
+  });
 }
