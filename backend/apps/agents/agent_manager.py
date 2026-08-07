@@ -46,6 +46,8 @@ class AgentManager(SessionLifecycle, SessionPersistence, Messaging, SessionContr
     @typechecked
     def __init__(self):
         self.sessions: Dict[str, AgentSession] = {}
+        from backend.apps.agents.core.flight_recorder import set_sessions_provider
+        set_sessions_provider(lambda: self.sessions)
         self.tasks: Dict[str, asyncio.Task] = {}
         # Live mirror of the in-flight streamed assistant text per session, so a stop can persist the partial reply instantly instead of waiting out the multi-second SDK teardown the cancel handler sits behind.
         self.live_partial: Dict[str, PartialReply] = {}

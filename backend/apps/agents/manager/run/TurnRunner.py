@@ -177,6 +177,8 @@ class TurnRunner(AgentManagerProtocol):
         p_use_persistent = persistent_client_enabled()
         capacity_retry_attempt = 0
         p_router_retry_attempt = 0
+        # Baseline crumb so even a first-call failure's envelope names the turn it died in.
+        flight_recorder.crumb(session_id, "turn-start", model=resolved_model, api=api_type)
         while True:
             try:
                 if p_use_persistent:

@@ -13,6 +13,14 @@ from typeguard import typechecked
 P_RING_SIZE = 64
 p_lock = threading.Lock()
 p_rings: Dict[str, deque] = {}
+p_sessions_provider = None
+
+
+def set_sessions_provider(provider) -> None:
+    """agent_manager registers its live sessions dict once so envelopes built anywhere (error
+    handlers have no manager handle) still carry a real concurrency snapshot."""
+    global p_sessions_provider
+    p_sessions_provider = provider
 
 
 @typechecked
@@ -92,7 +100,7 @@ def build_envelope(
         "phase": phase,
         "attempts": attempts,
         "breadcrumbs": breadcrumbs(session_id),
-        "concurrency": concurrency_snapshot(sessions or {}),
+        "concurrency": concurrency_snapshot(sessions if sessions is not None else (p_sessions_provider() if p_sessions_provider else {})),
     }
 
 
