@@ -337,7 +337,13 @@ export function useCanvasControls(
       // (side gutters, header) must NOT zoom/pan the hidden canvas underneath, that read as a
       // glitchy zoom while scrolling the chat. Fullscreen has no canvas nav, period. The selector's
       // existence check matters: a stale tile entry for a removed card would wedge the wheel forever.
-      if (selectFullscreenCardId(store.getState())) return;
+      // Swallow it rather than just ignoring it: the host window now allows visual zoom (so macOS
+      // delivers pinch at all), which means an un-prevented pinch here would magnify the whole UI
+      // instead of doing nothing.
+      if (selectFullscreenCardId(store.getState())) {
+        if (e.ctrlKey || e.metaKey) e.preventDefault();
+        return;
+      }
       // Same gesture, still over the surface that owns it: let it scroll (or hit its end) natively.
       if (containedEl && Date.now() - containedAt < GESTURE_GAP_MS && containedEl.isConnected
           && (e.target instanceof Node) && containedEl.contains(e.target as Node) && !(e.ctrlKey || e.metaKey)) {

@@ -2570,6 +2570,12 @@ app.on('web-contents-created', (_event, contents) => {
   // popups are 'window' contents created with the flag OFF, so they keep the OS default.
   if (isCreatingMainWindow) {
     contents.on('context-menu', (_e, params) => buildAppContextMenu(contents, params));
+    // The dashboard IS a Figma-style canvas listening for ctrl+wheel, so it needs the very fix the
+    // webview branch below spells out: at the default (1,1) limits Electron drops macOS pinch instead
+    // of delivering it, which is the "pinch-to-zoom just stopped working" report. Widening them here
+    // is safe because the canvas wheel handler is passive:false and preventDefaults the zoom path, so
+    // Chromium never also magnifies the UI.
+    try { contents.setVisualZoomLevelLimits(1, 3); } catch (_) { /* older Electron */ }
   }
   if (contents.getType() === 'webview') {
     const wcId = contents.id;
