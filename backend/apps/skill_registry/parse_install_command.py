@@ -12,6 +12,8 @@ from typeguard import typechecked
 # The runners people actually have in their muscle memory.
 P_RUNNERS = ("npx", "npm", "pnpm", "pnpx", "yarn", "bunx", "bun", "deno")
 P_VERBS = ("add", "install", "i")
+# `pnpm dlx` and `yarn dlx` are those managers' npx, and dlx is the form READMEs actually print.
+P_RUNNER_SUBCOMMANDS = ("dlx", "exec", "run")
 P_SKILL_ID = re.compile(r"^[A-Za-z0-9@._/-]+$")
 
 
@@ -39,6 +41,8 @@ def parse_install_command(raw: str) -> Optional[str]:
     if tokens[0].lower() in P_RUNNERS:
         # npx skills add <id> | npm i skills <id> | bunx skills add <id>
         rest = [t for t in tokens[1:] if not t.startswith("-")]
+        if rest and rest[0].lower() in P_RUNNER_SUBCOMMANDS:
+            rest = rest[1:]
         # The verb and the package name arrive in either order ("npx skills add x", "npm i skills x"),
         # so strip both, in whichever order they appear.
         named_registry = False

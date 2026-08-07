@@ -38,3 +38,15 @@ def test_the_forms_people_actually_paste_still_parse(raw, expected):
 @pytest.mark.parametrize("raw", NOT_INSTALLS)
 def test_anything_that_is_not_a_skills_install_is_refused(raw):
     assert parse_install_command(raw) is None, f"{raw!r} must not be read as a skill id"
+
+def test_dlx_is_the_form_readmes_actually_print():
+    """`pnpm dlx` / `yarn dlx` are those managers' npx; missing them meant the most common paste failed."""
+    assert parse_install_command("pnpm dlx skills add note-taker") == "note-taker"
+    assert parse_install_command("yarn dlx skills add note-taker") == "note-taker"
+    assert parse_install_command("pnpm exec skills add note-taker") == "note-taker"
+
+
+def test_dlx_does_not_widen_the_refusals():
+    """Skipping the runner subcommand must not turn every dlx invocation into an install."""
+    assert parse_install_command("pnpm dlx create-vite my-app") is None
+    assert parse_install_command("yarn dlx prettier --write .") is None
