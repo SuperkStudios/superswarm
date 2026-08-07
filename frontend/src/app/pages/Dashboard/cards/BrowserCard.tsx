@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { requestWebviewAttachSlot } from './webviewAttachQueue';
 import { createPortal } from 'react-dom';
 import { subscribeLiveDrag } from '../hooks/interaction/liveDragChannel';
 import Box from '@mui/material/Box';
@@ -416,6 +417,15 @@ const BrowserCard: React.FC<Props> = ({
   }, [activeUrl, activeTabId]);
 
   const webviewMap = useRef<Map<string, WebviewElement>>(new Map());
+
+  // Electron attaches a guest with a SYNCHRONOUS renderer IPC, so a dashboard that mounts N cards
+  // puts N blocking round-trips in one frame (measured: 4755ms over 40 long tasks at 18 cards).
+  // Waiting for a slot spreads them one per frame; nothing unmounts, so sessions are untouched.
+  const [attachSlotReady, setAttachSlotReady] = useState(false);
+  useEffect(() => {
+    if (attachSlotReady) return undefined;
+    return requestWebviewAttachSlot(() => setAttachSlotReady(true));
+  }, [attachSlotReady]);
   const initializedTabs = useRef(new Set<string>());
   const tabBarRef = useRef<HTMLDivElement>(null);
   // Some pages (Zillow's map) rewrite their own URL many times a second, across did-navigate-in-page AND did-stop-loading; throttle the persisted URL mirror so each tick can't fan out to a full dashboard save + webview suspend re-eval. Leading edge keeps a real navigation's URL immediate.
@@ -1636,7 +1646,7 @@ const BrowserCard: React.FC<Props> = ({
             )
           ) : (
           <>
-            {tabs.map((tab) => (
+            {(attachSlotReady ? tabs : []).map((tab) => (
               <webview
                 key={tab.id}
                 ref={(el: any) => {
