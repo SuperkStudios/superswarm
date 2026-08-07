@@ -12,6 +12,7 @@ ScheduleWorkflow for exact, user-specified live schedules.
 import json
 import sys
 import os
+import time
 import uuid
 import urllib.request
 import urllib.error
@@ -212,13 +213,14 @@ TOOLS = [
     {
         "name": "TestWorkflow",
         "description": (
-            "Spawn a sibling Test Agent that runs the workflow end-to-end "
-            "(the current draft if one is being edited, else the live steps) "
-            "so the user can watch it work. Use after editing a step to "
-            "verify the change. The Test Agent renders as a sibling card on "
-            "the dashboard with a 'Testing' arrow chip linking back to this "
-            "workflow. After it finishes, call ReadTestTranscript to see what "
-            "it did."
+            "Run the workflow end-to-end (the current draft if one is being "
+            "edited, else the live steps) and WAIT for the result, which is "
+            "returned to you in this same turn. Use after editing a step to "
+            "verify the change, then keep going: fix what the transcript "
+            "shows and test again, without stopping to ask the user. The Test "
+            "Agent renders as a sibling card on the dashboard with a 'Testing' "
+            "arrow chip so they can watch. Only if it runs unusually long does "
+            "this return early, telling you to call ReadTestTranscript."
         ),
         "inputSchema": {
             "type": "object",
@@ -529,6 +531,12 @@ def handle_delete_step(args: dict) -> dict:
     return _ok(f"Step {idx + 1} deleted ({len(steps)} remaining).")
 
 
+# How long a synchronous test may hold the turn. Long enough for a real multi-step workflow, short
+# enough that a wedged test returns an honest "still running" instead of hanging the conversation.
+P_TEST_WAIT_S = 240
+P_TEST_POLL_S = 3
+
+
 def handle_test_workflow(args: dict) -> dict:
     wid = args.get("workflow_id") or ""
     if not wid:
@@ -537,7 +545,26 @@ def handle_test_workflow(args: dict) -> dict:
     if "_error" in r:
         return _err(r["_error"])
     sid = r.get("session_id", "")
-    return _ok(f"Test Agent spawned (session {sid[:8]}...). It runs the latest workflow on the dashboard with a Testing arrow chip. Call ReadTestTranscript once it finishes to see what it did.")
+    # Blocking on purpose. This used to return the moment the Test Agent spawned and tell the model
+    # to "call ReadTestTranscript once it finishes", but a model has no way to know when that is, so
+    # it ended its turn and the HUMAN had to keep re-pinging it. A test whose result the caller
+    # cannot observe is not a tool, it is homework for the user.
+    deadline = time.time() + P_TEST_WAIT_S
+    last_status = "running"
+    while time.time() < deadline:
+        time.sleep(P_TEST_POLL_S)
+        t = _call("GET", f"/{wid}/test-transcript")
+        if "_error" in t:
+            continue
+        last_status = t.get("status") or "running"
+        if last_status in ("running", "none"):
+            continue
+        transcript = t.get("transcript") or "(empty transcript)"
+        return _ok(f"Test finished (status: {last_status}). Transcript:\n\n{transcript}")
+    return _ok(
+        f"Test Agent (session {sid[:8]}) is still running after {P_TEST_WAIT_S}s, so it is a long one. "
+        f"Last status: {last_status}. Call ReadTestTranscript to pick up the result."
+    )
 
 
 def handle_read_test_transcript(args: dict) -> dict:
