@@ -11,6 +11,7 @@ that were learned by getting them wrong first:
 """
 
 import json
+import os
 import subprocess
 import time
 from typing import Optional
@@ -18,6 +19,8 @@ from typing import Optional
 from scripts.verify175.shared import row
 
 NODE = "node"
+# Electron's renderer runs on its own port; plain-Chrome runs default 9223.
+CDP_PORT = os.environ.get("OSW_CDP_PORT", "9223")
 WS = "/Users/ericzeng/Downloads/openswarm/frontend/node_modules/ws"
 
 
@@ -38,6 +41,8 @@ def p_cdp(body: str, timeout: int = 180) -> Optional[dict]:
         "%s\n"
         "ws.close();})().catch(e=>console.log(JSON.stringify({error:String(e.message)})));\n"
     ) % (WS, body)
+    if CDP_PORT != "9223":
+        js = js.replace("127.0.0.1:9223", "127.0.0.1:" + CDP_PORT)
     p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, timeout=timeout)
     for line in reversed((p.stdout or "").strip().splitlines()):
         try:
@@ -154,3 +159,50 @@ def check_scroll_both_halves() -> None:
     row("wheel-storm (both halves)", "PASS" if ok else "FAIL",
         f"scrollTop {out['from']}->{out['to']} (positive={'ok' if out['scrolled'] else 'FAIL'}), "
         f"camera {'byte-identical' if out['cameraStill'] else 'MOVED'}")
+
+
+def check_long_tasks_on_mount() -> None:
+    """The gate that was missing. TTFT, INP, idle-rAF and 60fps drag all PASSED while opening a
+    dashboard blocked the renderer for 4.75s, because every one of them samples a gesture or an idle
+    moment and the cost is at MOUNT. This measures the thing users actually call heaviness: total
+    main-thread blocking caused by one user action, via the longtask observer that already ships."""
+    out = p_cdp(
+        "await ev(\"(function(){window.__LTGATE__=[];try{var o=new PerformanceObserver(function(l){"
+        "l.getEntries().forEach(function(e){window.__LTGATE__.push(Math.round(e.duration));});});"
+        "o.observe({entryTypes:['longtask']});}catch(e){}return 1})()\");\n"
+        "await sleep(1500);\n"
+        "await ev('window.__LTGATE__=[];1');\n"
+        "await sleep(5000);\n"
+        "const idle=await ev('JSON.stringify(window.__LTGATE__)');\n"
+        "const tile=await ev(\"(function(){var o=null;document.querySelectorAll('.osw-dock-tile').forEach(function(n){"
+        "var l=(n.getAttribute('aria-label')||n.getAttribute('title')||n.innerText||'').trim();"
+        "if(l==='Browsers'&&!o){var r=n.getBoundingClientRect();o={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};}});"
+        "return JSON.stringify(o||{none:true})})()\");\n"
+        "const t=JSON.parse(tile||'{\"none\":true}');\n"
+        "if(t.none){console.log(JSON.stringify({noTile:true,idle:JSON.parse(idle||'[]')}));}else{\n"
+        "  await ev('window.__LTGATE__=[];1');\n"
+        "  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:t.x,y:t.y,button:'left',clickCount:1});\n"
+        "  await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:t.x,y:t.y,button:'left',clickCount:1});\n"
+        "  await sleep(5000);\n"
+        "  const mount=await ev('JSON.stringify(window.__LTGATE__)');\n"
+        "  const wv=await ev(\"document.querySelectorAll('webview').length\");\n"
+        "  console.log(JSON.stringify({idle:JSON.parse(idle||'[]'),mount:JSON.parse(mount||'[]'),webviews:wv}));}\n",
+        timeout=300)
+    if not out or "mount" not in out:
+        row("long tasks on card mount", "SKIP", f"probe returned {out}")
+        return
+    def nums(xs):
+        return [x if isinstance(x, int) else int(x.get("dur", 0)) for x in (xs or [])]
+    idle = nums(out.get("idle"))
+    mount = nums(out.get("mount"))
+    blocked = sum(mount)
+    worst = max(mount) if mount else 0
+    # Idle must be clean or the reading is contaminated; a busy box invalidates the mount number.
+    if sum(idle) > 0:
+        row("long tasks on card mount", "SKIP",
+            f"idle control was not clean ({len(idle)} tasks, {sum(idle)}ms) -- rerun on a quiet box")
+        return
+    ok = worst <= 100 and blocked <= 500
+    row("long tasks on card mount (<=100ms worst, <=500ms total)", "PASS" if ok else "FAIL",
+        f"{len(mount)} tasks, {blocked}ms blocked, worst {worst}ms, {out.get('webviews')} webviews "
+        f"(idle control 0ms) [ENG-193 baseline: 736ms/174ms]")
