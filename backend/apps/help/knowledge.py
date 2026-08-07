@@ -136,6 +136,9 @@ def p_issues_block() -> str:
 
 
 @typechecked
+from backend.apps.help.changelog import help_context_block
+
+
 def build_system_prompt(shortcuts: List[HelpShortcut], app_version: str) -> str:
     shortcut_lines = "\n".join(f"- {s.keys}: {s.action}" for s in shortcuts)
     os_name = "macOS" if IS_MAC else platform.system()
@@ -157,6 +160,11 @@ def build_system_prompt(shortcuts: List[HelpShortcut], app_version: str) -> str:
             "This user's real shortcuts, already written for their platform. Quote them exactly.",
             shortcut_lines,
             "</shortcuts>",
+            "",
+            "<whats_new>",
+            "What actually changed in this build. Answer \"what's new\" from THIS, never from memory.",
+            help_context_block(app_version),
+            "</whats_new>",
             "",
             "<known_issues>",
             "The complete list of issues shipped with this build. You cannot see live bug reports.",
