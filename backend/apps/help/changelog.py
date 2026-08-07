@@ -18,19 +18,24 @@ class ReleaseNote(BaseModel):
 
 
 P_RELEASES: List[ReleaseNote] = [
+    # Only lines that are true of the built app belong here. This one file feeds the in-app card, the
+    # GitHub body AND the Help agent's context, so a line written for a planned feature becomes the
+    # agent confidently describing something that does not exist.
     ReleaseNote(
         version="1.7.5",
-        headline="Fewer dead ends, and the app tells us when something breaks.",
+        headline="Off means off, and the canvas stops tearing.",
         highlights=[
-            "Scrolling inside any panel, chat, or browser stays in that panel instead of dragging the canvas.",
-            "Clicking the Marketplace window frames it like every other window, and camera moves land softly instead of snapping.",
-            "While a browser agent works you see the live mini browser only, not the same action log twice.",
+            "Deleting a scheduled workflow makes it stay deleted. One that was mid-run could previously save itself back and keep firing.",
+            "Switching a workflow off now stops everything: no queued catch-up runs, nothing waiting on the review card.",
+            "Scrolling inside a panel, list, or window stays in that panel instead of dragging the canvas with it.",
+            "Opening a busy dashboard no longer locks the window while its cards wake up.",
         ],
         fixes=[
-            "Dictation lands in the field you started in, even if you click elsewhere while it is still transcribing.",
+            "The canvas background no longer tears into a hard-edged rectangle when lots of browsers are open.",
+            "Editing a workflow step can no longer hang the editor when the naming service is slow.",
+            "A crashed session no longer leaves a key watcher running, which made dictation start and immediately stop.",
             "The first message after opening a chat reuses the warmed-up connection, so it answers sooner.",
             "A provider hiccup that fixes itself no longer shows a scary reconnect card.",
-            "Crashes, freezes, and runaway memory now report themselves, so bugs get diagnosed instead of guessed at.",
         ],
     ),
     ReleaseNote(
