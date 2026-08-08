@@ -233,28 +233,25 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       }
     } catch { /* keep the passed origin */ }
   }
-  // TEMPORARY (minimized-to-fullscreen offset): prints everything the placement is solved from, so
-  // the bug becomes arithmetic instead of guesswork. Remove once the offset is understood.
+  // TEMPORARY (minimized-to-fullscreen offset): one flat STRING, because devtools collapses nested
+  // arrays to "Array(2)" and the values are lost the moment you copy the line out.
   try {
     const r0 = el.getBoundingClientRect();
     const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
     const zr = zoneRect(zone);
+    const w = measureWorkspace();
+    const n = (v: number) => Math.round(v);
     // eslint-disable-next-line no-console
-    console.log('[TILE]', id, zone, {
-      parked: isParked(el),
-      reactOrigin: [Math.round(origin.x), Math.round(origin.y)],
-      rectOrigin: [
-        Math.round((r0.left - cam.panX) / cam.zoom - m.e),
-        Math.round((r0.top - cam.panY) / cam.zoom - m.f),
-      ],
-      usedOrigin: [Math.round(ox), Math.round(oy)],
-      paintedRect: [Math.round(r0.left), Math.round(r0.top), Math.round(r0.width), Math.round(r0.height)],
-      transformNow: [Math.round(m.e), Math.round(m.f), +m.a.toFixed(3)],
-      zoneRect: zr ? [Math.round(zr.x), Math.round(zr.y), Math.round(zr.w), Math.round(zr.h)] : null,
-      camera: [Math.round(cam.panX), Math.round(cam.panY), +cam.zoom.toFixed(3)],
-      workspace: (() => { const w = measureWorkspace(); return [Math.round(w.x0), Math.round(w.x1), Math.round(w.w), Math.round(w.h)]; })(),
-      railPresent: !!document.querySelector('[data-minimized-rail]'),
-    });
+    console.log(
+      `[TILE] ${id} ${zone} parked=${isParked(el)} rail=${!!document.querySelector('[data-minimized-rail]')}`
+      + ` | react=${n(origin.x)},${n(origin.y)} rect=${n((r0.left - cam.panX) / cam.zoom - m.e)},${n((r0.top - cam.panY) / cam.zoom - m.f)}`
+      + ` used=${n(ox)},${n(oy)}`
+      + ` | painted=${n(r0.left)},${n(r0.top)} ${n(r0.width)}x${n(r0.height)}`
+      + ` tf=${n(m.e)},${n(m.f)}@${m.a.toFixed(2)}`
+      + ` | zone=${zr ? `${n(zr.x)},${n(zr.y)} ${n(zr.w)}x${n(zr.h)}` : 'null'}`
+      + ` cam=${n(cam.panX)},${n(cam.panY)}@${cam.zoom.toFixed(2)}`
+      + ` ws=x0:${n(w.x0)} x1:${n(w.x1)} ${n(w.w)}x${n(w.h)}`,
+    );
   } catch { /* diagnostics must never break tiling */ }
   const entry: TiledEntry = { el, zone, originX: ox, originY: oy };
   entries.set(id, entry);
@@ -277,14 +274,16 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       rebaseline(live, lastCamera, tx, ty);
       try {
         const rr = live.el.getBoundingClientRect();
+        const w2 = measureWorkspace();
+        const n = (v: number) => Math.round(v);
         // eslint-disable-next-line no-console
-        console.log('[TILE settle]', id, {
-          originAfter: [Math.round(live.originX), Math.round(live.originY)],
-          paintedRect: [Math.round(rr.left), Math.round(rr.top), Math.round(rr.width), Math.round(rr.height)],
-          wantedZone: [Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h)],
-          offBy: [Math.round(rr.left - r.x), Math.round(rr.top - r.y)],
-          railPresent: !!document.querySelector('[data-minimized-rail]'),
-        });
+        console.log(
+          `[TILE settle] ${id} origin=${n(live.originX)},${n(live.originY)}`
+          + ` | painted=${n(rr.left)},${n(rr.top)} ${n(rr.width)}x${n(rr.height)}`
+          + ` want=${n(r.x)},${n(r.y)} ${n(r.w)}x${n(r.h)}`
+          + ` | OFFBY=${n(rr.left - r.x)},${n(rr.top - r.y)} SIZEOFF=${n(rr.width - r.w)},${n(rr.height - r.h)}`
+          + ` rail=${!!document.querySelector('[data-minimized-rail]')} ws=x0:${n(w2.x0)} x1:${n(w2.x1)} ${n(w2.w)}x${n(w2.h)}`,
+        );
       } catch { /* diagnostics only */ }
     }
     applyEntry(live, lastCamera);
