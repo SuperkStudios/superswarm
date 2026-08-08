@@ -180,15 +180,37 @@ function stopObserving(): void {
 // tool-row motion so the whole app eases identically.
 const ENTER_MS = 260;
 const ENTER_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
-// When the settle re-baseline is allowed to read the DOM. It must outlast the CAMERA glide, not just
-// this module's own enter transition: useCanvasControls flies the camera for FIT_DURATION (340ms) and
-// re-snaps at FIT_DURATION + 60. Settling at ENTER_MS + 40 = 300ms landed 40ms early, so the origin
-// and the counter-scale were both solved against a camera still in flight, and the tile painted at a
-// zoom that no longer matched the canvas: a UNIFORM size error (measured +2.3% on Settings at zoom
-// 0.34, -4.1% on Workflows at 0.61) with the position dead on, which is the signature of a scale
-// mismatch rather than a layout one. Importing FIT_DURATION here would be a cycle (that module
-// imports this one), so the dependency is stated instead of shared.
-const SETTLE_MS = 420;
+// The settle must not fire until the CAMERA has stopped, and no fixed delay can promise that: 420ms
+// outlasted the 340ms glide on this machine, but a loaded renderer or a slow external display can
+// stretch the glide past any constant (the first constant, 300ms, missed by 40ms and baked a
+// mid-flight zoom into the tile: a UNIFORM size error, +2.3% at zoom 0.34, -4.1% at 0.61, position
+// exact). So settle on OBSERVED rest: the camera unchanged for SETTLE_IDLE_MS, after our own enter
+// transition is done, with a hard backstop so a camera that never rests cannot defer this forever.
+const SETTLE_MIN_MS = ENTER_MS + 40;
+const SETTLE_IDLE_MS = 120;
+const SETTLE_MAX_MS = 2000;
+
+// Runs onSettled once the camera has demonstrably stopped moving. Every camera write funnels through
+// syncTiledGeometry into lastCamera, so "lastCamera stopped changing" IS "the camera stopped".
+function settleWhenCameraRests(onSettled: (elapsedMs: number) => void): void {
+  const started = performance.now();
+  let seen = { ...lastCamera };
+  let restingSince = started;
+  const tick = () => {
+    const now = performance.now();
+    if (lastCamera.panX !== seen.panX || lastCamera.panY !== seen.panY || lastCamera.zoom !== seen.zoom) {
+      seen = { ...lastCamera };
+      restingSince = now;
+    }
+    const rested = now - restingSince >= SETTLE_IDLE_MS && now - started >= SETTLE_MIN_MS;
+    if (rested || now - started >= SETTLE_MAX_MS) {
+      onSettled(Math.round(now - started));
+      return;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
 
 // The passed origin is REACT'S base at call time, but the card may still be repainting (a pill
 // entering fullscreen commits a different left/top one frame later), and a delta computed against
@@ -288,7 +310,7 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
     if (entries.get(id)?.el === el) onWorkspaceChanged();
   });
   el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
-  window.setTimeout(() => {
+  settleWhenCameraRests((settleElapsedMs) => {
     const live = entries.get(id);
     if (live?.el !== el) return;
     // Transition is over: the rect now reflects exactly the transform we last wrote, so the
@@ -307,7 +329,7 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
         const n = (v: number) => Math.round(v);
         // eslint-disable-next-line no-console
         console.log(
-          `[TILE settle] ${id} trusted=${!!live.trusted} origin=${n(live.originX)},${n(live.originY)}`
+          `[TILE settle] ${id} after=${settleElapsedMs}ms trusted=${!!live.trusted} origin=${n(live.originX)},${n(live.originY)}`
           + ` | painted=${n(rr.left)},${n(rr.top)} ${n(rr.width)}x${n(rr.height)}`
           + ` want=${n(r.x)},${n(r.y)} ${n(r.w)}x${n(r.h)}`
           + ` | OFFBY=${n(rr.left - r.x)},${n(rr.top - r.y)} SIZEOFF=${n(rr.width - r.w)},${n(rr.height - r.h)}`,
@@ -315,7 +337,7 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       } catch { /* diagnostics only */ }
     }
     applyEntry(live, lastCamera);
-  }, SETTLE_MS);
+  });
   applyEntry(entry, cam);
 }
 
