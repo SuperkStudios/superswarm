@@ -323,6 +323,11 @@ const DashboardViewCard: React.FC<Props> = ({
   const terminalLineIdRef = useRef(0);
   // Fed by the runtime logs WS (which replays its ring buffer on connect); frontend console lines arrive on the same socket via the console-log beacon echo.
   const handleRuntimeLog = useCallback((line: RuntimeLogLine) => {
+    // The render-health beacons arrive HERE in practice, not on the webview console channel:
+    // vite-plugin-terminal owns the page console in app workspaces, so console.error rides the
+    // vite terminal into this runtime stream (live-verified 2026-08-08; the ipc path stays as belt).
+    if (line.text.includes('[openswarm:app-error]')) setPreviewBroken(true);
+    else if (line.text.includes('[openswarm:app-ready]')) setPreviewBroken(false);
     const fields = terminalLineFromStream(line.stream, line.text);
     setTerminalLines((prev) => {
       const next = prev.concat({ id: ++terminalLineIdRef.current, ...fields });
