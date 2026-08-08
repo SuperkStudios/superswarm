@@ -292,6 +292,10 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
     // The live overlay stamps data-mini-live; while it paints, the frozen-shot backdrop must not (the clamped overlay leaves margins where a misaligned second copy of the page peeked through).
     '&[data-mini-live="1"] img': { opacity: 0 },
   } as const;
+  // The slot announces its own (re)mount so the docked mini re-measures exactly then, instead of polling rects on a timer (the windowed transcript remounts it with no resize/pan event firing).
+  const announceBrowserSlot = useCallback((el: HTMLElement | null) => {
+    if (el) window.dispatchEvent(new CustomEvent('openswarm:browser-slot-mounted', { detail: { id } }));
+  }, [id]);
   // A live webview cannot be clipped by the scroller, so the OVERLAY only shows while fully in view; this frozen shot is what scrolls and clips underneath it, ChatGPT-style.
   const dockedShot = dockedSurfaceId ? getMinimizedShot(dockedSurfaceId) : undefined;
   const browserSlotBody = dockedShot ? (
@@ -1937,7 +1941,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
                 return (
                   <React.Fragment key={`${item.id}-with-browser`}>
                     {rendered}
-                    <Box data-browser-slot={id} sx={browserSlotSx}>{browserSlotBody}</Box>
+                    <Box data-browser-slot={id} ref={announceBrowserSlot} sx={browserSlotSx}>{browserSlotBody}</Box>
                   </React.Fragment>
                 );
               }
@@ -2090,7 +2094,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
             )}
             {/* Fallback dock slot for a browser that docked before any browser tool row exists (or whose row was compacted away); once a row appears the slot anchors at it instead (see browserAnchorItemId). The real card overlays this rect geometrically, so the webview never remounts; the mini hides itself when its slot scrolls mostly out of view, since a live webview can't be clipped by the scroller. */}
             {hasDockedBrowser && !browserAnchorItemId && (
-              <Box data-browser-slot={id} sx={browserSlotSx}>{browserSlotBody}</Box>
+              <Box data-browser-slot={id} ref={announceBrowserSlot} sx={browserSlotSx}>{browserSlotBody}</Box>
             )}
             </Box>
           </Box>

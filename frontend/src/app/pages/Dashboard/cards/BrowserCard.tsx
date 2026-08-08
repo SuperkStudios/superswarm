@@ -310,18 +310,23 @@ const BrowserCard: React.FC<Props> = ({
     window.addEventListener('openswarm:canvas-pan-changed', measure);
     document.addEventListener('visibilitychange', measure);
     const timers = [60, 250, 700].map((ms) => window.setTimeout(measure, ms));
-    // Self-heal: the slot lives in the WINDOWED transcript and remounts without firing any of the events above, which left the mini scaled against a stale rect (visibly overflowing its frame) until the next pan. 150ms bounds how long any staleness can survive.
-    const heal = window.setInterval(measure, 150);
+    // The slot lives in the WINDOWED transcript and remounts without firing any of the events
+    // above; it announces itself on mount now, which retired a 150ms forever-poll that forced a
+    // layout read ~7x/sec per docked mini even while nothing moved (measure once per real change).
+    const onSlotMounted = (e: Event): void => {
+      if ((e as CustomEvent).detail?.id === dockedTo) measure();
+    };
+    window.addEventListener('openswarm:browser-slot-mounted', onSlotMounted);
     return () => {
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('openswarm:canvas-pan-changed', measure);
       document.removeEventListener('visibilitychange', measure);
+      window.removeEventListener('openswarm:browser-slot-mounted', onSlotMounted);
       scrollHost?.removeEventListener('scroll', onScroll);
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
       timers.forEach((tm) => window.clearTimeout(tm));
-      window.clearInterval(heal);
     };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);
