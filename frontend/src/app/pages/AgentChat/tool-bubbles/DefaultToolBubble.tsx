@@ -13,7 +13,6 @@ import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { useMountReveal } from './useMountReveal';
 import { getToolLabelWithInput } from '../parsing/toolLabels';
-import BrowserAgentInlineFeed from '../shell/BrowserAgentInlineFeed';
 import { GoogleServiceIcon } from '../mcp-cards/GoogleServiceIcon';
 import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
 import { useTermColors, colorizeInput, colorizeOutput } from '../parsing/toolColorize';
@@ -222,9 +221,9 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
           ) : (
           <Box
             sx={{
-              // While a browser agent is live the mini browser below carries the SAME action feed on
-              // its own overlay; showing the black log too is the same story twice, so it collapses
-              // to zero height for the duration and returns as the normal record once the run ends.
+              // While a browser agent is live the mini browser below IS the progress display
+              // (ENG-201: the action feed is gone everywhere on purpose), so this collapses to
+              // zero height for the duration and returns as the plain task/result record after.
               display: isBrowserAgent && (isPending || isStreaming) ? 'none' : undefined,
               bgcolor: tc.TERM_BG,
               borderRadius: 1.5,
@@ -271,13 +270,6 @@ export const DefaultToolBubble: React.FC<DefaultToolBubbleProps> = ({
                 />
               )}
             </pre>
-
-            {isBrowserAgent && sessionId && (
-              <BrowserAgentInlineFeed
-                parentSessionId={sessionId}
-                browserId={input?.browser_id}
-              />
-            )}
 
             {parsedResult && parsedResult.type === 'mcp' ? (
               <McpResultCard parsed={parsedResult} />

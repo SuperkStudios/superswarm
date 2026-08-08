@@ -12,7 +12,6 @@ import SearchIcon from '@mui/icons-material/Search';
 import { AgentMessage } from '@/shared/state/agentsSlice';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 import { getToolLabel } from '../parsing/toolLabels';
-import BrowserAgentInlineFeed from '../shell/BrowserAgentInlineFeed';
 import { GoogleServiceIcon } from '../mcp-cards/GoogleServiceIcon';
 import { ElapsedTimer, formatElapsed } from '../parsing/toolBubbleChrome';
 import { useTermColors } from '../parsing/toolColorize';
@@ -192,12 +191,6 @@ export const CompactMcpBubble: React.FC<CompactMcpBubbleProps> = ({
             '&::-webkit-scrollbar-thumb': { background: tc.SCROLLBAR_THUMB, borderRadius: 3 },
           }}
         >
-          {isBrowserAgent && sessionId && (
-            <BrowserAgentInlineFeed
-              parentSessionId={sessionId}
-              browserId={input?.browser_id}
-            />
-          )}
           {parsedResult && parsedResult.type === 'mcp' ? (
             <McpResultCard parsed={parsedResult} compact />
           ) : parsedResult ? (

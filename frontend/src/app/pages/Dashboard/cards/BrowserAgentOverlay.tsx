@@ -9,12 +9,9 @@ import SendIcon from '@mui/icons-material/Send';
 import SmartToyOutlinedIcon from '@mui/icons-material/SmartToyOutlined';
 import PanToolOutlinedIcon from '@mui/icons-material/PanToolOutlined';
 import StopIcon from '@mui/icons-material/Stop';
-import OpenInFullIcon from '@mui/icons-material/OpenInFull';
-import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { AgentSession, AgentMessage, stopAgent, handleApproval } from '@/shared/state/agentsSlice';
-import { useStreamingMessage } from '@/shared/state/streamingSlice';
+import { AgentSession, stopAgent, handleApproval } from '@/shared/state/agentsSlice';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
 
@@ -24,58 +21,12 @@ interface Props {
   browserHeight: number;
 }
 
-// Same red as this card's own error icon, so a failed step and a failed run read as one thing.
-const P_FAILED_COLOR = '#f87171';
-
-interface LogEntry {
-  type: 'thought' | 'action' | 'result' | 'skip';
-  text: string;
-  /** Wall-clock of the message, so a stalled run shows WHERE it stalled. */
-  at?: string;
-  /** Only on a result: did the tool that just ran actually work? */
-  ok?: boolean;
-}
-
-function summarizeMessage(msg: AgentMessage): LogEntry {
-  if (msg.role === 'assistant' && typeof msg.content === 'string') {
-    const trimmed = msg.content.trim();
-    if (!trimmed) return { type: 'skip', text: '' };
-    return { type: 'thought', text: trimmed, at: msg.timestamp };
-  }
-
-  if (msg.role === 'tool_call') {
-    const content = typeof msg.content === 'string' ? (() => { try { return JSON.parse(msg.content); } catch { return {}; } })() : msg.content;
-    const tool = content?.tool || content?.name || '?';
-    const input = content?.input || {};
-    let brief = '';
-    switch (tool) {
-      case 'BrowserNavigate': brief = `Navigate → ${input.url || '...'}`; break;
-      case 'BrowserClick': brief = `Click ${input.selector || '...'}`; break;
-      case 'BrowserType': brief = `Type "${(input.text || '').slice(0, 30)}${(input.text || '').length > 30 ? '…' : ''}" into ${input.selector || '...'}`; break;
-      case 'BrowserScreenshot': brief = 'Screenshot'; break;
-      case 'BrowserGetText': brief = 'Read page text'; break;
-      case 'BrowserGetElements': brief = `Inspect elements${input.selector ? ` (${input.selector})` : ''}`; break;
-      case 'BrowserEvaluate': brief = `Evaluate JS`; break;
-      default: brief = tool;
-    }
-    return { type: 'action', text: brief, at: msg.timestamp };
-  }
-
-  if (msg.role === 'tool_result') {
-    const content = typeof msg.content === 'string' ? (() => { try { return JSON.parse(msg.content); } catch { return {}; } })() : msg.content;
-    // Older results predate the `ok` flag; absent means "no reason to think it failed", which keeps
-    // a resumed session from repainting its whole history red.
-    return { type: 'result', text: '', ok: content?.ok !== false };
-  }
-
-  return { type: 'skip', text: '' };
-}
-
+// The action log this overlay used to carry is gone on purpose (ENG-201, Eric's call): the live
+// page IS the progress display, so the overlay is now just a slim status pill with a Stop button,
+// or the full intervention card when the model itself asked for help.
 const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHeight }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
   const [fadeOut, setFadeOut] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -94,7 +45,6 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
 
   const isRunning = session.status === 'running' || session.status === 'waiting_approval';
   const browserDone = session.status === 'completed' || session.status === 'error' || session.status === 'stopped';
-  const streamingMessage = useStreamingMessage(session.id);
   // Only fade+hide when parent is finished too; otherwise show a "waiting" state between sub-tasks.
   const isDone = browserDone && !parentStillActive;
 
@@ -137,12 +87,6 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [fadeOut]);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [session.messages.length, streamingMessage]);
-
   const handleStop = useCallback(() => {
     if (!confirmStop) {
       setConfirmStop(true);
@@ -160,38 +104,6 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
 
   const accentColor = c.accent.primary;
 
-  // A result carries no text of its own; its job is to say whether the action just above it
-  // worked. Fold it back onto that action so a failed click reads as failed instead of vanishing,
-  // which is what happened before: the overlay dropped results entirely and drew every action the
-  // same whether it succeeded or errored.
-  const entries: LogEntry[] = [];
-  for (const e of session.messages.map(summarizeMessage)) {
-    if (e.type === 'skip') continue;
-    if (e.type === 'result') {
-      for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].type === 'action') {
-          if (e.ok === false) entries[i] = { ...entries[i], ok: false };
-          break;
-        }
-      }
-      continue;
-    }
-    entries.push(e);
-  }
-
-  if (streamingMessage && streamingMessage.role === 'assistant' && streamingMessage.content) {
-    entries.push({ type: 'thought', text: streamingMessage.content });
-  }
-
-  const collapsedW = Math.min(300, browserWidth - 24);
-  const collapsedH = Math.min(200, browserHeight - 24);
-  const expandedW = Math.min(Math.floor(browserWidth * 0.55), browserWidth - 24);
-  const expandedH = Math.min(Math.floor(browserHeight * 0.6), browserHeight - 24);
-
-  const panelW = intervention ? Math.min(340, browserWidth - 24) : expanded ? expandedW : collapsedW;
-  // Intervention auto-sizes to fit content; fixed height would clip the Done button.
-  const panelH = intervention ? undefined : expanded ? expandedH : collapsedH;
-
   if (hidden) return null;
 
   return (
@@ -202,10 +114,11 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
         position: 'absolute',
         bottom: 12,
         right: 12,
-        width: panelW,
-        ...(panelH != null ? { height: panelH } : { maxHeight: Math.min(320, browserHeight - 24) }),
+        width: intervention ? Math.min(340, browserWidth - 24) : 'auto',
+        maxWidth: browserWidth - 24,
+        ...(intervention ? { maxHeight: Math.min(320, browserHeight - 24) } : {}),
         zIndex: 18,
-        borderRadius: '12px',
+        borderRadius: intervention ? '12px' : '999px',
         bgcolor: 'rgba(15, 15, 15, 0.88)',
         backdropFilter: 'blur(16px)',
         border: `1px solid ${intervention ? 'rgba(245,158,11,0.4)' : `${accentColor}30`}`,
@@ -213,7 +126,7 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-        transition: 'width 0.25s ease, height 0.25s ease, opacity 0.4s ease',
+        transition: 'width 0.25s ease, opacity 0.4s ease',
         opacity: fadeOut ? 0 : isDone ? 0.7 : 1,
         animation: 'overlay-enter 0.3s ease-out',
         '@keyframes overlay-enter': {
@@ -222,7 +135,7 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
         },
       }}
     >
-      {/* Header */}
+      {/* Header (the whole pill, when there is no intervention) */}
       <Box
         sx={{
           display: 'flex',
@@ -230,7 +143,7 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
           gap: 0.75,
           px: 1.25,
           py: 0.75,
-          borderBottom: `1px solid rgba(255,255,255,0.08)`,
+          borderBottom: intervention ? `1px solid rgba(255,255,255,0.08)` : 'none',
           flexShrink: 0,
         }}
       >
@@ -281,23 +194,6 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
             : 'Browser Agent'}
         </Typography>
 
-        <Tooltip title={expanded ? 'Collapse' : 'Expand'} placement="top">
-          <IconButton
-            size="small"
-            onClick={() => setExpanded((e) => !e)}
-            sx={{
-              color: 'rgba(255,255,255,0.5)',
-              p: 0.3,
-              '&:hover': { color: 'rgba(255,255,255,0.8)' },
-            }}
-          >
-            {expanded
-              ? <CloseFullscreenIcon sx={{ fontSize: 13 }} />
-              : <OpenInFullIcon sx={{ fontSize: 13 }} />
-            }
-          </IconButton>
-        </Tooltip>
-
         {isRunning && (
           <Tooltip title={confirmStop ? 'Click again to confirm' : 'Stop'} placement="top">
             <IconButton
@@ -320,10 +216,10 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
         )}
       </Box>
 
-      {/* Body: intervention prompt OR scrollable action log */}
-      {intervention ? (
+      {/* Body: only the intervention prompt ever needs one */}
+      {intervention && (
         <Box sx={{ flex: 1, px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {/* The run is stopped dead until somebody reads this, so it reads like a headline, not a footnote. The line that used to sit under it ("resolve it above, then click Done") was 10px at 30% opacity, the faintest thing on the card, and it only restated the amber button two rows down. */}
+          {/* The run is stopped dead until somebody reads this, so it reads like a headline, not a footnote. */}
           <Typography sx={{ fontSize: '0.8125rem', color: 'rgba(255,255,255,0.92)', fontWeight: 500, lineHeight: 1.45 }}>
             {interventionProblem}
           </Typography>
@@ -406,110 +302,6 @@ const BrowserAgentOverlay: React.FC<Props> = ({ session, browserWidth, browserHe
               </Button>
             </Box>
           )}
-        </Box>
-      ) : (
-        <Box
-          ref={scrollRef}
-          sx={{
-            flex: 1,
-            overflowY: 'auto',
-            px: 1.25,
-            py: 0.75,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 0.5,
-            scrollbarWidth: 'thin',
-            scrollbarColor: 'rgba(255,255,255,0.12) transparent',
-            '&::-webkit-scrollbar': { width: 4 },
-            '&::-webkit-scrollbar-thumb': {
-              background: 'rgba(255,255,255,0.12)',
-              borderRadius: 2,
-            },
-          }}
-        >
-          {entries.length === 0 && isRunning && (
-            <Typography sx={{ fontSize: '0.6875rem', color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
-              Starting...
-            </Typography>
-          )}
-
-          {entries.map((entry, i) => (
-            <Box key={i} sx={{ display: 'flex', gap: 0.5, alignItems: 'flex-start', minWidth: 0 }}>
-              {entry.type === 'thought' ? (
-                <>
-                  <Box
-                    sx={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: '50%',
-                      bgcolor: 'rgba(255,255,255,0.25)',
-                      flexShrink: 0,
-                      mt: '5px',
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: '0.6875rem',
-                      color: 'rgba(255,255,255,0.6)',
-                      lineHeight: 1.4,
-                      overflow: 'hidden',
-                      display: '-webkit-box',
-                      WebkitLineClamp: expanded ? 6 : 2,
-                      WebkitBoxOrient: 'vertical',
-                      wordBreak: 'break-word',
-                    }}
-                  >
-                    {entry.text}
-                  </Typography>
-                </>
-              ) : (
-                <>
-                  <Box
-                    sx={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: '1px',
-                      bgcolor: entry.ok === false ? P_FAILED_COLOR : accentColor,
-                      flexShrink: 0,
-                      mt: '5px',
-                      transform: 'rotate(45deg)',
-                    }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: '0.6875rem',
-                      fontFamily: c.font.mono,
-                      color: entry.ok === false ? P_FAILED_COLOR : accentColor,
-                      lineHeight: 1.4,
-                      overflow: 'hidden',
-                      // Collapsed stays one tidy line; expanded is where you go to actually READ a
-                      // long selector or URL, so it wraps there instead of ellipsing forever.
-                      ...(expanded
-                        ? { display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-all' }
-                        : { textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
-                    }}
-                  >
-                    {entry.ok === false ? `${entry.text} — failed` : entry.text}
-                  </Typography>
-                </>
-              )}
-              {expanded && entry.at && (
-                <Typography
-                  sx={{
-                    fontSize: '0.625rem',
-                    fontFamily: c.font.mono,
-                    color: 'rgba(255,255,255,0.28)',
-                    flexShrink: 0,
-                    ml: 'auto',
-                    pl: 0.5,
-                    mt: '4px',
-                  }}
-                >
-                  {new Date(entry.at).toLocaleTimeString([], { hour12: false })}
-                </Typography>
-              )}
-            </Box>
-          ))}
         </Box>
       )}
     </Box>

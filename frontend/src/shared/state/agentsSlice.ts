@@ -587,15 +587,6 @@ export const resumeSession = createAsyncThunk(
   }
 );
 
-export const fetchBrowserAgentChildren = createAsyncThunk(
-  'agents/fetchBrowserAgentChildren',
-  async (parentSessionId: string) => {
-    const res = await fetch(`${AGENTS_API}/sessions/${parentSessionId}/browser-agents`);
-    const data = await res.json();
-    return data.sessions as AgentSession[];
-  }
-);
-
 const agentsSlice = createSlice({
   name: 'agents',
   initialState,
@@ -1445,22 +1436,6 @@ const agentsSlice = createSlice({
           }
           state.expandedSessionIds = state.expandedSessionIds.filter((id) => id !== sessionId);
           state.trackedNotificationIds = state.trackedNotificationIds.filter((id) => id !== sessionId);
-        }
-      })
-      .addCase(fetchBrowserAgentChildren.fulfilled, (state, action) => {
-        for (const session of action.payload) {
-          const existing = state.sessions[session.id];
-          if (!existing) {
-            state.sessions[session.id] = {
-              ...session,
-              name: normalizeSessionName(session.name),
-              tool_group_meta: session.tool_group_meta ?? {},
-              pending_approvals: session.pending_approvals ?? [],
-            };
-          } else if (existing.messages.length === 0 && session.messages.length > 0) {
-            // Hydrate a child the trimmed session-list poll left message-less; don't touch one mid-stream (already has messages).
-            existing.messages = session.messages;
-          }
         }
       })
       .addCase(searchHistory.pending, (state) => {
