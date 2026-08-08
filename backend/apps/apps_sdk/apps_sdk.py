@@ -103,18 +103,25 @@ async def spawn_agent(body: SpawnAgentRequest) -> SpawnAgentReply:
 
     if not body.prompt.strip():
         raise HTTPException(status_code=422, detail="prompt is empty")
+    dashboard_id = body.dashboard_id
+    if dashboard_id is None:
+        # An app webview has no idea which dashboard it lives on; without one the canvas lifecycle
+        # never creates a card, so the spawn is real but invisible. Most-recent dashboard wins.
+        from backend.apps.dashboards.dashboards import load_all
+        boards = sorted(load_all(), key=lambda d: d.updated_at, reverse=True)
+        dashboard_id = boards[0].id if boards else None
     config = AgentConfig(
         name=body.name,
         prompt=body.prompt,
         model=body.model or "sonnet",
-        dashboard_id=body.dashboard_id,
+        dashboard_id=dashboard_id,
     )
     session = await agent_manager.launch_agent(config)
     asyncio.create_task(agent_manager.send_message(session.id, body.prompt))
     if body.x is not None and body.y is not None:
         await ws_manager.broadcast_global("apps_sdk:place_agent_card", {
             "session_id": session.id,
-            "dashboard_id": body.dashboard_id,
+            "dashboard_id": dashboard_id,
             "x": body.x,
             "y": body.y,
         })

@@ -89,10 +89,12 @@ def test_llm_rejects_an_empty_prompt():
 
 
 def test_spawn_agent_launches_and_broadcasts_position(monkeypatch):
+    import backend.apps.dashboards.dashboards as dash_mod
     from backend.apps.agents import agent_manager as am_mod
     from backend.apps.agents.core import ws_manager as ws_mod
     from backend.apps.agents.core.models import AgentSession
 
+    monkeypatch.setattr(dash_mod, "load_all", lambda: [], raising=True)
     launched = []
     messaged = []
     broadcasts = []
@@ -122,10 +124,12 @@ def test_spawn_agent_launches_and_broadcasts_position(monkeypatch):
 
 
 def test_spawn_agent_without_position_skips_the_broadcast(monkeypatch):
+    import backend.apps.dashboards.dashboards as dash_mod
     from backend.apps.agents import agent_manager as am_mod
     from backend.apps.agents.core import ws_manager as ws_mod
     from backend.apps.agents.core.models import AgentSession
 
+    monkeypatch.setattr(dash_mod, "load_all", lambda: [], raising=True)
     broadcasts = []
 
     async def p_launch(config):
