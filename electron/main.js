@@ -1747,6 +1747,13 @@ async function clearStaleFrontendCache() {
 
 function setupAutoUpdater() {
   if (!autoUpdater) return;
+  // Escape hatch for locally-built packaged smokes: an unpublished build otherwise downloads the
+  // published release and silently DOWNGRADES on quit (the draft self-revert footgun, seen live on
+  // 1.7.0), which both ruins the test and pollutes its memory numbers with ShipIt churn.
+  if (process.env.OPENSWARM_NO_UPDATE === '1') {
+    console.log('[updater] disabled via OPENSWARM_NO_UPDATE=1 (local packaged smoke)');
+    return;
+  }
   // Proactive, not post-mortem: an app running off the DMG or a Gatekeeper-translocated copy can NEVER self-update (Squirrel.Mac refuses read-only volumes, proven in the packaged smoke). Tell that cohort what to do at boot instead of after a failed check they may never click.
   if (process.platform === 'darwin' && isPackaged) {
     const exe = process.execPath || '';
