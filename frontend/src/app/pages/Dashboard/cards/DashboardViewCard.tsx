@@ -335,6 +335,9 @@ const DashboardViewCard: React.FC<Props> = ({
     (s) => (output.session_id ? s.agents.sessions[output.session_id]?.status : undefined),
   );
   const [finishing, setFinishing] = useState(false);
+  // True only after the app itself reported a render failure (the [openswarm:app-error] beacon);
+  // cleared by app-ready or a turn-end reload. This is what gates the Building overlay now.
+  const [previewBroken, setPreviewBroken] = useState(false);
   const wasBuildingRef = useRef(false);
   const finishTimerRef = useRef<number | null>(null);
   // Whether this turn changed deps (needs a Vite restart, not just a soft reload). Held in a ref so the reload effect stays keyed on the status transition alone.
@@ -362,6 +365,9 @@ const DashboardViewCard: React.FC<Props> = ({
         previewRef.current?.reload();
       }
       setFinishing(true);
+      // The turn is over and the preview is reloading fresh; a broken flag from mid-edit must not
+      // outlive the edit (this staleness is exactly what wedged cards on "Building..." forever).
+      setPreviewBroken(false);
       if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
       finishTimerRef.current = window.setTimeout(() => setFinishing(false), 1200);
     }
@@ -370,8 +376,12 @@ const DashboardViewCard: React.FC<Props> = ({
   useEffect(() => () => {
     if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
   }, []);
-  const showBuildingOverlay = linkedStatus === 'running'
+  const agentBusy = linkedStatus === 'running'
     || linkedStatus === 'waiting_approval' || finishing;
+  // Building only ever covers a frontend that actually THREW while the agent works (Eric's call,
+  // ENG-206): a healthy app just renders through the edit, and agent activity alone can never
+  // curtain an app again (the old status-only gate wedged cards on "Building..." forever).
+  const showBuildingOverlay = agentBusy && previewBroken;
 
   const DRAG_THRESHOLD = 3;
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number; startPanX: number; startPanY: number } | null>(null);
@@ -899,6 +909,7 @@ const DashboardViewCard: React.FC<Props> = ({
           suspendSnapshot={suspendSnapshot}
           onAppClicked={() => { dispatch(setActiveViewCardId(cardKey)); onBringToFront?.(cardKey, 'view'); }}
           onRuntimeLog={handleRuntimeLog}
+          onRenderHealth={setPreviewBroken}
         />
         {/* Code/Terminal overlay the always-mounted preview instead of replacing it: unmounting the webview kills the app's live state and forces a reload on switch-back. */}
         {output.workspace_id && activeView !== 'preview' && (
@@ -909,7 +920,7 @@ const DashboardViewCard: React.FC<Props> = ({
               <Box sx={{ height: '100%', overflow: 'auto' }}>
                 <HistoryPanel
                   outputId={output.id}
-                  isAgentActive={showBuildingOverlay}
+                  isAgentActive={agentBusy}
                   onRestored={() => previewRef.current?.reload()}
                 />
               </Box>
@@ -946,7 +957,7 @@ const DashboardViewCard: React.FC<Props> = ({
 
 export default React.memo(DashboardViewCard);
 
-// Calm overlay shown while the App Builder chat that owns this output is actively editing it (and through the post-turn reload). Hides whatever transient half-broken state the agent might be writing through so the user sees "Building..." instead of an error iframe. Fades in/out.
+// Calm overlay shown ONLY when the app's frontend actually threw while its agent is editing it, so the user sees "Building..." instead of an error iframe. A healthy app renders straight through the edit. Fades in/out.
 const BuildingOverlay: React.FC<{ show: boolean }> = ({ show }) => {
   const c = useClaudeTokens();
   return (
@@ -1000,7 +1011,8 @@ const DashboardOutputPreview: React.FC<{
   suspendSnapshot: string | null;
   onAppClicked: () => void;
   onRuntimeLog?: (line: RuntimeLogLine) => void;
-}> = ({ previewRef, output, cardKey, instance = 1, inputData, backendResult, interactive, previewLive, previewDeferred, suspendSnapshot, onAppClicked, onRuntimeLog }) => {
+  onRenderHealth?: (broken: boolean) => void;
+}> = ({ previewRef, output, cardKey, instance = 1, inputData, backendResult, interactive, previewLive, previewDeferred, suspendSnapshot, onAppClicked, onRuntimeLog, onRenderHealth }) => {
   const tokens = useClaudeTokens();
   const dispatch = useAppDispatch();
   const workspaceId = output.workspace_id ?? null;
@@ -1024,6 +1036,7 @@ const DashboardOutputPreview: React.FC<{
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (tok) headers.Authorization = `Bearer ${tok}`;
     if (text.includes('[openswarm:app-ready]')) {
+      onRenderHealth?.(false);
       fetch(`${API_BASE}/outputs/workspace/${workspaceId}/runtime/report-ready?instance=${instance}`, {
         method: 'POST', headers,
       }).catch(() => {});
@@ -1032,6 +1045,7 @@ const DashboardOutputPreview: React.FC<{
     // Fold console output into the runtime terminal stream (card Terminal view + agent-readable terminal.log).
     postAppConsoleLine(workspaceId, level, text, instance);
     if (level !== 'error' || !text.includes('[openswarm:app-error]')) return;
+    onRenderHealth?.(true);
     const idx = text.indexOf('[openswarm:app-error]');
     const tail = text.slice(idx + '[openswarm:app-error]'.length).trim();
     const firstNewline = tail.indexOf('\n');
@@ -1042,7 +1056,7 @@ const DashboardOutputPreview: React.FC<{
       headers,
       body: JSON.stringify({ message, componentStack }),
     }).catch(() => {});
-  }, [workspaceId, instance]);
+  }, [workspaceId, instance, onRenderHealth]);
 
   // An orphaned record (files deleted on disk) used to render the raw 404 JSON inside the card, or spin on "Starting preview" forever; probe once instead.
   const [filesMissing, setFilesMissing] = useState(false);
