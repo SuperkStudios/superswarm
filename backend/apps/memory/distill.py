@@ -11,6 +11,7 @@ from backend.apps.agents.core.aux_llm import aux_max_tokens_for
 from backend.apps.agents.core.models import AgentSession
 from backend.apps.agents.manager.predict_followups import conversation_tail
 from backend.apps.agents.manager.session.history_compaction import get_branch_messages
+from backend.apps.memory import store
 from backend.apps.memory.store import add_fact
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,17 @@ async def distill_session_memory(session: AgentSession) -> List[str]:
             f"Return at most {MAX_FACTS_PER_DISTILL} facts, one per line, no numbering, no quotes. "
             "If the conversation reveals nothing durable, return the single word NOTHING."
         )
-        user_turn = "Conversation:\n<transcript>\n" + tail + "\n</transcript>\n\nExtract the facts."
+        # Show it what is already known. Without this the model re-derives facts it recorded weeks
+        # ago, phrased differently every time, and the store's token-overlap guard cannot catch a
+        # paraphrase: the four duplicate pairs found in a real memory scored 0.11 to 0.33 against a
+        # 0.60 threshold. The generator is semantic, so the dedupe has to be too.
+        known = "\n".join(f"- {f.text}" for f in store.list_facts())
+        already = (
+            "Facts already stored (do NOT repeat these, in any wording):\n" + known + "\n\n"
+            "Return a fact ONLY if it is genuinely new, or is strictly more specific than one above "
+            "(in which case return the sharper version and it will replace the old one).\n\n"
+        ) if known else ""
+        user_turn = already + "Conversation:\n<transcript>\n" + tail + "\n</transcript>\n\nExtract the facts."
         chunks: List[str] = []
         async with client.messages.stream(
             model=aux_model,

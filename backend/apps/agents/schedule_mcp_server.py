@@ -546,7 +546,10 @@ def handle_delete_step(args: dict) -> dict:
 
 # How long a synchronous test may hold the turn. Long enough for a real multi-step workflow, short
 # enough that a wedged test returns an honest "still running" instead of hanging the conversation.
-TEST_WAIT_S = 240
+# A real workflow test does several searches and page fetches per step. The first budget was 240s
+# and a live three-step digest took 243, so it missed by three seconds and the agent had to make a
+# second hop anyway, which is the exact re-pinging this tool exists to remove.
+TEST_WAIT_S = 600
 TEST_POLL_S = 3
 
 
@@ -574,10 +577,21 @@ def handle_test_workflow(args: dict) -> dict:
             continue
         transcript = t.get("transcript") or "(empty transcript)"
         return _ok(f"Test finished (status: {last_status}). Transcript:\n\n{transcript}")
-    return _ok(
-        f"Test Agent (session {sid[:8]}) is still running after {TEST_WAIT_S}s, so it is a long one. "
-        f"Last status: {last_status}. Call ReadTestTranscript to pick up the result."
+    # Hand back whatever the run has actually produced. Returning only "call ReadTestTranscript" made
+    # the model guess when to poll, which is the same dead end as not waiting at all; a partial
+    # transcript is something it can reason about right now.
+    partial = ""
+    try:
+        t = _call("GET", f"/{wid}/test-transcript")
+        if "_error" not in t:
+            partial = (t.get("transcript") or "").strip()
+    except Exception:
+        partial = ""
+    head = (
+        f"Test Agent (session {sid[:8]}) has not finished after {TEST_WAIT_S}s (status: {last_status}). "
+        "Everything it has produced so far follows; call ReadTestTranscript for the rest once it lands."
     )
+    return _ok(f"{head}\n\n{partial}" if partial else head)
 
 
 def handle_read_test_transcript(args: dict) -> dict:
