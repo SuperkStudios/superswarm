@@ -257,14 +257,19 @@ def p_warm_cache_dir() -> str:
 
 def warm_cache_is_complete(cache_modules: str) -> bool:
     """A populated node_modules/ dir is not proof of a *finished* install.
-    npm links package bins (node_modules/.bin/*) in the final phase, so an
-    install killed partway (e.g. Electron quit mid-warm) leaves the package
-    trees on disk but no .bin/. The old `os.path.isdir(node_modules)` check
-    then trusted that half-tree forever, every app symlinked to it, and
-    `npm run dev` died with `vite: command not found`. Require the one bin
-    every webapp-template app actually launches with so a partial cache is
-    treated as not-ready and repopulated instead of cached as good."""
-    return os.path.exists(os.path.join(cache_modules, ".bin", "vite"))
+    An install killed partway leaves package trees on disk, and it can even
+    have linked node_modules/.bin/vite already (measured live 2026-08-08: a
+    kill mid-install left .bin/vite present but yaml/dist missing, so every
+    app symlinked to the broken tree forever and died on boot). Only the
+    sentinel the installer writes as its very last step proves completion;
+    the launch-bin check stays as a belt for hand-mangled caches."""
+    sentinel = os.path.join(os.path.dirname(cache_modules), ".install-complete")
+    return os.path.exists(sentinel) and os.path.exists(os.path.join(cache_modules, ".bin", "vite"))
+
+
+def p_mark_cache_complete(cache_dir: str) -> None:
+    with open(os.path.join(cache_dir, ".install-complete"), "w", encoding="utf-8") as fh:
+        fh.write(warm_cache_digest())
 
 
 def ensure_warm_cache() -> str | None:
@@ -287,12 +292,17 @@ def ensure_warm_cache() -> str | None:
     with p_warm_cache_lock:
         if warm_cache_is_complete(cache_modules):
             return cache_modules
-        # A node_modules that exists but flunks the completeness check is a half-finished install; wipe it so the rebuild below starts on clean ground instead of layering onto a broken tree.
+        # A node_modules that exists but flunks the completeness check is a half-finished install; wipe it AND any stale sentinel so a second interruption can't fake completion against the old marker.
         if os.path.isdir(cache_modules):
             shutil.rmtree(cache_modules, ignore_errors=True)
+        try:
+            os.remove(os.path.join(cache_dir, ".install-complete"))
+        except OSError:
+            pass
         # Fast path: pre-built archive shipped inside the release. The build script generates this so users hitting OpenSwarm for the first time skip the ~22 s live `npm install`. Falls through on any failure so dev installs (no archive) keep working.
         if p_try_extract_bundled_archive(cache_dir, warm_cache_digest()):
-            if warm_cache_is_complete(cache_modules):
+            if os.path.exists(os.path.join(cache_modules, ".bin", "vite")):
+                p_mark_cache_complete(cache_dir)
                 logger.info("webapp-template: warm cache ready from bundled archive")
                 return cache_modules
             # Archive unpacked a tree without the launch bin; don't trust it.
@@ -333,9 +343,10 @@ def ensure_warm_cache() -> str | None:
                 )
                 return None
             # Never hand back a tree the workspace can't actually launch from.
-            if not warm_cache_is_complete(cache_modules):
+            if not os.path.exists(os.path.join(cache_modules, ".bin", "vite")):
                 logger.warning("webapp-template: warm-cache install left no .bin/vite; not caching")
                 return None
+            p_mark_cache_complete(cache_dir)
             return cache_modules
         except Exception as exc:
             logger.warning("webapp-template warm-cache failed: %s", exc)
@@ -376,10 +387,18 @@ def p_try_link_dir(src: str, target: str) -> bool:
 def link_node_modules(workspace_dir: str) -> None:
     """After copytree, point the workspace's frontend/node_modules at
     the warm-cache directory. Safe fallback; if the cache isn't ready,
-    the workspace's run.sh will fall through to its own install path."""
-    cache_modules = ensure_warm_cache()
-    if not cache_modules:
-        return
+    the workspace's run.sh will fall through to its own install path.
+    NEVER populates the cache here: this runs inside request handlers, and a
+    cold cache means minutes of npm ci, which wedged the whole backend event
+    loop (measured 2026-08-08: every route hung 3m+). Cold = kick the
+    background warm thread and let this workspace install for itself."""
+    cache_modules = os.path.join(p_warm_cache_dir(), "node_modules")
+    if not warm_cache_is_complete(cache_modules):
+        bundled = bundled_extracted_modules()
+        if not bundled:
+            warm_cache_in_background()
+            return
+        cache_modules = bundled
     # The warm cache holds the TEMPLATE's deps; only link it when this workspace's package.json matches, else run.sh sees vite present, skips install, and the app's custom deps are missing. On mismatch (a customized import) leave node_modules absent so run.sh installs the app's real deps.
     pkg_path = os.path.join(workspace_dir, "frontend", "package.json")
     try:

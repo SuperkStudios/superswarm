@@ -32,8 +32,10 @@ def test_no_bundled_tree_returns_none(monkeypatch, tmp_path):
     assert vt.bundled_extracted_modules() is None
 
 
-def test_warm_cache_is_complete_requires_launch_bin(tmp_path):
-    # A package tree on disk is NOT a finished install; the .bin/vite launch shim is what proves npm finished its bin-linking phase.
+def test_warm_cache_is_complete_requires_the_sentinel(tmp_path):
+    # A package tree on disk is NOT a finished install, and neither is .bin/vite alone: a kill
+    # mid-install was measured leaving the launch bin linked while whole packages (yaml/dist)
+    # were missing. Only the sentinel written after a successful install proves completion.
     nm = tmp_path / "node_modules"
     (nm / "vite" / "bin").mkdir(parents=True)
     (nm / "vite" / "bin" / "vite.js").write_text("// vite")
@@ -41,7 +43,12 @@ def test_warm_cache_is_complete_requires_launch_bin(tmp_path):
     bindir = nm / ".bin"
     bindir.mkdir()
     (bindir / "vite").symlink_to("../vite/bin/vite.js")
+    assert vt.warm_cache_is_complete(str(nm)) is False
+    (tmp_path / ".install-complete").write_text("digest")
     assert vt.warm_cache_is_complete(str(nm)) is True
+    # ...and the sentinel without the bin is equally not enough.
+    (bindir / "vite").unlink()
+    assert vt.warm_cache_is_complete(str(nm)) is False
 
 
 def test_ensure_warm_cache_wipes_partial_and_never_returns_incomplete(monkeypatch, tmp_path):
