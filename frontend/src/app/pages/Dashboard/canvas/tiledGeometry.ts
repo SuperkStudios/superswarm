@@ -175,6 +175,15 @@ function stopObserving(): void {
 // tool-row motion so the whole app eases identically.
 const ENTER_MS = 260;
 const ENTER_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
+// When the settle re-baseline is allowed to read the DOM. It must outlast the CAMERA glide, not just
+// this module's own enter transition: useCanvasControls flies the camera for FIT_DURATION (340ms) and
+// re-snaps at FIT_DURATION + 60. Settling at ENTER_MS + 40 = 300ms landed 40ms early, so the origin
+// and the counter-scale were both solved against a camera still in flight, and the tile painted at a
+// zoom that no longer matched the canvas: a UNIFORM size error (measured +2.3% on Settings at zoom
+// 0.34, -4.1% on Workflows at 0.61) with the position dead on, which is the signature of a scale
+// mismatch rather than a layout one. Importing FIT_DURATION here would be a cycle (that module
+// imports this one), so the dependency is stated instead of shared.
+const SETTLE_MS = 420;
 
 // The passed origin is REACT'S base at call time, but the card may still be repainting (a pill
 // entering fullscreen commits a different left/top one frame later), and a delta computed against
@@ -259,6 +268,14 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   // Tiling usually commits alongside chrome collapsing, so a cached workspace is untrustworthy here.
   workspace = null;
   lastCamera = cam;
+  // ...but invalidating is not enough, and on THIS frame it is not even correct. Coming out of the
+  // minimized rail, the rail still holds this card while the zone is being solved, so the workspace
+  // is 76px narrower than it is about to be and the window lands undersized (measured -34x-36) with
+  // no one to tell it otherwise: nothing here notified the size subscribers. Re-measure once the
+  // rail has actually let go, which also re-renders every tiled card's size.
+  requestAnimationFrame(() => {
+    if (entries.get(id)?.el === el) onWorkspaceChanged();
+  });
   el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
   window.setTimeout(() => {
     const live = entries.get(id);
@@ -287,7 +304,7 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       } catch { /* diagnostics only */ }
     }
     applyEntry(live, lastCamera);
-  }, ENTER_MS + 40);
+  }, SETTLE_MS);
   applyEntry(entry, cam);
 }
 
