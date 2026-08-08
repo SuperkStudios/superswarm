@@ -161,3 +161,27 @@ def test_a_cwd_orphan_owned_by_a_live_backend_is_spared(monkeypatch):
         stdout = "50 python -m uvicorn backend.main:app\n900 python3 -u backend.py\n"
     monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
     assert rg.find_ghost_runtime_pids() == [], "a live backend's own app runtime must never be killed"
+
+
+def test_a_frozen_ghost_is_thawed_before_being_signalled(monkeypatch):
+    """Idle app runtimes are parked with SIGSTOP, and a STOPPED process never handles SIGTERM: it
+    queues it and lives forever. Found live as a frozen `bash run.sh` that had survived every reap
+    for 2 days 21 hours. CONT must precede TERM, and anything still breathing gets KILL."""
+    import signal as sg
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    monkeypatch.setattr(rg, "find_ghost_runtime_pids", lambda: [4242])
+    monkeypatch.setattr(rg, "REAP_GRACE_SECONDS", 0.0)
+    monkeypatch.setattr(rg, "kill_descendant_tree", lambda pid, sig: None)
+    sent = []
+    alive = {4242: True}
+    def p_kill(pid, sig):
+        if sig == 0:
+            if not alive.get(pid): raise ProcessLookupError()
+            return
+        sent.append(sig)
+        if sig == sg.SIGKILL: alive[pid] = False
+    monkeypatch.setattr(rg.os, "kill", p_kill)
+    rg.reap_ghost_runtimes()
+    assert sg.SIGCONT in sent, "a stopped ghost never receives TERM unless it is thawed first"
+    assert sent.index(sg.SIGCONT) < sent.index(sg.SIGTERM), "CONT must come before TERM"
+    assert sg.SIGKILL in sent, "a ghost that ignored TERM must be escalated, not left running"

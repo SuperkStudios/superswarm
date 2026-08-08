@@ -12,7 +12,9 @@ cannot legitimately belong to us: we have not started any yet.
 
 import logging
 import os
+import signal
 import subprocess
+import time
 from typing import List
 
 from typeguard import typechecked
@@ -21,6 +23,10 @@ from backend.apps.outputs.runtime_proc import kill_descendant_tree
 from backend.config.paths import OUTPUTS_WORKSPACE_DIR as WORKSPACE_DIR
 
 logger = logging.getLogger(__name__)
+
+# Grace between TERM and KILL. Long enough for a run.sh EXIT trap to clean up its ports, short enough
+# that boot does not visibly stall on it.
+REAP_GRACE_SECONDS = float(os.environ.get("OSW_REAP_GRACE_SECONDS", "1.5"))
 
 
 @typechecked
@@ -157,9 +163,31 @@ def reap_ghost_runtimes() -> int:
     killed = 0
     for pid in pids:
         try:
+            # THAW FIRST. Idle app runtimes are frozen with SIGSTOP, and a stopped process never
+            # handles SIGTERM: it just queues it and stays alive forever. Measured live, a frozen
+            # ghost that had survived every reap for 2 days 21 hours.
+            kill_descendant_tree(pid, "CONT")
+            os.kill(pid, signal.SIGCONT)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
             kill_descendant_tree(pid, "TERM")
-            os.kill(pid, 15)
+            os.kill(pid, signal.SIGTERM)
             killed += 1
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    # A ghost's run.sh traps EXIT but not TERM, so give the tree a moment, then take out whatever
+    # ignored us. A ghost has no work worth protecting, so escalation is always the right call.
+    time.sleep(REAP_GRACE_SECONDS)
+    for pid in pids:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            continue
+        try:
+            kill_descendant_tree(pid, "KILL")
+            os.kill(pid, signal.SIGKILL)
+            logger.warning("ghost %d ignored TERM; escalated to KILL", pid)
         except (ProcessLookupError, PermissionError, OSError):
             continue
     return killed
