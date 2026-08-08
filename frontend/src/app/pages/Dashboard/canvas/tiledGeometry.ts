@@ -184,7 +184,27 @@ const ENTER_EASE = 'cubic-bezier(0.32, 0.72, 0, 1)';
 // cards keep their position in framer's transform (computed left is 0), browser cards in left/top
 // classes; solving painted = pan + zoom*(origin + tx) for origin absorbs every variant, and once
 // true, every later camera write applies correctly.
+// A minimized window is parked at left:-100000 with visibility hidden (CanvasWindowCard keeps it
+// mounted so it holds its state). Its painted rect is therefore nowhere near its canvas home, and
+// deriving an origin from it puts the tile 100,000px out: that is the "fullscreen from the rail
+// lands slightly cut off" bug, and it hits Settings, Workflows and Marketplace because those three
+// are the only surfaces that render through CanvasWindowCard.
+function isParked(el: HTMLElement): boolean {
+  if (el.getAttribute('data-keepalive-hidden') === '1') return true;
+  try {
+    return getComputedStyle(el).visibility === 'hidden';
+  } catch {
+    return false;
+  }
+}
+
+// How far the painted rect may disagree with React's committed origin before we stop believing it.
+// Real disagreement is sub-pixel; anything larger means the card is mid-flight, not at home.
+const ORIGIN_TRUST_PX = 64;
+
 function rebaseline(entry: TiledEntry, cam: Camera, tx: number, ty: number): void {
+  // Never re-baseline off a parked card: its rect is the -100000 park, not its home.
+  if (isParked(entry.el)) return;
   const r = entry.el.getBoundingClientRect();
   entry.originX = (r.left - cam.panX) / cam.zoom - tx;
   entry.originY = (r.top - cam.panY) / cam.zoom - ty;
@@ -198,12 +218,21 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   // instead of gliding to a wrong spot and snapping at settle (the left-then-center jerk).
   let ox = origin.x;
   let oy = origin.y;
-  try {
-    const r0 = el.getBoundingClientRect();
-    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-    ox = (r0.left - cam.panX) / cam.zoom - m.e;
-    oy = (r0.top - cam.panY) / cam.zoom - m.f;
-  } catch { /* keep the passed origin */ }
+  if (!isParked(el)) {
+    try {
+      const r0 = el.getBoundingClientRect();
+      const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      const dx = (r0.left - cam.panX) / cam.zoom - m.e;
+      const dy = (r0.top - cam.panY) / cam.zoom - m.f;
+      // React's origin is the committed truth; the rect only refines it. They should agree within a
+      // pixel or two, so a big disagreement means the card is not painted at home yet (gliding in
+      // from the rail) and the rect would bake that flight into the origin.
+      if (Math.abs(dx - origin.x) < ORIGIN_TRUST_PX && Math.abs(dy - origin.y) < ORIGIN_TRUST_PX) {
+        ox = dx;
+        oy = dy;
+      }
+    } catch { /* keep the passed origin */ }
+  }
   const entry: TiledEntry = { el, zone, originX: ox, originY: oy };
   entries.set(id, entry);
   startObserving();
