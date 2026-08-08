@@ -40,10 +40,6 @@ export interface ZoneRect {
 interface Workspace {
   x0: number;
   x1: number;
-  // Top chrome (the frameless window's drag strip) overlays the canvas, so a tile placed at y=GAP
-  // sits UNDER it: the margin exists but is invisible, and worse, those pixels drag the OS window
-  // instead of reaching the app. Only left and right were ever inset, which is the missing-top-gap bug.
-  y0: number;
   w: number;
   h: number;
 }
@@ -51,7 +47,7 @@ interface Workspace {
 // Pure layout, never the camera, so a pan/zoom frame reads nothing back out of the DOM.
 let workspace: Workspace | null = null;
 
-const CHROME_SELECTORS = ['[data-canvas-viewport]', '[data-desktop-dock]', '[data-minimized-rail]', '[data-top-chrome]'];
+const CHROME_SELECTORS = ['[data-canvas-viewport]', '[data-desktop-dock]', '[data-minimized-rail]'];
 
 // How much of one edge a chrome strip claims. It only counts when it is real, overlaps the viewport,
 // and actually hugs the edge it claims, so an absent or collapsed strip yields 0, never a bogus inset.
@@ -64,28 +60,14 @@ function edgeInset(selector: string, vp: DOMRect, side: 'left' | 'right'): numbe
   return r.left < vp.right && r.right > vp.left + vp.width * 0.75 ? vp.right - r.left + GAP : 0;
 }
 
-// How far down the top chrome reaches into the viewport. Same shape as edgeInset: absent or
-// non-overlapping chrome yields 0, never a bogus inset.
-function topInset(vp: DOMRect): number {
-  let deepest = 0;
-  document.querySelectorAll('[data-top-chrome]').forEach((el) => {
-    const r = el.getBoundingClientRect();
-    if (!(r.height > 0) || r.bottom <= vp.top) return;
-    if (r.top > vp.top + vp.height * 0.25) return;
-    deepest = Math.max(deepest, r.bottom - vp.top);
-  });
-  return deepest;
-}
-
 function measureWorkspace(): Workspace {
   const el = document.querySelector('[data-canvas-viewport]');
   const r = el?.getBoundingClientRect();
-  if (!r || !(r.width > 0 && r.height > 0)) return { x0: 0, x1: 0, y0: 0, w: window.innerWidth, h: window.innerHeight };
+  if (!r || !(r.width > 0 && r.height > 0)) return { x0: 0, x1: 0, w: window.innerWidth, h: window.innerHeight };
   // macOS model: a tiled window sits BESIDE the Dock and beside the minimized rail, never under either.
   return {
     x0: edgeInset('[data-desktop-dock]', r, 'left'),
     x1: edgeInset('[data-minimized-rail]', r, 'right'),
-    y0: topInset(r),
     w: r.width,
     h: r.height,
   };
@@ -95,17 +77,18 @@ function measureWorkspace(): Workspace {
 export function zoneRect(zone: string): ZoneRect | null {
   const ws = workspace ?? (workspace = measureWorkspace());
   const usableW = ws.w - ws.x0 - ws.x1;
-  const usableH = ws.h - ws.y0;
+  // No top inset: the drag strip is zIndex 5 and a tiled window is 999990, so the window is already
+  // ABOVE it and never loses those pixels. Insetting below it just pushed every tile 25px down.
   if (zone === 'fullscreen') {
-    return { x: ws.x0 + GAP, y: ws.y0 + GAP, w: usableW - GAP * 2, h: usableH - GAP * 2 };
+    return { x: ws.x0 + GAP, y: GAP, w: usableW - GAP * 2, h: ws.h - GAP * 2 };
   }
   const z = TILE_ZONES[zone];
   if (!z) return null;
   return {
     x: ws.x0 + z.x * usableW + GAP,
-    y: ws.y0 + z.y * usableH + GAP,
+    y: z.y * ws.h + GAP,
     w: z.w * usableW - GAP * 2,
-    h: z.h * usableH - GAP * 2,
+    h: z.h * ws.h - GAP * 2,
   };
 }
 
