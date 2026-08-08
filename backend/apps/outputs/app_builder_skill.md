@@ -368,6 +368,11 @@ Auth is automatic (host-injected token); never hand-roll fetches against host ro
 works in preview and installed apps; for features that must survive PUBLISHING to the public
 web, use `window.OUTPUT_LLM` / `window.OUTPUT_COMPUTE` below instead.
 
+The workspace also vendors the full tool-ui widget set at `src/toolui/` (data-table, chart,
+code-block, code-diff, terminal, geo-map, media, social-post cards, and 15 more): reach for
+`import { DataTable } from '@toolui/components/data-table'` before hand-building any table,
+chart, or code view. The catalog + usage patterns are in `SDK.md`.
+
 ## Publishable AI + compute — `window.OUTPUT_LLM` / `window.OUTPUT_COMPUTE`
 
 The FastAPI backend above runs in preview but is **not hosted when an app is

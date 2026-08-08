@@ -51,6 +51,35 @@ const state = await agentSession(sessionId);  // {status, messages, ...} — pol
 The agent is a real OpenSwarm agent card the user can watch and take over. Spawn sparingly:
 one agent per user action, never in a loop.
 
+## Tool UI components — ready-made rich widgets
+
+The full OpenSwarm tool-ui component set is vendored at `src/toolui/` (import via the
+`@toolui` alias). These are the same widgets agents render for rich results: use them
+instead of hand-building tables, charts, code viewers, or media blocks.
+
+Available components (each lives at `@toolui/components/<name>`): approval-card, audio,
+chart, citation, code-block, code-diff, data-table, geo-map, image, image-gallery,
+instagram-post, item-carousel, link-preview, linkedin-post, message-draft, option-list,
+order-summary, parameter-slider, plan, preferences-panel, progress-tracker, question-flow,
+stats-display, terminal, video, weather-widget, x-post.
+
+Render through `VendoredToolUi` (it validates props against the component's zod schema,
+loads the styles, and applies the required `.tool-ui-scope` wrapper + dark mode for you):
+
+```tsx
+import VendoredToolUi from '@toolui/VendoredToolUi';
+
+<VendoredToolUi name="data-table" props={{ columns, rows, title: 'Leads' }} />
+```
+
+Direct imports (`import { DataTable } from '@toolui/components/data-table'`) work too, but
+then YOU must import `@toolui/toolui.css` once and wrap the render in
+`<div className="tool-ui-scope">` (add `dark` in dark mode) or the widget renders unstyled.
+
+Each component folder carries its own README + zod schema (`@toolui/registry` maps
+name -> schema). They style themselves (scoped Tailwind, no preflight), so they drop
+into the MUI app without fights, and they follow the app's light/dark mode.
+
 ## What the SDK does NOT give you (yet)
 
 - Direct calls to the user's connected tools/MCP connectors (Gmail, Slack, ...). That surface

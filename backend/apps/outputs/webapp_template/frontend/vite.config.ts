@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import Pages from 'vite-plugin-pages';
+import tailwindcss from '@tailwindcss/vite';
 import terminal from 'vite-plugin-terminal';
 import path from 'path';
 import os from 'os';
@@ -51,6 +52,8 @@ export default defineConfig(({ mode }) => {
     cacheDir: sharedViteCacheDir(),
     plugins: [
       react(),
+      // Tailwind only styles the vendored tool-ui components (scoped, no preflight); MUI and app styles are untouched.
+      tailwindcss(),
       Pages({ dirs: 'src/pages', extensions: ['tsx'] }),
       // vite-plugin-terminal provides a `virtual:terminal/console` module
       // that only exists in dev; loading it during `vite build` errors
@@ -63,6 +66,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, 'src'),
+        '@toolui': path.resolve(__dirname, 'src/toolui'),
       },
       // Force single instances of React and emotion — even if anything
       // tries to resolve them from a deeper node_modules path (which
