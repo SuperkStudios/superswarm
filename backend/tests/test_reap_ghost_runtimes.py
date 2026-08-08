@@ -133,3 +133,31 @@ def test_ghost_matched_despite_path_case_difference(monkeypatch):
         stdout = f"50 python -m uvicorn backend.main:app\n700 bash {lower_ws}/ws-x/backend/run.sh\n"
     monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
     assert rg.find_ghost_runtime_pids() == [700], "a case-different path must still match the ghost"
+
+
+def test_an_orphan_is_found_by_its_CWD_when_argv_hides_the_path(monkeypatch):
+    """An app's backend runs as `python -u backend.py` with cwd=<workspace>, so the workspace path is
+    nowhere in its argv. An argv-only scan was structurally blind to exactly the ghost we most want
+    dead; found live on a packaged build where orphaned app backends survived every reap."""
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    ws = rg.os.path.abspath(rg.WORKSPACE_DIR)
+    monkeypatch.setattr(rg, "p_live_backend_pids", lambda: {50})
+    monkeypatch.setattr(rg, "p_ppid_map", lambda: {900: 1})
+    monkeypatch.setattr(rg, "p_cwd_map", lambda needle: {900: ws + "/app-7"})
+    class P_Out:
+        stdout = "50 python -m uvicorn backend.main:app\n900 python3 -u backend.py\n"
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
+    assert rg.find_ghost_runtime_pids() == [900], "a cwd-only orphan must still be reaped"
+
+
+def test_a_cwd_orphan_owned_by_a_live_backend_is_spared(monkeypatch):
+    """The cwd path must obey the same ancestry rule: a working app is not a ghost."""
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    ws = rg.os.path.abspath(rg.WORKSPACE_DIR)
+    monkeypatch.setattr(rg, "p_live_backend_pids", lambda: {50})
+    monkeypatch.setattr(rg, "p_ppid_map", lambda: {900: 50, 50: 1})
+    monkeypatch.setattr(rg, "p_cwd_map", lambda needle: {900: ws + "/app-7"})
+    class P_Out:
+        stdout = "50 python -m uvicorn backend.main:app\n900 python3 -u backend.py\n"
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
+    assert rg.find_ghost_runtime_pids() == [], "a live backend's own app runtime must never be killed"

@@ -57,12 +57,40 @@ def p_ppid_map() -> dict:
 
 
 @typechecked
+def p_cwd_map(needle: str) -> dict:
+    """pid -> cwd, for processes whose working directory sits under the workspace.
+
+    An app's backend is spawned as `python -u backend.py` with `cwd=<workspace>`, so the workspace
+    path appears NOWHERE in its argv: an argv-only scan is structurally blind to exactly the ghost
+    we most want dead. lsof is the only way to read another process's cwd on macOS. Best-effort by
+    design, since a machine that restricts lsof must still boot.
+    """
+    try:
+        out = subprocess.run(
+            ["lsof", "-a", "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=15
+        )
+    except Exception:
+        return {}
+    m = {}
+    pid = None
+    for raw in (out.stdout or "").splitlines():
+        if not raw:
+            continue
+        tag, val = raw[0], raw[1:]
+        if tag == "p" and val.isdigit():
+            pid = int(val)
+        elif tag == "n" and pid is not None and val.casefold().startswith(needle):
+            m[pid] = val
+    return m
+
+
+@typechecked
 def find_ghost_runtime_pids() -> List[int]:
     """PIDs of workspace processes that NO live backend owns.
 
-    Matched on the absolute workspace path, so an unrelated `npm run dev` elsewhere is never touched,
-    then filtered by walking each candidate's ancestry: if a live backend is anywhere above it, it is
-    someone's working app and is left alone.
+    Matched on the absolute workspace path (in argv OR as the process's working directory), so an
+    unrelated `npm run dev` elsewhere is never touched, then filtered by walking each candidate's
+    ancestry: if a live backend is anywhere above it, it is someone's working app and is left alone.
     """
     # Case-FOLDED needle. macOS's default filesystem is case-insensitive, so a process may report
     # `.../openswarm/...` while our resolved path is `.../OpenSwarm/...`: the same folder, but a
@@ -80,15 +108,17 @@ def find_ghost_runtime_pids() -> List[int]:
     # Boot relied on running before anything spawned; the 10-minute sweep gets no such alibi.
     if not owners or not parents:
         return []
-    ghosts: List[int] = []
+    by_cwd = p_cwd_map(needle)
+    candidates = dict.fromkeys(by_cwd)
     for line in (out.stdout or "").splitlines():
         line = line.strip()
         if needle not in line.casefold():
             continue
         head = line.split(None, 1)
-        if not head or not head[0].isdigit():
-            continue
-        pid = int(head[0])
+        if head and head[0].isdigit():
+            candidates[int(head[0])] = None
+    ghosts: List[int] = []
+    for pid in candidates:
         if pid == mine:
             continue
         cur, owned, broken = pid, False, False
