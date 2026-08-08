@@ -33,9 +33,16 @@ const DashboardAutoEnter: React.FC = () => {
       if (!cancelled) timer = setTimeout(enter, 3000);
     };
     enter();
+    // A hidden window's timers get App-Napped, so the 3s retry could stall forever while the
+    // backend finished booting behind it (ENG-207). Focus/visibility re-kick heals it on sight.
+    const rekick = (): void => { if (!timer) return; clearTimeout(timer); timer = null; enter(); };
+    window.addEventListener('focus', rekick);
+    document.addEventListener('visibilitychange', rekick);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      window.removeEventListener('focus', rekick);
+      document.removeEventListener('visibilitychange', rekick);
     };
   }, [dispatch, navigate]);
 

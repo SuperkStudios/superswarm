@@ -215,6 +215,25 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
   useEffect(() => {
     dispatch(fetchSettings());
     dispatch(fetchModels());
+    // Boot race (ENG-207): the renderer can beat the backend up by many seconds, and a hidden
+    // window's timers get App-Napped, so a one-shot fetch that lost the race stayed lost until a
+    // manual reload. Retry the two bootstrap reads until settings answer, and re-kick on focus /
+    // visibility so a napped window heals the moment anyone looks at it.
+    let bootTimer: ReturnType<typeof setInterval> | null = null;
+    const bootRetry = () => {
+      const st = store.getState();
+      const settingsOk = st.settings.loaded;
+      const modelsOk = st.models.loaded && !st.models.failed;
+      if (settingsOk && modelsOk) {
+        if (bootTimer) { clearInterval(bootTimer); bootTimer = null; }
+        return;
+      }
+      if (!settingsOk) dispatch(fetchSettings());
+      if (!modelsOk) dispatch(fetchModels());
+    };
+    bootTimer = setInterval(bootRetry, 3000);
+    window.addEventListener('focus', bootRetry);
+    document.addEventListener('visibilitychange', bootRetry);
     // Report the app launch with the browser's canonical tz/locale so the backend can emit analytics app_lifecycle.opened with values that work in packaged, dev, and open-source builds. Guarded once per page load; backend dedupes per process.
     reportAppOpened();
     // Connected subscriptions live in their own slice; without this the dashboard (and the onboarding gate) think no model is connected until the user opens Settings > Models, so a fresh launch shows a false "connect a model" empty state and the welcome cursor never fires. Refetched after sync + on focus below.
@@ -231,6 +250,11 @@ const SettingsLoader: React.FC<{ children: React.ReactNode }> = ({ children }) =
           // The backend arms server-side regardless of whether the browser can read the mint response (a transient boot-time CORS/timing miss makes `data` unreadable), so refetch unconditionally, the GET is the only reliable signal the UI gets that it armed.
           .finally(() => { dispatch(fetchSettings()); dispatch(fetchSubscriptionStatus()); dispatch(markFreeTrialArmSettled()); });
       });
+    return () => {
+      if (bootTimer) clearInterval(bootTimer);
+      window.removeEventListener('focus', bootRetry);
+      document.removeEventListener('visibilitychange', bootRetry);
+    };
   }, [dispatch]);
 
   useEffect(() => {

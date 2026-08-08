@@ -68,7 +68,7 @@ const AppShell: React.FC = () => {
     };
   }, []);
 
-  const modelsLoaded = useAppSelector((s) => s.models.loaded);
+  const modelsLoaded = useAppSelector((s) => s.models.loaded && !s.models.failed);
   // The models list is marked loaded even when its fetch fails, so it alone can't tell "no model" from "couldn't ask". Settings is where the user's own key/sub lives, so the banner waits for it.
   const settingsKnown = useAppSelector((s) => s.settings.loaded);
   // "Connected" = the user's OWN model (key/sub/pro/custom), NOT a non-empty /models list: the free-trial Haiku is always in that list now, so a byProvider-length check would falsely read as connected and hide the out-of-runs banner.

@@ -21,11 +21,13 @@ export interface ModelOption {
 interface ModelsState {
   byProvider: Record<string, ModelOption[]>;
   loaded: boolean;
+  failed: boolean;
 }
 
 const initialState: ModelsState = {
   byProvider: {},
   loaded: false,
+  failed: false,
 };
 
 export const fetchModels = createAsyncThunk('models/fetchModels', async () => {
@@ -49,6 +51,11 @@ const modelsSlice = createSlice({
       .addCase(fetchModels.rejected, (state) => {
         // Mark loaded even on failure so callers fall back to hardcoded options.
         state.loaded = true;
+        // ...but remember it FAILED: a boot-race miss used to read as "loaded with no models" and lit the red banner on a fully configured install (ENG-207).
+        state.failed = true;
+      })
+      .addCase(fetchModels.pending, (state) => {
+        state.failed = false;
       });
   },
 });

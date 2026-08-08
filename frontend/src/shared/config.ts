@@ -48,7 +48,12 @@ export async function refreshAuthToken(): Promise<string> {
 /** Resolve auth token once; concurrent callers share the same promise. */
 export function ensureAuthToken(): Promise<string> {
   if (_authTokenPromise) return _authTokenPromise;
-  _authTokenPromise = refreshAuthToken();
+  _authTokenPromise = refreshAuthToken().then((tok) => {
+    // A boot race can resolve EMPTY (backend hadn't written the token file yet); memoizing that
+    // left the renderer auth-dead until a manual reload (ENG-207). Empty = not an answer; retry.
+    if (!tok) _authTokenPromise = null;
+    return tok;
+  });
   return _authTokenPromise;
 }
 
