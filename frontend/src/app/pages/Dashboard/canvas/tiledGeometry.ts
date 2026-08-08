@@ -233,6 +233,29 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       }
     } catch { /* keep the passed origin */ }
   }
+  // TEMPORARY (minimized-to-fullscreen offset): prints everything the placement is solved from, so
+  // the bug becomes arithmetic instead of guesswork. Remove once the offset is understood.
+  try {
+    const r0 = el.getBoundingClientRect();
+    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+    const zr = zoneRect(zone);
+    // eslint-disable-next-line no-console
+    console.log('[TILE]', id, zone, {
+      parked: isParked(el),
+      reactOrigin: [Math.round(origin.x), Math.round(origin.y)],
+      rectOrigin: [
+        Math.round((r0.left - cam.panX) / cam.zoom - m.e),
+        Math.round((r0.top - cam.panY) / cam.zoom - m.f),
+      ],
+      usedOrigin: [Math.round(ox), Math.round(oy)],
+      paintedRect: [Math.round(r0.left), Math.round(r0.top), Math.round(r0.width), Math.round(r0.height)],
+      transformNow: [Math.round(m.e), Math.round(m.f), +m.a.toFixed(3)],
+      zoneRect: zr ? [Math.round(zr.x), Math.round(zr.y), Math.round(zr.w), Math.round(zr.h)] : null,
+      camera: [Math.round(cam.panX), Math.round(cam.panY), +cam.zoom.toFixed(3)],
+      workspace: (() => { const w = measureWorkspace(); return [Math.round(w.x0), Math.round(w.x1), Math.round(w.w), Math.round(w.h)]; })(),
+      railPresent: !!document.querySelector('[data-minimized-rail]'),
+    });
+  } catch { /* diagnostics must never break tiling */ }
   const entry: TiledEntry = { el, zone, originX: ox, originY: oy };
   entries.set(id, entry);
   startObserving();
@@ -252,6 +275,17 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       const tx = (r.x - lastCamera.panX) * s2 - live.originX;
       const ty = (r.y - lastCamera.panY) * s2 - live.originY;
       rebaseline(live, lastCamera, tx, ty);
+      try {
+        const rr = live.el.getBoundingClientRect();
+        // eslint-disable-next-line no-console
+        console.log('[TILE settle]', id, {
+          originAfter: [Math.round(live.originX), Math.round(live.originY)],
+          paintedRect: [Math.round(rr.left), Math.round(rr.top), Math.round(rr.width), Math.round(rr.height)],
+          wantedZone: [Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h)],
+          offBy: [Math.round(rr.left - r.x), Math.round(rr.top - r.y)],
+          railPresent: !!document.querySelector('[data-minimized-rail]'),
+        });
+      } catch { /* diagnostics only */ }
     }
     applyEntry(live, lastCamera);
   }, ENTER_MS + 40);
