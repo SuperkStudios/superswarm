@@ -1507,44 +1507,39 @@ const BrowserCard: React.FC<Props> = ({
           flexShrink: 0,
         }}
       >
-        <Tooltip title="Back" placement="top">
-          <span>
-            <IconButton
-              size="small"
-              onClick={handleBack}
-              onPointerDown={(e) => e.stopPropagation()}
-              disabled={!activeLocal.canGoBack}
-              sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
-            >
-              <ArrowBackIcon sx={{ fontSize: 15 }} />
-            </IconButton>
-          </span>
-        </Tooltip>
+        {/* No tooltips on back/forward/reload: every browser on earth uses these arrows, so the label
+            teaches nothing and the popup lands right on top of the page you are trying to read. */}
+        <IconButton
+          size="small"
+          aria-label="Back"
+          onClick={handleBack}
+          onPointerDown={(e) => e.stopPropagation()}
+          disabled={!activeLocal.canGoBack}
+          sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
+        >
+          <ArrowBackIcon sx={{ fontSize: 15 }} />
+        </IconButton>
 
-        <Tooltip title="Forward" placement="top">
-          <span>
-            <IconButton
-              size="small"
-              onClick={handleForward}
-              onPointerDown={(e) => e.stopPropagation()}
-              disabled={!activeLocal.canGoForward}
-              sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
-            >
-              <ArrowForwardIcon sx={{ fontSize: 15 }} />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <IconButton
+          size="small"
+          aria-label="Forward"
+          onClick={handleForward}
+          onPointerDown={(e) => e.stopPropagation()}
+          disabled={!activeLocal.canGoForward}
+          sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
+        >
+          <ArrowForwardIcon sx={{ fontSize: 15 }} />
+        </IconButton>
 
-        <Tooltip title="Reload" placement="top">
-          <IconButton
-            size="small"
-            onClick={handleRefresh}
-            onPointerDown={(e) => e.stopPropagation()}
-            sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
-          >
-            <RefreshIcon sx={{ fontSize: 15 }} />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          size="small"
+          aria-label="Reload"
+          onClick={handleRefresh}
+          onPointerDown={(e) => e.stopPropagation()}
+          sx={{ color: CHROME_TEXT_MUTED, p: 0.4, '&:hover': { color: CHROME_TEXT } }}
+        >
+          <RefreshIcon sx={{ fontSize: 15 }} />
+        </IconButton>
 
         {/* URL bar */}
         <Box
