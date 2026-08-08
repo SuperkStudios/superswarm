@@ -288,9 +288,11 @@ const MCP_SERVER_BRAND: Record<string, string> = {
   'stripe': 'Stripe',
   'openswarm-browser-agent': 'browser',
   'openswarm-invoke-agent': 'helper',
+  'openswarm-core': 'tools',
   'openswarm-mcp-meta': 'tools',
   'openswarm-outputs-meta': 'views',
   'openswarm-settings-meta': 'settings',
+  'openswarm-apps': 'apps',
   'openswarm-web': 'the web',
 };
 

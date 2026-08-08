@@ -98,13 +98,14 @@ def register_builtin_mcp_servers(
             "type": "stdio",
         }
 
-    # Always-on meta-MCP server. Exposes MCPList / MCPSearch / MCPActivate so the model can discover and activate user MCPs at runtime. The activation gate (active_mcps filter in build_mcp_servers above) ensures the model cannot reach any other MCP server's tools without going through this layer first.
-    mcp_meta_server_path = os.path.join(
-        agents_dir, "mcp_meta_server.py"
-    )
-    mcp_servers["openswarm-mcp-meta"] = {
+    # Always-on core meta-MCP server: ONE process hosting the three ungated always-on servers that
+    # used to be three interpreters (MCP discovery MCPList/Search/Activate, SettingsRead/Write,
+    # CreateApp). None is referenced by the permission gate, so this is pure fan-out reduction
+    # (ENG-208). The activation gate still governs external MCPs exactly as before, via MCPActivate.
+    combined_meta_path = os.path.join(agents_dir, "combined_meta_mcp_server.py")
+    mcp_servers["openswarm-core"] = {
         "command": sys.executable,
-        "args": [mcp_meta_server_path],
+        "args": [combined_meta_path],
         "env": {
             "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
             "OPENSWARM_AUTH_TOKEN": get_auth_token(),
@@ -133,34 +134,6 @@ def register_builtin_mcp_servers(
                 },
                 "type": "stdio",
             }
-
-    # Always-on settings-meta server: SettingsRead / SettingsWrite let the agent read and edit its own OpenSwarm Settings autonomously. The backend (/api/settings-meta) enforces the only two guardrails: it can't disconnect the credential powering this run, and reads come back with secrets redacted. No activation gate, Settings is the agent's own house, not a third-party MCP.
-    settings_meta_server_path = os.path.join(
-        agents_dir, "settings_meta_server.py"
-    )
-    mcp_servers["openswarm-settings-meta"] = {
-        "command": sys.executable,
-        "args": [settings_meta_server_path],
-        "env": {
-            "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
-            "OPENSWARM_AUTH_TOKEN": get_auth_token(),
-            "OPENSWARM_PARENT_SESSION_ID": session.id,
-        },
-        "type": "stdio",
-    }
-
-    # Always-on apps server: CreateApp lets ANY agent spin up a live App card on the canvas. This replaced the standalone App Builder page; the tool result carries the App Builder reference so no mode switch is needed.
-    apps_server_path = os.path.join(agents_dir, "apps_mcp_server.py")
-    mcp_servers["openswarm-apps"] = {
-        "command": sys.executable,
-        "args": [apps_server_path],
-        "env": {
-            "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
-            "OPENSWARM_AUTH_TOKEN": get_auth_token(),
-            "OPENSWARM_PARENT_SESSION_ID": session.id,
-        },
-        "type": "stdio",
-    }
 
     # ShowUI renders rich inline components from the tool_call input (display only, server just
     # validates); AskUI renders an interactive component and BLOCKS on /api/ui-requests/wait until

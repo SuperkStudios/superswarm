@@ -100,7 +100,7 @@ def test_headless_drops_the_renderer_bound_servers_and_tools(monkeypatch, no_ren
     # The rest of the surface is untouched; headless prunes the renderer, it doesn't lobotomise the agent.
     assert "Read" in allowed and "Bash" in allowed
     assert "openswarm-invoke-agent" in mcp_servers
-    assert "openswarm-apps" in mcp_servers
+    assert "openswarm-core" in mcp_servers
 
 
 def test_without_headless_every_one_of_them_is_offered(monkeypatch, no_renderer):
