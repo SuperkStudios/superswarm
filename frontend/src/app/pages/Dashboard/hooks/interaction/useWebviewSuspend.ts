@@ -168,7 +168,18 @@ export function useWebviewSuspend(
       // Un-minimizing is an explicit "give it back", so it wakes the card wherever the camera happens to be pointing.
       if (wasMinimized[id]) {
         restoredAt.set(id, Date.now());
-        dispatch(resumeBrowserCard(id));
+        // Straight into a tile (rail -> fullscreen): attaching the guest is a SYNCHRONOUS 60-290ms
+        // main-thread IPC, and firing it inside the landing + camera glide is the browser-only jank
+        // (DOM windows never pay it). The snapshot is pixel-identical, so let it do the landing and
+        // attach once the motion is over; re-minimized in the gap means never attach at all.
+        if (store.getState().dashboardLayout.tiledCards[id]) {
+          window.setTimeout(() => {
+            const dl = store.getState().dashboardLayout;
+            if (!dl.minimizedCards[id] && dl.suspendedBrowserCards[id]) dispatch(resumeBrowserCard(id));
+          }, 600);
+        } else {
+          dispatch(resumeBrowserCard(id));
+        }
         budget--;
         continue;
       }
