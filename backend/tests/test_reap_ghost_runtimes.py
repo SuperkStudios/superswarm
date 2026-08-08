@@ -58,3 +58,33 @@ def test_a_broken_ps_reaps_nothing_rather_than_guessing():
     with patch.object(mod.subprocess, "run", side_effect=boom):
         assert mod.find_ghost_runtime_pids() == []
         assert mod.reap_ghost_runtimes() == 0
+
+
+def test_stale_idle_runtimes_are_stopped_after_the_ttl(monkeypatch):
+    """Frozen-idle is 0% CPU but holds memory and a port forever; past the TTL it must actually die."""
+    import asyncio
+    from backend.apps.outputs import runtime as rt_mod
+
+    class P_FakeRuntime:
+        def __init__(self) -> None:
+            self.process = None
+            self.running = True
+            self.stopped = False
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    monkeypatch.setattr(rt_mod, "resume_process_tree", lambda proc: None)
+    m = rt_mod.AppRuntimeManager()
+    old, fresh = P_FakeRuntime(), P_FakeRuntime()
+    m.idle_lru["ws-old:1"] = old
+    m.idle_lru["ws-new:1"] = fresh
+    import time as p_time
+    m.p_idle_since["ws-old:1"] = p_time.monotonic() - 3600
+    m.p_idle_since["ws-new:1"] = p_time.monotonic()
+
+    reaped = asyncio.run(m.reap_stale_idle(ttl_s=900))
+    assert reaped == 1
+    assert old.stopped and not fresh.stopped
+    assert "ws-old:1" not in m.idle_lru and "ws-new:1" in m.idle_lru
+    assert "ws-old:1" not in m.p_idle_since

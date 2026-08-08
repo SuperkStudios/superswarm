@@ -26,6 +26,10 @@ LOG_BUFFER_LINES = 2000
 
 # Idle runtimes kept in LRU; trades memory for instant switch-back, beyond 1 because typical users ping-pong 2-3 apps.
 MAX_IDLE_RUNTIMES = 3
+# How long a detached runtime may sit frozen in the idle pool before it is fully stopped. Frozen
+# costs 0% CPU but keeps holding memory and its port; past this nobody is coming back for it soon
+# and a fresh spawn on the next open is a fair trade for not squatting RAM indefinitely.
+IDLE_RUNTIME_TTL_S = 15 * 60.0
 
 # Cap on recent error lines the agent gets; 50 is enough for babel error + stack + a few warnings.
 RECENT_ERRORS_MAX = 50
