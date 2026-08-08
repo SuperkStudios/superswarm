@@ -72,6 +72,11 @@ def find_ghost_runtime_pids() -> List[int]:
     mine = os.getpid()
     owners = p_live_backend_pids()
     parents = p_ppid_map()
+    # WE are a backend, so a scan that finds no live backend has failed, not found ghosts: an empty
+    # owner set turns every working app into a "ghost" and the sweep would kill them all mid-use.
+    # Boot relied on running before anything spawned; the 10-minute sweep gets no such alibi.
+    if not owners or not parents:
+        return []
     ghosts: List[int] = []
     for line in (out.stdout or "").splitlines():
         line = line.strip()
@@ -83,14 +88,21 @@ def find_ghost_runtime_pids() -> List[int]:
         pid = int(head[0])
         if pid == mine:
             continue
-        cur, owned, hops = pid, False, 0
-        while cur > 1 and hops < 24:
+        cur, owned, broken = pid, False, False
+        for _ in range(24):
             if cur in owners or cur == mine:
                 owned = True
                 break
-            cur = parents.get(cur, 0)
-            hops += 1
-        if not owned:
+            if cur <= 1:
+                break
+            nxt = parents.get(cur)
+            if nxt is None:
+                # The pid list and the ppid map are two separate ps snapshots; a process spawned
+                # between them has no entry here. Indeterminate is NOT ghost: skip, never kill.
+                broken = True
+                break
+            cur = nxt
+        if not owned and not broken:
             ghosts.append(pid)
     return ghosts
 

@@ -29,8 +29,11 @@ def test_runtime_owned_by_a_live_backend_is_never_reaped():
 
 def test_runtime_whose_backend_died_is_reaped():
     ws = os.path.abspath(mod.WORKSPACE_DIR)
-    args = f"200 node {ws}/app/vite\n"          # no uvicorn anywhere
-    ppid = "200 1\n"                             # reparented to init
+    # The CALLER is always a live backend (this code runs inside one), so the scan must show at
+    # least ourselves; a fixture with "no uvicorn anywhere" models a world that cannot exist, and
+    # the fail-closed guard rightly refuses to reap in it.
+    args = f"50 python -m uvicorn backend.main:app\n200 node {ws}/app/vite\n"
+    ppid = "50 1\n200 1\n"                      # ghost reparented to init, NOT under the backend
     with patch.object(mod.subprocess, "run", side_effect=p_ps(args, ppid)):
         assert mod.find_ghost_runtime_pids() == [200]
 
@@ -88,3 +91,30 @@ def test_stale_idle_runtimes_are_stopped_after_the_ttl(monkeypatch):
     assert old.stopped and not fresh.stopped
     assert "ws-old:1" not in m.idle_lru and "ws-new:1" in m.idle_lru
     assert "ws-old:1" not in m.p_idle_since
+
+
+def test_a_failed_backend_scan_reaps_nothing(monkeypatch):
+    """We ARE a backend, so 'no live backends found' means the scan failed, not that everything is a
+    ghost; without this, one slow `ps` under load turned the 10-minute sweep into a kill-all."""
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    monkeypatch.setattr(rg, "p_live_backend_pids", lambda: set())
+    monkeypatch.setattr(rg, "p_ppid_map", lambda: {200: 1})
+    class P_Out:
+        stdout = f"200 node {rg.os.path.abspath(rg.WORKSPACE_DIR)}/ws-x/run\n"
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
+    assert rg.find_ghost_runtime_pids() == []
+
+
+def test_indeterminate_ancestry_is_never_a_ghost(monkeypatch):
+    """A process missing from the ppid snapshot (spawned between the two ps calls) must be skipped,
+    not killed: mid-session, that is a runtime that just started."""
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    monkeypatch.setattr(rg, "p_live_backend_pids", lambda: {50})
+    monkeypatch.setattr(rg, "p_ppid_map", lambda: {300: 1})
+    ws = rg.os.path.abspath(rg.WORKSPACE_DIR)
+    class P_Out:
+        stdout = f"300 node {ws}/ws-a/run\n999 node {ws}/ws-b/run\n"
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
+    ghosts = rg.find_ghost_runtime_pids()
+    assert 999 not in ghosts, "pid absent from the ppid map was treated as a ghost"
+    assert ghosts == [300], "a genuinely orphaned pid (walks to init, no backend) still reaps"
