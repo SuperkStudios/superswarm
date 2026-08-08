@@ -104,13 +104,9 @@ def set_framework_overhead(session: AgentSession, composed_prompt: Optional[str]
 
 @typechecked
 def register_web_mcp_server(mcp_servers: Dict, p_m: str, browser_ok: bool = False, rich_ui_ok: bool = False) -> None:
-    """Register the DDG-backed openswarm-web stdio MCP into the server set when the primary has no
-    reliable native web path. The server script lives in the agents package (not here), so resolve
-    it off that package dir, not __file__."""
-    import os
-    import sys
-    import backend.apps.agents as p_agents_pkg
-    web_mcp_server_path = os.path.join(os.path.dirname(p_agents_pkg.__file__), "web_mcp_server.py")
+    """Add the DDG-backed web tools when the primary has no reliable native web path. They ride the
+    combined openswarm-core process now (ENG-208): flip the module flag and env on the entry that
+    register_builtin_mcp_servers already made, instead of spawning an eleventh interpreter."""
     # Tell the MCP which primary the session is using so it can route to that provider's native search tool.
     if p_m.startswith(("gc/", "gemini/", "ag/")):
         p_primary_hint = "gemini"
@@ -118,11 +114,28 @@ def register_web_mcp_server(mcp_servers: Dict, p_m: str, browser_ok: bool = Fals
         p_primary_hint = "openai"
     else:
         p_primary_hint = ""
+    core = mcp_servers.get("openswarm-core")
+    if core is not None:
+        env = core["env"]
+        modules = [m for m in env.get("OSW_MCP_MODULES", "").split(",") if m]
+        if "web" not in modules:
+            modules.append("web")
+        env["OSW_MCP_MODULES"] = ",".join(modules)
+        env["OPENSWARM_PRIMARY_API"] = p_primary_hint
+        env["OPENSWARM_BROWSER_OK"] = "1" if browser_ok else "0"
+        env["OPENSWARM_RICH_UI_OK"] = "1" if rich_ui_ok else "0"
+        return
+    # Belt for a caller that skipped register_builtin (none today): web tools still arrive, alone.
+    import os
+    import sys
+    import backend.apps.agents as p_agents_pkg
+    combined_path = os.path.join(os.path.dirname(p_agents_pkg.__file__), "combined_meta_mcp_server.py")
     from backend.auth import get_auth_token as p_get_auth_token3
-    mcp_servers["openswarm-web"] = {
+    mcp_servers["openswarm-core"] = {
         "command": sys.executable,
-        "args": [web_mcp_server_path],
+        "args": [combined_path],
         "env": {
+            "OSW_MCP_MODULES": "web",
             "OPENSWARM_PORT": os.environ.get("OPENSWARM_PORT", "8324"),
             "OPENSWARM_AUTH_TOKEN": p_get_auth_token3(),
             "OPENSWARM_PRIMARY_API": p_primary_hint,
@@ -142,8 +155,8 @@ def append_web_tools_hint(composed_prompt: Optional[str], need_web_mcp: bool, ef
     """Append a <web_tools> block naming the MCP-backed WebSearch/WebFetch when the deferred bare
     WebSearch tool isn't usable on this session, so smaller models don't thrash on ToolSearch."""
     p_web_tools_available = need_web_mcp and (
-        "mcp__openswarm-web__WebSearch" in effective_allowed
-        or "mcp__openswarm-web__WebFetch" in effective_allowed
+        "mcp__openswarm-core__WebSearch" in effective_allowed
+        or "mcp__openswarm-core__WebFetch" in effective_allowed
     )
     if not p_web_tools_available:
         return composed_prompt
@@ -155,14 +168,14 @@ def append_web_tools_hint(composed_prompt: Optional[str], need_web_mcp: bool, ef
         "equivalents instead, call them DIRECTLY, no ToolSearch "
         "step needed:"
     )
-    if "mcp__openswarm-web__WebSearch" in effective_allowed:
+    if "mcp__openswarm-core__WebSearch" in effective_allowed:
         p_hint_lines.append(
-            "- `mcp__openswarm-web__WebSearch(query: str, "
+            "- `mcp__openswarm-core__WebSearch(query: str, "
             "num_results?: int)`, DuckDuckGo search."
         )
-    if "mcp__openswarm-web__WebFetch" in effective_allowed:
+    if "mcp__openswarm-core__WebFetch" in effective_allowed:
         p_hint_lines.append(
-            "- `mcp__openswarm-web__WebFetch(url: str, prompt?: "
+            "- `mcp__openswarm-core__WebFetch(url: str, prompt?: "
             "str)`, fetch a URL and return readable text."
         )
     p_hint_lines.append(

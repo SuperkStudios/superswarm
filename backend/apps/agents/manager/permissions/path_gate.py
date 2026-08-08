@@ -151,10 +151,10 @@ def extract_target_path(tool_name: str, tool_input: object) -> str:
 
 # Native-scheduler MCP tools that commit or mutate a recurring schedule. Always-on MCP servers fall through to the always_allow default, so these would otherwise fire silently; force them through ApprovalBar. The Cron* tools are Claude's own internal scheduler, denied outright in favour of the visible/auditable native one.
 p_SCHEDULE_GATED = {
-    "mcp__openswarm-schedule__ScheduleWorkflow",
-    "mcp__openswarm-schedule__UpdateScheduledWorkflow",
-    "mcp__openswarm-schedule__DeleteScheduledWorkflow",
-    "mcp__openswarm-schedule__PauseAllWorkflows",
+    "mcp__openswarm-core__ScheduleWorkflow",
+    "mcp__openswarm-core__UpdateScheduledWorkflow",
+    "mcp__openswarm-core__DeleteScheduledWorkflow",
+    "mcp__openswarm-core__PauseAllWorkflows",
 }
 CLAUDE_INTERNAL_SCHEDULER_TOOLS = ("CronCreate", "CronList", "CronDelete")
 # Preset built-ins that deliver their payload BETWEEN turns. We drive the CLI one turn at a time and stop reading at the ResultMessage, so nothing ever consumes the event: the agent arms a Monitor, promises "I'll report back", ends the turn, and the user waits forever for a message that cannot arrive. Withheld here rather than only in the tool manifest, because the manifest has a kill switch (OSW_TOOL_MANIFEST=0) that would otherwise hand the model a promise we cannot keep.

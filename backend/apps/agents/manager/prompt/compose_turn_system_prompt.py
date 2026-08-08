@@ -100,7 +100,7 @@ def compose_turn_system_prompt(
             rich_ui_note = (
                 "<rich_ui>\n"
                 "Strongly prefer rendering rich UI over prose, every time the content fits. The tools "
-                "are mcp__openswarm-ui__ShowUI and mcp__openswarm-ui__AskUI; they are always available "
+                "are mcp__openswarm-core__ShowUI and mcp__openswarm-core__AskUI; they are always available "
                 "this session, so call them DIRECTLY by that name, no ToolSearch step needed.\n"
                 "- ShowUI for any structured result. Use the EXACT component name: a table = data-table, "
                 "stats = stats-display, links = link-preview, a plan = plan, steps = progress-tracker, "

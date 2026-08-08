@@ -78,40 +78,40 @@ def test_a_desktop_launch_denies_nothing_even_before_its_window_loads(monkeypatc
 def test_headless_with_a_renderer_offers_the_browser_server_again(monkeypatch, renderer_attached):
     monkeypatch.setenv("OPENSWARM_HEADLESS", "1")
     mcp_servers, allowed, disallowed = p_run_the_real_pipeline()
-    assert "openswarm-browser-agent" in mcp_servers
+    assert "browser" in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
     for tool in BROWSER_DELEGATION:
-        assert f"mcp__openswarm-browser-agent__{tool}" in allowed
+        assert f"mcp__openswarm-core__{tool}" in allowed
     # Still nobody to answer, so the human-bound pair stays gone.
-    assert "openswarm-ui" not in mcp_servers
+    assert "ui" not in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
     assert "AskUserQuestion" in disallowed
 
 
 def test_headless_drops_the_renderer_bound_servers_and_tools(monkeypatch, no_renderer):
     monkeypatch.setenv("OPENSWARM_HEADLESS", "1")
     mcp_servers, allowed, disallowed = p_run_the_real_pipeline()
-    assert "openswarm-browser-agent" not in mcp_servers
-    assert "openswarm-ui" not in mcp_servers
+    assert "browser" not in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
+    assert "ui" not in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
     for tool in BROWSER_DELEGATION:
-        assert f"mcp__openswarm-browser-agent__{tool}" not in allowed
+        assert f"mcp__openswarm-core__{tool}" not in allowed
     for ui_tool in ("ShowUI", "AskUI"):
-        assert f"mcp__openswarm-ui__{ui_tool}" not in allowed
+        assert f"mcp__openswarm-core__{ui_tool}" not in allowed
     assert "AskUserQuestion" not in allowed
     assert "AskUserQuestion" in disallowed
     # The rest of the surface is untouched; headless prunes the renderer, it doesn't lobotomise the agent.
     assert "Read" in allowed and "Bash" in allowed
-    assert "openswarm-invoke-agent" in mcp_servers
+    assert "invoke" in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
     assert "openswarm-core" in mcp_servers
 
 
 def test_without_headless_every_one_of_them_is_offered(monkeypatch, no_renderer):
     monkeypatch.delenv("OPENSWARM_HEADLESS", raising=False)
     mcp_servers, allowed, _ = p_run_the_real_pipeline()
-    assert "openswarm-browser-agent" in mcp_servers
-    assert "openswarm-ui" in mcp_servers
+    assert "browser" in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
+    assert "ui" in mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
     for tool in BROWSER_DELEGATION:
-        assert f"mcp__openswarm-browser-agent__{tool}" in allowed
+        assert f"mcp__openswarm-core__{tool}" in allowed
     for ui_tool in ("ShowUI", "AskUI"):
-        assert f"mcp__openswarm-ui__{ui_tool}" in allowed
+        assert f"mcp__openswarm-core__{ui_tool}" in allowed
 
 
 def test_askuserquestion_survives_when_the_ui_server_is_absent(monkeypatch):
@@ -127,7 +127,7 @@ def test_askuserquestion_survives_when_the_ui_server_is_absent(monkeypatch):
 def test_only_the_exact_flag_value_turns_headless_on(monkeypatch, no_renderer):
     monkeypatch.setenv("OPENSWARM_HEADLESS", "0")
     _, allowed, _ = p_run_the_real_pipeline()
-    assert "mcp__openswarm-ui__ShowUI" in allowed
+    assert "mcp__openswarm-core__ShowUI" in allowed
 
 
 @pytest.mark.asyncio

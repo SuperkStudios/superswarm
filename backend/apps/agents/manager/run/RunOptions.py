@@ -145,7 +145,7 @@ class RunOptions(AgentManagerProtocol):
             register_web_mcp_server(
                 mcp_servers, p_m,
                 browser_ok=bool(browser_delegation_tools),
-                rich_ui_ok="openswarm-ui" in mcp_servers,
+                rich_ui_ok="ui" in mcp_servers.get("openswarm-core", {}).get("env", {}).get("OSW_MCP_MODULES", "").split(","),
             )
 
         effective_allowed, effective_disallowed = build_effective_tool_lists(

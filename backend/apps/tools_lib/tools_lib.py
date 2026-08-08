@@ -208,10 +208,10 @@ def resolve_policy_slot(tool_name: str, tools: list[ToolDefinition]) -> PolicySl
     differently. That divergence was the bug behind 'Always approve' acting like a
     one-time accept: writes landed under the raw mcp__server__action name while the
     gate read the parsed inner action, so the next call never saw the policy."""
-    bm = re.match(r"mcp__openswarm-browser-agent__(.+)", tool_name)
+    bm = re.match(r"mcp__openswarm-core__(.+)", tool_name)
     if bm:
         return PolicySlot("builtin", bm.group(1), None)
-    im = re.match(r"mcp__openswarm-invoke-agent__(.+)", tool_name)
+    im = re.match(r"mcp__openswarm-core__(.+)", tool_name)
     if im:
         return PolicySlot("builtin", im.group(1), None)
     m = re.match(r"mcp__([^_]+(?:-[^_]+)*)__(.+)", tool_name)

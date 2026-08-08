@@ -47,7 +47,7 @@ async def can_use_tool(
     if is_claude_schedule_skill(tool_name, input_data):
         note_tool_used(ctx.session_id, tool_name, False)
         return PermissionResultDeny(
-            message="Use the openswarm-schedule MCP tools instead of Claude's internal schedule skill."
+            message="Use the ScheduleWorkflow MCP tools instead of Claude's internal schedule skill."
         )
     sensitive_pattern: Optional[str] = None
     if tool_name != "AskUserQuestion":
@@ -153,7 +153,7 @@ async def pre_tool_hook(ctx: HookContext, input_data: dict, tool_use_id: Optiona
                 "hookSpecificOutput": {
                     "hookEventName": hook_event,
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": "Use the openswarm-schedule MCP tools instead of Claude's internal schedule skill.",
+                    "permissionDecisionReason": "Use the ScheduleWorkflow MCP tools instead of Claude's internal schedule skill.",
                 }
             }
         policy, sensitive_pattern = path_gate.maybe_override_policy(

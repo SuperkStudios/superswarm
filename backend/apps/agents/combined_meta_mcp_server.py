@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""One stdio MCP process hosting the always-on, ungated meta tools that used to be three separate
-python interpreters per agent CLI (MCPList/Search/Activate, SettingsRead/Write, CreateApp).
+"""One stdio MCP process per agent session hosting ALL the builtin tool servers that used to be
+up to ten separate python interpreters (ENG-208: 5 parked chats measured 56 python processes and
+756MB before any real work).
 
-Why merge only these three: their tool NAMES are globally unique, none of them is referenced by
-the non-bypassable permission gate (grep for `mcp__openswarm-mcp-meta__` etc. finds nothing in
-build_effective_tool_lists / path_gate), and all three are registered unconditionally with the
-same env. So collapsing them into one process is pure fan-out reduction with zero behavior change:
-5 parked CLIs drop 15 idle interpreters to 5 (ENG-208). The gate-coupled servers (schedule, web,
-browser-agent) and the conditional ones (skill, show-ui, spawn, invoke) stay separate on purpose.
+Which sub-servers load is decided by the SAME permission logic that used to decide which processes
+to spawn, passed in as OSW_MCP_MODULES by register_builtin_mcp_servers, so a denied capability's
+tools are absent from tools/list exactly like its dead process used to be. Tool NAMES are globally
+unique across sub-servers (asserted below); full ids all live under the one server name
+"openswarm-core", and every gate reference was renamed with them in the same commit.
 
-We reuse each sub-server's own TOOLS + handle_tool_call; we own the stdio loop so their main() and
-send_response never run. Sibling import (not backend.*) matches how these scripts are launched by
-path in both dev and the packaged bundle."""
+Each sub-server keeps reading its per-session context from env exactly as before, because this is
+still one process per session with the union env. We own the stdio loop; their main() never runs."""
 
 import json
 import os
@@ -19,18 +18,48 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import apps_mcp_server as p_apps  # noqa: E402
-import mcp_meta_server as p_meta  # noqa: E402
-import settings_meta_server as p_settings  # noqa: E402
+# Import cost is paid only for modules this session actually gets; all are stdlib-only thin proxies.
+P_MODULE_FILES = {
+    "meta": "mcp_meta_server",
+    "settings": "settings_meta_server",
+    "apps": "apps_mcp_server",
+    "spawn": "spawn_agent_mcp_server",
+    "invoke": "invoke_agent_mcp_server",
+    "skill": "skill_mcp_server",
+    "ui": "show_ui_mcp_server",
+    "schedule": "schedule_mcp_server",
+    "web": "web_mcp_server",
+    "browser": "browser_agent_mcp_server",
+}
 
-P_SUBSERVERS = [p_meta, p_settings, p_apps]
+P_ENABLED = [m.strip() for m in os.environ.get("OSW_MCP_MODULES", "meta,settings,apps").split(",") if m.strip()]
 
 TOOLS = []
 P_ROUTE = {}
-for p_mod in P_SUBSERVERS:
+for p_key in P_ENABLED:
+    p_file = P_MODULE_FILES.get(p_key)
+    if p_file is None:
+        sys.stderr.write(f"[openswarm-core] unknown module key: {p_key}\n")
+        continue
+    p_mod = __import__(p_file)
     for p_tool in p_mod.TOOLS:
+        p_name = p_tool["name"]
+        if p_name in P_ROUTE:
+            sys.stderr.write(f"[openswarm-core] duplicate tool {p_name}; keeping first\n")
+            continue
         TOOLS.append(p_tool)
-        P_ROUTE[p_tool["name"]] = p_mod
+        P_ROUTE[p_name] = p_mod
+
+
+def p_call(mod, tool_name: str, arguments: dict) -> dict:
+    handler = getattr(mod, "handle_tool_call", None)
+    if handler is not None:
+        return handler(tool_name, arguments)
+    # schedule_mcp_server dispatches through a HANDLERS dict instead of one entry function.
+    fn = mod.HANDLERS.get(tool_name)
+    if fn is None:
+        return {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}], "isError": True}
+    return fn(arguments)
 
 
 def send_response(id_, result=None, error=None):
@@ -73,7 +102,7 @@ def main():
                 send_response(id_, {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}], "isError": True})
                 continue
             try:
-                send_response(id_, mod.handle_tool_call(tool_name, arguments))
+                send_response(id_, p_call(mod, tool_name, arguments))
             except Exception as e:
                 send_response(id_, error={"code": -32000, "message": str(e)})
         elif method in ("resources/list",):

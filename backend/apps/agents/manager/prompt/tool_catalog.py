@@ -13,7 +13,7 @@ from backend.apps.tools_lib.tools_lib import (
 
 logger = logging.getLogger(__name__)
 
-# Cron* live only in the force-deny list (path_gate): our Schedule MCP replaces the CLI scheduler, so allowing them here just churned the allow/deny lists. InvokeAgent's real tool is the mcp__openswarm-invoke-agent__ ref; the bare name was a no-op.
+# Cron* live only in the force-deny list (path_gate): our Schedule MCP replaces the CLI scheduler, so allowing them here just churned the allow/deny lists. InvokeAgent's real tool is the mcp__openswarm-core__ ref; the bare name was a no-op.
 FULL_TOOLS = [
     "Read", "Edit", "Write", "Bash", "Glob", "Grep", "AskUserQuestion",
     "WebSearch", "WebFetch", "NotebookEdit", "TodoWrite",

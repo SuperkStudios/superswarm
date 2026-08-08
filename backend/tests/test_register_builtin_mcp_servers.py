@@ -21,21 +21,20 @@ def test_registers_always_on_and_delegation_servers():
     assert "openswarm-mcp-meta" not in mcp_servers
     assert "openswarm-settings-meta" not in mcp_servers
     assert "openswarm-apps" not in mcp_servers
-    # delegation (not denied)
-    assert "openswarm-browser-agent" in mcp_servers
-    assert "openswarm-invoke-agent" in mcp_servers
+    # delegation (not denied) rides the combined process as module flags
+    mods = mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
+    assert "browser" in mods and "invoke" in mods
     assert browser_tools == ["CreateBrowserAgent", "BrowserAgent", "BrowserAgents", "AppAgent"]
     assert invoke_tools == ["InvokeAgent"]
     # Every registered server's script path must resolve to a file that ACTUALLY EXISTS. This is the assertion that catches a moved-caller resolving the wrong agents dir.
-    for name in ("openswarm-core", "openswarm-browser-agent", "openswarm-invoke-agent"):
-        script = mcp_servers[name]["args"][0]
-        assert os.path.isfile(script), f"{name} script does not exist on disk: {script}"
+    script = mcp_servers["openswarm-core"]["args"][0]
+    assert os.path.isfile(script), f"combined server script does not exist on disk: {script}"
 
 
 def test_fully_denied_delegation_servers_are_not_registered():
     mcp_servers = {}
     perms = {t: "deny" for t in ("CreateBrowserAgent", "BrowserAgent", "BrowserAgents", "AppAgent", "InvokeAgent")}
     register_builtin_mcp_servers(mcp_servers, p_session(), perms, None, None)
-    assert "openswarm-browser-agent" not in mcp_servers   # all browser tools denied -> skip
-    assert "openswarm-invoke-agent" not in mcp_servers
-    assert "openswarm-core" in mcp_servers                 # always-on regardless
+    mods = mcp_servers["openswarm-core"]["env"]["OSW_MCP_MODULES"].split(",")
+    assert "browser" not in mods and "invoke" not in mods  # all denied -> module skipped
+    assert "meta" in mods and "apps" in mods               # always-on regardless

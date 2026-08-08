@@ -10,10 +10,10 @@ from backend.apps.agents.manager.permissions.workflow_approval import is_claude_
 
 def test_schedule_commit_tools_force_ask_even_when_always_allow():
     for tool in (
-        "mcp__openswarm-schedule__ScheduleWorkflow",
-        "mcp__openswarm-schedule__UpdateScheduledWorkflow",
-        "mcp__openswarm-schedule__DeleteScheduledWorkflow",
-        "mcp__openswarm-schedule__PauseAllWorkflows",
+        "mcp__openswarm-core__ScheduleWorkflow",
+        "mcp__openswarm-core__UpdateScheduledWorkflow",
+        "mcp__openswarm-core__DeleteScheduledWorkflow",
+        "mcp__openswarm-core__PauseAllWorkflows",
     ):
         policy, _ = path_gate.maybe_override_policy("always_allow", tool, {})
         assert policy == "ask", f"{tool} must force an approval, not silently always_allow"

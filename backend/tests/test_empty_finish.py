@@ -45,7 +45,7 @@ def test_empty_assistant_text_is_an_empty_finish():
 
 def test_ui_answer_tools_are_a_legit_finish():
     s = p_session(("user", "show me"),
-                  ("tool_call", {"tool": "mcp__openswarm-ui__ShowUI", "input": {}}),
+                  ("tool_call", {"tool": "mcp__openswarm-core__ShowUI", "input": {}}),
                   ("tool_result", {"text": "rendered"}))
     assert turn_finished_empty(s) is False
 

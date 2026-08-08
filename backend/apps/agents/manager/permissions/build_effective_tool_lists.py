@@ -49,57 +49,58 @@ def build_effective_tool_lists(
     if mcp_servers:
         all_tools_list = load_all_tools()
         for name in mcp_servers:
-            if name == "openswarm-browser-agent":
-                for bt in browser_delegation_tools:
-                    policy = builtin_perms.get(bt, "always_allow")
+            if name == "openswarm-core":
+                # Every builtin tool rides ONE combined process now (ENG-208), so the old per-server
+                # wildcard would blanket gated tools; enumerate per module instead, same policies as
+                # when each module was its own process. Module list = what registration wired.
+                p_modules = [m for m in mcp_servers[name].get("env", {}).get("OSW_MCP_MODULES", "").split(",") if m]
+                from backend.apps.agents import apps_mcp_server, mcp_meta_server, schedule_mcp_server, settings_meta_server
+                for p_t in (x["name"] for x in mcp_meta_server.TOOLS + settings_meta_server.TOOLS + apps_mcp_server.TOOLS):
+                    effective_allowed.append(f"mcp__openswarm-core__{p_t}")
+                if "schedule" in p_modules:
+                    for p_t in (x["name"] for x in schedule_mcp_server.TOOLS):
+                        effective_allowed.append(f"mcp__openswarm-core__{p_t}")
+                if "browser" in p_modules:
+                    for bt in browser_delegation_tools:
+                        policy = builtin_perms.get(bt, "always_allow")
+                        if policy == "always_allow":
+                            effective_allowed.append(f"mcp__openswarm-core__{bt}")
+                        elif policy == "deny":
+                            effective_disallowed.append(f"mcp__openswarm-core__{bt}")
+                if "invoke" in p_modules:
+                    for it in invoke_agent_tools:
+                        policy = builtin_perms.get(it, "always_allow")
+                        if policy == "always_allow":
+                            effective_allowed.append(f"mcp__openswarm-core__{it}")
+                        elif policy == "deny":
+                            effective_disallowed.append(f"mcp__openswarm-core__{it}")
+                if "spawn" in p_modules:
+                    policy = builtin_perms.get("Agent", "always_allow")
                     if policy == "always_allow":
-                        effective_allowed.append(f"mcp__openswarm-browser-agent__{bt}")
+                        effective_allowed.append("mcp__openswarm-core__SpawnAgent")
                     elif policy == "deny":
-                        effective_disallowed.append(f"mcp__openswarm-browser-agent__{bt}")
-                continue
-
-            if name == "openswarm-invoke-agent":
-                for it in invoke_agent_tools:
-                    policy = builtin_perms.get(it, "always_allow")
+                        effective_disallowed.append("mcp__openswarm-core__SpawnAgent")
+                if "skill" in p_modules:
+                    policy = builtin_perms.get("Skill", "always_allow")
                     if policy == "always_allow":
-                        effective_allowed.append(f"mcp__openswarm-invoke-agent__{it}")
-                    elif policy == "deny":
-                        effective_disallowed.append(f"mcp__openswarm-invoke-agent__{it}")
-                continue
-
-            if name == "openswarm-spawn-agent":
-                policy = builtin_perms.get("Agent", "always_allow")
-                if policy == "always_allow":
-                    effective_allowed.append("mcp__openswarm-spawn-agent__SpawnAgent")
-                elif policy == "deny":
-                    effective_disallowed.append("mcp__openswarm-spawn-agent__SpawnAgent")
-                continue
-
-            if name == "openswarm-skill":
-                policy = builtin_perms.get("Skill", "always_allow")
-                if policy == "always_allow":
-                    effective_allowed.append("mcp__openswarm-skill__Skill")
-                else:
-                    effective_disallowed.append("mcp__openswarm-skill__Skill")
-                continue
-
-            if name == "openswarm-ui":
-                policy = builtin_perms.get("ShowUI", "always_allow")
-                for ui_tool in ("ShowUI", "AskUI"):
-                    if policy == "always_allow":
-                        effective_allowed.append(f"mcp__openswarm-ui__{ui_tool}")
+                        effective_allowed.append("mcp__openswarm-core__Skill")
                     else:
-                        effective_disallowed.append(f"mcp__openswarm-ui__{ui_tool}")
-                continue
-
-            if name == "openswarm-web":
-                # Expose our DDG-backed web tools under an MCP prefix. Honor existing WebSearch/WebFetch permission policy, if the user disabled them in Settings, don't offer the MCP variants either.
-                for wt in ("WebSearch", "WebFetch"):
-                    policy = builtin_perms.get(wt, "always_allow")
-                    if policy == "always_allow":
-                        effective_allowed.append(f"mcp__openswarm-web__{wt}")
-                    elif policy == "deny":
-                        effective_disallowed.append(f"mcp__openswarm-web__{wt}")
+                        effective_disallowed.append("mcp__openswarm-core__Skill")
+                if "ui" in p_modules:
+                    policy = builtin_perms.get("ShowUI", "always_allow")
+                    for ui_tool in ("ShowUI", "AskUI"):
+                        if policy == "always_allow":
+                            effective_allowed.append(f"mcp__openswarm-core__{ui_tool}")
+                        else:
+                            effective_disallowed.append(f"mcp__openswarm-core__{ui_tool}")
+                if "web" in p_modules:
+                    # Honor existing WebSearch/WebFetch permission policy, if the user disabled them in Settings, don't offer the MCP variants either.
+                    for wt in ("WebSearch", "WebFetch"):
+                        policy = builtin_perms.get(wt, "always_allow")
+                        if policy == "always_allow":
+                            effective_allowed.append(f"mcp__openswarm-core__{wt}")
+                        elif policy == "deny":
+                            effective_disallowed.append(f"mcp__openswarm-core__{wt}")
                 continue
 
             tool_def = next(
@@ -141,7 +142,7 @@ def build_effective_tool_lists(
     for bt in path_gate.UNDELIVERABLE_BACKGROUND_TOOLS:
         if bt not in effective_disallowed:
             effective_disallowed.append(bt)
-    # The claude_code preset ships its own bare `Skill` tool that reads ~/.claude/skills directly; always withhold it so skills only ever load through our provider-agnostic mcp__openswarm-skill__Skill (or not at all).
+    # The claude_code preset ships its own bare `Skill` tool that reads ~/.claude/skills directly; always withhold it so skills only ever load through our provider-agnostic mcp__openswarm-core__Skill (or not at all).
     if "Skill" not in effective_disallowed:
         effective_disallowed.append("Skill")
     # Read-only session (onboarding's unattended audit over the user's real files): the mutation/exec
