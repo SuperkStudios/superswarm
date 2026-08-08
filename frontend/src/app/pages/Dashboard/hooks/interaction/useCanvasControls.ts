@@ -41,11 +41,11 @@ const WHEEL_ZOOM_DELTA_CAP = 24;
 const WHEEL_STREAM_GAP_MS = 150;
 const MOUSE_NOTCH_MIN_DELTA = 40;
 
-// Maps the 1 to 100 user setting to an internal multiplier. Recentered 2026-07-24 (Eric): the old
-// max (100 = 0.008) is the feel people actually wanted, so that is the new DEFAULT 50; the scale
-// still doubles up to 100 for wheel users who want faster.
+// Maps the 1 to 100 user setting to an internal multiplier. Recentered twice (Eric): 2026-07-24
+// made the old max the new 50, and 2026-08-08 turned it up again so 50 feels like the old 75; the
+// labels never move, the whole dial just runs 1.5x hotter.
 function sensitivityToMultiplier(setting: number): number {
-  return 0.00016 * setting;
+  return 0.00024 * setting;
 }
 
 interface CanvasState {
