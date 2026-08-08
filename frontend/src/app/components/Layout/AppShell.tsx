@@ -444,7 +444,9 @@ const AppShell: React.FC = () => {
       {/* Sidebar retired: dashboards switch via the macOS-Spaces top strip; a slim band below the
           spaces hot zone keeps the frameless window draggable (the sidebar's drag strip is gone). */}
       {isDashboardViewActive && !v3FlowActive && <SpacesStrip />}
-      <Box sx={{ position: 'fixed', top: 3, left: 260, right: 0, height: 22, zIndex: 5, WebkitAppRegion: 'drag' }} />
+      {/* Tagged so tiling can inset below it: this strip is a window-DRAG region, so anything tiled
+          underneath it loses those pixels to dragging the OS window instead of taking clicks. */}
+      <Box data-top-chrome sx={{ position: 'fixed', top: 3, left: 260, right: 0, height: 22, zIndex: 5, WebkitAppRegion: 'drag' }} />
       {/* Top bar dropped (Arc/Zen): a zero-height anchor left only to float the agent-activity island at top-center; the island renders nothing when idle. */}
       <Box
         sx={{
