@@ -93,6 +93,9 @@ export function zoneRect(zone: string): ZoneRect | null {
 interface TiledEntry {
   el: HTMLElement;
   zone: string;
+  // True when the painted rect already agreed with React's origin at register time, i.e. there is
+  // nothing for the settle pass to correct.
+  trusted?: boolean;
   // The card's own canvas-space origin, which React keeps owning. The transform below is only the
   // delta from there to the zone, so tiling never rewrites a stored position and untiling never jumps.
   originX: number;
@@ -262,7 +265,13 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       + ` ws=x0:${n(w.x0)} x1:${n(w.x1)} ${n(w.w)}x${n(w.h)}`,
     );
   } catch { /* diagnostics must never break tiling */ }
-  const entry: TiledEntry = { el, zone, originX: ox, originY: oy };
+  // If the rect confirmed React's origin, the origin is right and the settle re-baseline can only
+  // make it worse: measured over 12 live fullscreens, EVERY run where re-baselining left the origin
+  // alone landed at OFFBY 0,0, and every run where it moved the origin landed off by 1-10px. It only
+  // ever moved it when the camera was still gliding, because it solves against a painted rect that
+  // the camera is still changing underneath it.
+  const trusted = Math.abs(ox - origin.x) < 1 && Math.abs(oy - origin.y) < 1;
+  const entry: TiledEntry = { el, zone, originX: ox, originY: oy, trusted };
   entries.set(id, entry);
   startObserving();
   // Tiling usually commits alongside chrome collapsing, so a cached workspace is untrustworthy here.
@@ -284,22 +293,22 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
     // origin solves cleanly (mid-transition reads would bake animation frames into it).
     el.style.transition = '';
     const r = zoneRect(live.zone);
-    if (r) {
+    if (r && !live.trusted) {
       const s2 = 1 / lastCamera.zoom;
       const tx = (r.x - lastCamera.panX) * s2 - live.originX;
       const ty = (r.y - lastCamera.panY) * s2 - live.originY;
       rebaseline(live, lastCamera, tx, ty);
+    }
+    if (r) {
       try {
         const rr = live.el.getBoundingClientRect();
-        const w2 = measureWorkspace();
         const n = (v: number) => Math.round(v);
         // eslint-disable-next-line no-console
         console.log(
-          `[TILE settle] ${id} origin=${n(live.originX)},${n(live.originY)}`
+          `[TILE settle] ${id} trusted=${!!live.trusted} origin=${n(live.originX)},${n(live.originY)}`
           + ` | painted=${n(rr.left)},${n(rr.top)} ${n(rr.width)}x${n(rr.height)}`
           + ` want=${n(r.x)},${n(r.y)} ${n(r.w)}x${n(r.h)}`
-          + ` | OFFBY=${n(rr.left - r.x)},${n(rr.top - r.y)} SIZEOFF=${n(rr.width - r.w)},${n(rr.height - r.h)}`
-          + ` rail=${!!document.querySelector('[data-minimized-rail]')} ws=x0:${n(w2.x0)} x1:${n(w2.x1)} ${n(w2.w)}x${n(w2.h)}`,
+          + ` | OFFBY=${n(rr.left - r.x)},${n(rr.top - r.y)} SIZEOFF=${n(rr.width - r.w)},${n(rr.height - r.h)}`,
         );
       } catch { /* diagnostics only */ }
     }
