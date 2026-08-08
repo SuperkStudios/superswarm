@@ -246,7 +246,7 @@ function rebaseline(entry: TiledEntry, cam: Camera, tx: number, ty: number): voi
   entry.originY = (r.top - cam.panY) / cam.zoom - ty;
 }
 
-export function registerTiledCard(id: string, zone: string, origin: { x: number; y: number }, cam: Camera): void {
+export function registerTiledCard(id: string, zone: string, origin: { x: number; y: number }, cam: Camera, opts?: { instant?: boolean }): void {
   const el = document.querySelector<HTMLElement>(`[data-select-id="${CSS.escape(id)}"]`);
   if (!el) return;
   // Derive the TRUE origin up front from the painted rect and the element's current transform
@@ -309,7 +309,20 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   requestAnimationFrame(() => {
     if (entries.get(id)?.el === el) onWorkspaceChanged();
   });
-  el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
+  // A card coming OUT OF THE MINIMIZED RAIL has no meaningful start point for a glide: it un-parks
+  // to its canvas home, which the camera is usually not even looking at (register logs show homes
+  // painted offscreen), so the enter transition flew it across the viewport from a spot the user
+  // never saw, while the camera also glided and the zone-size reflow ran. That stack of motion is
+  // the rail-to-fullscreen jank. Landing instantly with a short compositor-only fade is one clean
+  // frame instead; the glide stays for cards that were visibly on canvas, where it reads correctly.
+  if (opts?.instant) {
+    el.style.transition = '';
+    try {
+      el.animate([{ opacity: 0.3 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
+    } catch { /* fade is decoration */ }
+  } else {
+    el.style.transition = `transform ${ENTER_MS}ms ${ENTER_EASE}`;
+  }
   settleWhenCameraRests((settleElapsedMs) => {
     const live = entries.get(id);
     if (live?.el !== el) return;
