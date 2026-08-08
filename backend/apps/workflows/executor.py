@@ -7,6 +7,7 @@ routing, retries, and history all aligned with the rest of the app.
 """
 
 import asyncio
+import time
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 # In-process map: workflow_id -> currently running run id. Prevents two overlapping fires for the same workflow (e.g. cron tick races a manual Run button) without serializing across the whole executor.
 _running: dict[str, str] = {}
+# Global admission on top of the per-workflow guard: every run is a full agent, and an agent's
+# browsers and apps are exempt from the renderer budget by design (sleeping a working agent's browser
+# blinds it), so the ONLY thing bounding total pressure is how many runs exist at once. A library of
+# 30 workflows whose schedules drift into alignment must queue, not stampede.
+MAX_CONCURRENT_RUNS = 3
+ADMISSION_WAIT_S = 600.0
+ADMISSION_POLL_S = 2.0
 _running_lock = asyncio.Lock()
 
 
@@ -211,6 +219,25 @@ async def execute(
     # the scheduler, an agent tool, an invoke, a retry, the Run Now route, or a stale in-flight handle.
     # Guarding this per call site left every unguarded caller able to fire it, which is the field report
     # of a toggled-off workflow running itself. Turn it back on to run it.
+    # Wait for a global slot BEFORE the off-means-off guard, so the guard runs on fresh state after
+    # a possibly long wait (a workflow paused while queueing still gets refused, not run).
+    p_admit_start = time.monotonic()
+    while len(_running) >= MAX_CONCURRENT_RUNS:
+        if time.monotonic() - p_admit_start >= ADMISSION_WAIT_S:
+            p_busy = WorkflowRun(
+                workflow_id=wf.id, status="skipped",
+                error=f"{MAX_CONCURRENT_RUNS} workflows already running; gave up after {int(ADMISSION_WAIT_S)}s",
+                scheduled_for=scheduled_for, started_at=datetime.now(),
+                finished_at=datetime.now(), triggered_by=triggered_by,
+            )
+            p_wf_now = storage.get_workflow(wf.id)
+            if p_wf_now is not None and p_wf_now.deleted_at is None:
+                try:
+                    storage.record_run(p_busy)
+                except Exception:
+                    logger.debug("could not record the admission-skip row", exc_info=True)
+            return p_busy
+        await asyncio.sleep(ADMISSION_POLL_S)
     p_live = storage.get_workflow(wf.id)
     p_refusal = None
     if p_live is None:
