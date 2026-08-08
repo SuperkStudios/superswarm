@@ -15,6 +15,7 @@ still one process per session with the union env. We own the stdio loop; their m
 import json
 import os
 import sys
+import threading
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -41,7 +42,12 @@ for p_key in P_ENABLED:
     if p_file is None:
         sys.stderr.write(f"[openswarm-core] unknown module key: {p_key}\n")
         continue
-    p_mod = __import__(p_file)
+    try:
+        p_mod = __import__(p_file)
+    except Exception as p_e:
+        # One broken module used to kill only its own process; merged, it must not take every builtin tool down with it.
+        sys.stderr.write(f"[openswarm-core] module {p_key} failed to import: {p_e}\n")
+        continue
     for p_tool in p_mod.TOOLS:
         p_name = p_tool["name"]
         if p_name in P_ROUTE:
@@ -62,14 +68,29 @@ def p_call(mod, tool_name: str, arguments: dict) -> dict:
     return fn(arguments)
 
 
+P_STDOUT_LOCK = threading.Lock()
+
+
 def send_response(id_, result=None, error=None):
     msg = {"jsonrpc": "2.0", "id": id_}
     if error is not None:
         msg["error"] = error
     else:
         msg["result"] = result
-    sys.stdout.write(json.dumps(msg) + "\n")
-    sys.stdout.flush()
+    with P_STDOUT_LOCK:
+        sys.stdout.write(json.dumps(msg) + "\n")
+        sys.stdout.flush()
+
+
+def p_call_async(id_, tool_name: str, arguments: dict) -> None:
+    mod = P_ROUTE.get(tool_name)
+    if mod is None:
+        send_response(id_, {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}], "isError": True})
+        return
+    try:
+        send_response(id_, p_call(mod, tool_name, arguments))
+    except Exception as e:
+        send_response(id_, error={"code": -32000, "message": str(e)})
 
 
 def main():
@@ -95,16 +116,14 @@ def main():
         elif method == "tools/list":
             send_response(id_, {"tools": TOOLS})
         elif method == "tools/call":
-            tool_name = params.get("name", "")
-            arguments = params.get("arguments", {})
-            mod = P_ROUTE.get(tool_name)
-            if mod is None:
-                send_response(id_, {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}], "isError": True})
-                continue
-            try:
-                send_response(id_, p_call(mod, tool_name, arguments))
-            except Exception as e:
-                send_response(id_, error={"code": -32000, "message": str(e)})
+            # A thread per call, because ten processes used to give cross-server parallelism for
+            # free: without this, one long BrowserAgent run would block every other builtin tool
+            # for the whole session. JSON-RPC ids keep interleaved responses unambiguous.
+            # Non-daemon on purpose: stdin EOF must drain in-flight calls, not vaporize them.
+            threading.Thread(
+                target=p_call_async,
+                args=(id_, params.get("name", ""), params.get("arguments", {})),
+            ).start()
         elif method in ("resources/list",):
             send_response(id_, {"resources": []})
         elif method in ("prompts/list",):
