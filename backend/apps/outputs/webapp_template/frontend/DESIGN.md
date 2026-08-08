@@ -5,7 +5,7 @@ description: Use when building, designing, or modifying any frontend UI componen
 
 # Themed UI Design
 
-Build distinctive, production-grade frontend interfaces for the OpenSwarm app that are visually striking AND perfectly aligned with the app's warm, editorial design system.
+Build distinctive, production-grade frontend interfaces for the OpenSwarm app that are visually striking AND perfectly aligned with the app's Apple-style design system: crisp near-white (or elevated-gray) surfaces, ink-precise type, hairline separators, one restrained blue accent.
 
 This skill combines two concerns:
 1. **Design Excellence** — Bold aesthetic thinking, anti-slop principles, creative typography/color/motion
@@ -20,11 +20,11 @@ Both matter equally. A component that follows the token system but looks generic
 Before writing any code, answer these questions:
 
 - **Purpose**: What problem does this interface solve? Who interacts with it?
-- **Tone within the brand**: The OpenSwarm aesthetic is warm, editorial, and refined — but within that envelope there's range. Is this component playful? Dense and utilitarian? Spacious and luxurious? Dramatic?
+- **Tone within the brand**: The aesthetic is Apple-adjacent — luminous, precise, quietly confident — but within that envelope there's range. Is this component playful? Dense and utilitarian? Spacious and luxurious? Dramatic?
 - **Differentiation**: What makes this component memorable? What's the one detail someone would notice and appreciate?
 - **Hierarchy**: What's the single most important thing on screen? Everything else should defer to it.
 
-**CRITICAL**: The OpenSwarm brand is "sophisticated productivity tool meets premium design magazine meets dev IDE." Every component should feel like it belongs in that world — warm, organic, quietly confident. But within that world, make bold choices. Asymmetric layouts. Unexpected spacing. Elegant motion. The goal is *intentional* design, not safe design.
+**CRITICAL**: The brand is "an app that could ship with macOS." Every component should feel like it belongs in that world — clean surfaces, generous whitespace, hairline structure, motion with intent. But within that world, make bold choices. Asymmetric layouts. Unexpected spacing. Elegant motion. The goal is *intentional* design, not safe design.
 
 ### Anti-Slop Checklist
 
@@ -73,20 +73,20 @@ const c = useClaudeTokens();
 
 | Token | Light | Dark | Usage |
 |-------|-------|------|-------|
-| `c.bg.page` | `#F5F5F0` warm cream | `#1a1918` deep charcoal | Full-page background |
-| `c.bg.surface` | `#FFFFFF` | `#262624` | Cards, panels, dialogs |
-| `c.bg.elevated` | `#FAF9F5` | `#30302E` | Hover states, raised elements |
-| `c.bg.secondary` | `#F5F4ED` | `#1f1e1b` | Sidebar, secondary panels |
-| `c.bg.inverse` | `#141413` | `#FAF9F5` | Tooltips, inverted elements |
-| `c.text.primary` | `#1a1a18` | `#FAF9F5` | Headings, body text |
-| `c.text.secondary` | `#3D3D3A` | `#C2C0B6` | Secondary labels |
-| `c.text.tertiary` | `#73726C` | `#9C9A92` | Placeholders, captions |
-| `c.text.muted` | `#6b6a68` | `#85837C` | De-emphasized text |
-| `c.text.ghost` | `rgba(115,114,108,0.5)` | `rgba(156,154,146,0.5)` | Timestamps, hints |
-| `c.accent.primary` | `#ae5630` burnt orange | `#c4633a` | Primary buttons, links, active indicators |
-| `c.accent.hover` | `#c4633a` | `#d47548` | Hover on accent |
-| `c.accent.pressed` | `#924828` | `#ae5630` | Active/pressed state |
-| `c.user.bubble` | `#DDD9CE` | `#393937` | User chat bubbles |
+| `c.bg.page` | `#F5F5F7` Apple light gray | `#1C1C1E` elevated iOS gray | Full-page background |
+| `c.bg.surface` | `#FFFFFF` | `#2C2C2E` | Cards, panels, dialogs |
+| `c.bg.elevated` | `#FBFBFD` | `#3A3A3C` | Hover states, raised elements |
+| `c.bg.secondary` | `#F2F2F7` | `#242426` | Sidebar, secondary panels |
+| `c.bg.inverse` | `#1D1D1F` | `#F5F5F7` | Tooltips, inverted elements |
+| `c.text.primary` | `#1D1D1F` ink | `#F5F5F7` | Headings, body text |
+| `c.text.secondary` | `#48484A` | `#D1D1D6` | Secondary labels |
+| `c.text.tertiary` | `#6E6E73` | `#98989D` | Placeholders, captions |
+| `c.text.muted` | `#86868B` | `#8E8E93` | De-emphasized text |
+| `c.text.ghost` | `rgba(110,110,115,0.5)` | `rgba(152,152,157,0.5)` | Timestamps, hints |
+| `c.accent.primary` | `#007AFF` system blue | `#0A84FF` | Primary buttons, links, active indicators |
+| `c.accent.hover` | `#0071E3` | `#409CFF` | Hover on accent |
+| `c.accent.pressed` | `#0062CC` | `#0070E0` | Active/pressed state |
+| `c.user.bubble` | `#E9E9EB` | `#3A3A3C` | User chat bubbles |
 
 ### 3.2 Borders
 
@@ -102,29 +102,30 @@ border: `0.5px solid ${c.border.medium}`  // Hairline dividers
 
 Very soft, low-contrast. No heavy drop shadows:
 ```tsx
-c.shadow.sm  // "0 1px 3px rgba(0,0,0,0.04)"          — cards at rest
-c.shadow.md  // "0 0.25rem 1.25rem rgba(0,0,0,0.035)"  — hover elevation
-c.shadow.lg  // "0 0.5rem 2rem rgba(0,0,0,0.08)"       — dialogs, drag
+c.shadow.sm  // "0 1px 2px rgba(0,0,0,0.05)"    — cards at rest
+c.shadow.md  // "0 4px 16px rgba(0,0,0,0.06)"   — hover elevation
+c.shadow.lg  // "0 12px 32px rgba(0,0,0,0.12)"  — dialogs, drag
 ```
 
 ### 3.4 Border Radius
 
 ```tsx
-c.radius.xs   // 4px  — chips, badges
-c.radius.sm   // 6px  — input fields
-c.radius.md   // 8px  — chips, tags
-c.radius.lg   // 10px — buttons, list items
-c.radius.xl   // 12px — cards, panels
+c.radius.xs   // 5px  — chips, badges
+c.radius.sm   // 8px  — input fields
+c.radius.md   // 10px — chips, tags
+c.radius.lg   // 12px — buttons, list items
+c.radius.xl   // 16px — cards, panels (the soft continuous-corner feel)
 c.radius.full // 9999px — pills, avatars
 ```
 
 ### 3.5 Typography
 
-**Serif-first** — this is intentional and core to the brand identity:
+**SF-first, one sans everywhere** — the type IS the Apple identity:
 ```
-Font family: "Anthropic Sans", ui-serif, Georgia, Cambria, "Times New Roman", Times, serif
+Font family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", ui-sans-serif, system-ui, "Helvetica Neue", "Inter", Arial, sans-serif
 Mono font:   ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace
 ```
+Headings get tight tracking (`letterSpacing: '-0.01em'` to `-0.02em` as sizes grow); body stays default.
 
 | Use Case | Size | Weight |
 |----------|------|--------|
@@ -141,7 +142,7 @@ Mono font:   ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace
 
 Signature easing for interactive elements:
 ```tsx
-transition: c.transition  // "all 300ms cubic-bezier(0.165, 0.85, 0.45, 1)"
+transition: c.transition  // "all 280ms cubic-bezier(0.32, 0.72, 0, 1)" — the macOS ease
 ```
 For micro-interactions:
 ```tsx

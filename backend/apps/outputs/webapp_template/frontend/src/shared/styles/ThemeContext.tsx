@@ -57,13 +57,10 @@ function getInitialMode(): Mode {
   return readLocalStorageOverride() ?? detectSystemPreference();
 }
 
-// Clean unified sans for body + headings. The previous FONT_SERIF stack
-// fell back to Times on systems without "Anthropic Sans" (which is most
-// systems), so headings rendered as Times and body as system sans —
-// reading as two different apps stitched together. One sans family
-// everywhere is the single biggest "feels designed vs feels assembled"
-// switch.
-const FONT_SANS = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", Arial, sans-serif';
+// One sans family everywhere, SF first: generated apps default to an Apple
+// design language (2026-08-08), so the type stack leads with the system's own
+// SF Pro and degrades to close cousins elsewhere.
+const FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", ui-sans-serif, system-ui, "Helvetica Neue", "Inter", Arial, sans-serif';
 // Kept under its old name so any agent-written code that already
 // references `c.font.serif` for an intentional display flourish still
 // resolves — points at the same sans stack so the visual result is
@@ -71,98 +68,100 @@ const FONT_SANS = 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 
 const FONT_SERIF = FONT_SANS;
 const FONT_MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace';
 
+// Apple-light: near-white grays, ink text, hairlines, system blue.
 const lightTokens = {
   bg: {
-    page: '#F5F5F0',
+    page: '#F5F5F7',
     surface: '#FFFFFF',
-    elevated: '#FAF9F5',
-    secondary: '#F5F4ED',
-    inverse: '#141413',
+    elevated: '#FBFBFD',
+    secondary: '#F2F2F7',
+    inverse: '#1D1D1F',
   },
   text: {
-    primary: '#1a1a18',
-    secondary: '#3D3D3A',
-    tertiary: '#73726C',
-    muted: '#6b6a68',
-    ghost: 'rgba(115,114,108,0.5)',
+    primary: '#1D1D1F',
+    secondary: '#48484A',
+    tertiary: '#6E6E73',
+    muted: '#86868B',
+    ghost: 'rgba(110,110,115,0.5)',
   },
   accent: {
-    primary: '#ae5630',
-    hover: '#c4633a',
-    pressed: '#924828',
+    primary: '#007AFF',
+    hover: '#0071E3',
+    pressed: '#0062CC',
   },
-  user: { bubble: '#DDD9CE' },
+  user: { bubble: '#E9E9EB' },
   border: {
-    subtle: 'rgba(0,0,0,0.07)',
-    medium: 'rgba(0,0,0,0.10)',
-    strong: 'rgba(0,0,0,0.18)',
+    subtle: 'rgba(0,0,0,0.08)',
+    medium: 'rgba(0,0,0,0.12)',
+    strong: 'rgba(0,0,0,0.20)',
   },
   shadow: {
-    sm: '0 1px 3px rgba(0,0,0,0.04)',
-    md: '0 0.25rem 1.25rem rgba(0,0,0,0.035)',
-    lg: '0 0.5rem 2rem rgba(0,0,0,0.08)',
+    sm: '0 1px 2px rgba(0,0,0,0.05)',
+    md: '0 4px 16px rgba(0,0,0,0.06)',
+    lg: '0 12px 32px rgba(0,0,0,0.12)',
   },
   status: {
-    success: '#2e7d32',
-    successBg: 'rgba(46,125,50,0.08)',
-    error: '#c62828',
-    errorBg: 'rgba(198,40,40,0.08)',
+    success: '#248A3D',
+    successBg: 'rgba(52,199,89,0.10)',
+    error: '#D70015',
+    errorBg: 'rgba(255,59,48,0.08)',
   },
 };
 
+// Apple-dark: elevated iOS grays (never pure black, apps live in windows).
 const darkTokens = {
   bg: {
-    page: '#1a1918',
-    surface: '#262624',
-    elevated: '#30302E',
-    secondary: '#1f1e1b',
-    inverse: '#FAF9F5',
+    page: '#1C1C1E',
+    surface: '#2C2C2E',
+    elevated: '#3A3A3C',
+    secondary: '#242426',
+    inverse: '#F5F5F7',
   },
   text: {
-    primary: '#FAF9F5',
-    secondary: '#C2C0B6',
-    tertiary: '#9C9A92',
-    muted: '#85837C',
-    ghost: 'rgba(156,154,146,0.5)',
+    primary: '#F5F5F7',
+    secondary: '#D1D1D6',
+    tertiary: '#98989D',
+    muted: '#8E8E93',
+    ghost: 'rgba(152,152,157,0.5)',
   },
   accent: {
-    primary: '#c4633a',
-    hover: '#d47548',
-    pressed: '#ae5630',
+    primary: '#0A84FF',
+    hover: '#409CFF',
+    pressed: '#0070E0',
   },
-  user: { bubble: '#393937' },
+  user: { bubble: '#3A3A3C' },
   border: {
-    subtle: 'rgba(255,255,255,0.07)',
-    medium: 'rgba(255,255,255,0.10)',
-    strong: 'rgba(255,255,255,0.18)',
+    subtle: 'rgba(255,255,255,0.08)',
+    medium: 'rgba(255,255,255,0.12)',
+    strong: 'rgba(255,255,255,0.22)',
   },
   shadow: {
-    sm: '0 1px 3px rgba(0,0,0,0.12)',
-    md: '0 0.25rem 1.25rem rgba(0,0,0,0.15)',
-    lg: '0 0.5rem 2rem rgba(0,0,0,0.25)',
+    sm: '0 1px 2px rgba(0,0,0,0.20)',
+    md: '0 4px 16px rgba(0,0,0,0.28)',
+    lg: '0 12px 32px rgba(0,0,0,0.40)',
   },
   status: {
-    success: '#66bb6a',
-    successBg: 'rgba(102,187,106,0.12)',
-    error: '#ef5350',
-    errorBg: 'rgba(239,83,80,0.12)',
+    success: '#30D158',
+    successBg: 'rgba(48,209,88,0.14)',
+    error: '#FF453A',
+    errorBg: 'rgba(255,69,58,0.14)',
   },
 };
 
 const sharedTokens = {
   radius: {
-    xs: 4,
-    sm: 6,
-    md: 8,
-    lg: 10,
-    xl: 12,
+    xs: 5,
+    sm: 8,
+    md: 10,
+    lg: 12,
+    xl: 16,
     full: 9999,
   },
   font: {
     serif: FONT_SERIF,
     mono: FONT_MONO,
   },
-  transition: 'all 300ms cubic-bezier(0.165, 0.85, 0.45, 1)',
+  transition: 'all 280ms cubic-bezier(0.32, 0.72, 0, 1)',
 };
 
 export type ClaudeTokens = typeof lightTokens & typeof sharedTokens;

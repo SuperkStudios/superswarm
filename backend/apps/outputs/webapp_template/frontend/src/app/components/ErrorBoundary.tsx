@@ -109,8 +109,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       alignItems: 'center',
       justifyContent: 'center',
       padding: 24,
-      background: '#1a1918',
-      color: '#FAF9F5',
+      background: '#1C1C1E',
+      color: '#F5F5F7',
       fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
       zIndex: 99999,
       overflow: 'auto',
@@ -120,22 +120,22 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       width: '100%',
       padding: 24,
       borderRadius: 14,
-      background: '#262624',
-      border: '1px solid rgba(196,99,58,0.4)',
+      background: '#2C2C2E',
+      border: '1px solid rgba(255,69,58,0.4)',
       boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
     };
     const headingStyle: React.CSSProperties = {
       margin: 0,
       fontSize: 16,
       fontWeight: 600,
-      color: '#c4633a',
+      color: '#0A84FF',
       marginBottom: 6,
       letterSpacing: '-0.01em',
     };
     const subStyle: React.CSSProperties = {
       margin: 0,
       fontSize: 13,
-      color: '#9C9A92',
+      color: '#98989D',
       marginBottom: 16,
       lineHeight: 1.5,
     };
@@ -144,8 +144,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
       fontSize: 12,
       lineHeight: 1.5,
-      background: '#1f1e1b',
-      color: '#FAF9F5',
+      background: '#1C1C1E',
+      color: '#F5F5F7',
       padding: 12,
       borderRadius: 8,
       whiteSpace: 'pre-wrap',
@@ -157,8 +157,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     const buttonStyle: React.CSSProperties = {
       appearance: 'none',
       border: 'none',
-      background: '#c4633a',
-      color: '#FAF9F5',
+      background: '#0A84FF',
+      color: '#F5F5F7',
       fontSize: 13,
       fontWeight: 600,
       padding: '8px 16px',
@@ -181,7 +181,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             {error.message || String(error)}
           </code>
           {errorInfo?.componentStack && (
-            <code style={{ ...codeStyle, fontSize: 11, color: '#9C9A92' }}>
+            <code style={{ ...codeStyle, fontSize: 11, color: '#98989D' }}>
               {errorInfo.componentStack.trim()}
             </code>
           )}
