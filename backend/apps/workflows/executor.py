@@ -14,7 +14,7 @@ from typing import Optional
 from backend.apps.agents.core.models import AgentConfig
 from backend.apps.workflows.models import Workflow, WorkflowRun
 from backend.apps.workflows import storage
-from backend.apps.settings.models import DEFAULT_MODEL
+from backend.apps.workflows.default_model import provider_for_model, user_default_model
 
 logger = logging.getLogger(__name__)
 
@@ -302,9 +302,9 @@ async def execute(
         resolved_allowed_tools = _resolve_allowed_tools(wf)
         config = AgentConfig(
             name=wf.title or "Workflow",
-            model=wf.model or DEFAULT_MODEL,
+            model=wf.model or user_default_model(),
             mode=wf.mode or "agent",
-            provider=wf.provider or "anthropic",
+            provider=wf.provider or provider_for_model(wf.model or user_default_model()),
             system_prompt=_resolve_system_prompt(wf),
             # None when the user has not frozen the Actions set, which means the workflow runs with the mode's full surface exactly like a chat does.
             allowed_tools=resolved_allowed_tools,

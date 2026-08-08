@@ -22,6 +22,7 @@ from backend.apps.workflows.models import (
 from backend.apps.workflows import storage, scheduler, executor, audit, escalation
 from backend.apps.workflows.cloud.handover import release_before_removing
 from backend.apps.settings.models import DEFAULT_MODEL
+from backend.apps.workflows.default_model import provider_for_model, user_default_model
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +293,9 @@ async def create_workflow(body: WorkflowCreate):
         permissions=body.permissions or [],
         source_session_id=body.source_session_id,
         dashboard_id=body.dashboard_id,
-        model=body.model or DEFAULT_MODEL,
+        model=body.model or user_default_model(),
         mode=body.mode or "agent",
-        provider=body.provider or "anthropic",
+        provider=body.provider or provider_for_model(body.model or user_default_model()),
         cost_cap_usd_monthly=body.cost_cap_usd_monthly,
         auto_named=body.auto_named,
         unsaved=body.unsaved,
