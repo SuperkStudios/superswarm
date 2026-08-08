@@ -353,6 +353,21 @@ export const JOBS_LIST = '/api/jobs/list';
 
 ---
 
+## The host SDK — the user's models, workflows, and agents
+
+The workspace ships pre-wired helpers for calling the OpenSwarm HOST from inside the app:
+LLM completions through the user's own subscription (any provider, model selectable),
+listing + firing the user's workflows and reading run results, and spawning real agent
+cards on the canvas (optionally positioned). **Read `SDK.md` at the workspace root before
+building any feature that needs intelligence, automation, or agents** — the helpers are:
+
+- Frontend: `import { llm, listWorkflows, runWorkflow, spawnAgent } from '@/openswarmHost'`
+- Backend: `from backend.apps.openswarm_host.openswarm_host import llm, run_workflow, spawn_agent`
+
+Auth is automatic (host-injected token); never hand-roll fetches against host routes. The SDK
+works in preview and installed apps; for features that must survive PUBLISHING to the public
+web, use `window.OUTPUT_LLM` / `window.OUTPUT_COMPUTE` below instead.
+
 ## Publishable AI + compute — `window.OUTPUT_LLM` / `window.OUTPUT_COMPUTE`
 
 The FastAPI backend above runs in preview but is **not hosted when an app is

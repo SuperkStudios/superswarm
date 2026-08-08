@@ -30,6 +30,7 @@ import {
 import { streamStart, streamDelta, streamEnd, clearStreamingForSession } from '../state/streamingSlice';
 import { addBrowserCardFromBackend, setBrowserDocked, markBrowserCardEnding, keepBrowserCardOpen, placeBesideCard, placeBelowCard, placeBrowserBesideChat, setBrowserCardPosition, setGlowingBrowserCards, fadeGlowingBrowserCards, clearGlowingBrowserCards, removeBrowserCard, GRID_GAP, WORKFLOW_CARD_GAP, openWorkflowsApp, openWorkflowMonitor } from '../state/dashboardLayoutSlice';
 import { upsertOutput } from '../state/outputsSlice';
+import { setCardPosition } from '../state/dashboardLayoutSlice';
 import { fetchSettings } from '../state/settingsSlice';
 import { displaySessionName } from '../state/sessionDisplay';
 import { upsertRun, ackRun, runWorkflowNow, openWorkflowCard, upsertWorkflow, removeWorkflow } from '../state/workflowsSlice';
@@ -536,6 +537,26 @@ class WebSocketManager {
           store.dispatch(upsertOutput(data.output));
         }
         break;
+
+      case 'apps_sdk:place_agent_card': {
+        // An app asked for its spawned agent at a specific canvas spot; the card is created async
+        // by the session lifecycle, so nudge it into place with a short bounded retry.
+        const sid = data.session_id as string;
+        const px = Number(data.x);
+        const py = Number(data.y);
+        if (!sid || !Number.isFinite(px) || !Number.isFinite(py)) break;
+        let tries = 0;
+        const place = () => {
+          const exists = !!store.getState().dashboardLayout.cards[sid];
+          if (exists) {
+            store.dispatch(setCardPosition({ sessionId: sid, x: px, y: py }));
+            return;
+          }
+          if (++tries < 20) setTimeout(place, 300);
+        };
+        place();
+        break;
+      }
 
       case 'agent:stream_start':
       case 'agent:stream_delta':
