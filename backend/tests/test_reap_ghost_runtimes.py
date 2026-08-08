@@ -118,3 +118,18 @@ def test_indeterminate_ancestry_is_never_a_ghost(monkeypatch):
     ghosts = rg.find_ghost_runtime_pids()
     assert 999 not in ghosts, "pid absent from the ppid map was treated as a ghost"
     assert ghosts == [300], "a genuinely orphaned pid (walks to init, no backend) still reaps"
+
+
+def test_ghost_matched_despite_path_case_difference(monkeypatch):
+    """macOS is case-insensitive, so a process can report .../openswarm/... while our resolved path
+    is .../OpenSwarm/... (same folder). A case-sensitive match missed the ghost entirely; found live
+    on a packaged smoke where 8 orphans survived a reap that logged 0."""
+    from backend.apps.outputs import reap_ghost_runtimes as rg
+    ws = rg.os.path.abspath(rg.WORKSPACE_DIR)
+    lower_ws = ws.replace("OpenSwarm", "openswarm").replace("Openswarm", "openswarm")
+    monkeypatch.setattr(rg, "p_live_backend_pids", lambda: {50})
+    monkeypatch.setattr(rg, "p_ppid_map", lambda: {700: 1})  # orphan reparented to init
+    class P_Out:
+        stdout = f"50 python -m uvicorn backend.main:app\n700 bash {lower_ws}/ws-x/backend/run.sh\n"
+    monkeypatch.setattr(rg.subprocess, "run", lambda *a, **k: P_Out())
+    assert rg.find_ghost_runtime_pids() == [700], "a case-different path must still match the ghost"

@@ -64,7 +64,10 @@ def find_ghost_runtime_pids() -> List[int]:
     then filtered by walking each candidate's ancestry: if a live backend is anywhere above it, it is
     someone's working app and is left alone.
     """
-    needle = os.path.abspath(WORKSPACE_DIR)
+    # Case-FOLDED needle. macOS's default filesystem is case-insensitive, so a process may report
+    # `.../openswarm/...` while our resolved path is `.../OpenSwarm/...`: the same folder, but a
+    # case-sensitive `in` check misses it and the ghost survives (found live on a packaged smoke).
+    needle = os.path.abspath(WORKSPACE_DIR).casefold()
     try:
         out = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, timeout=8)
     except Exception:
@@ -80,7 +83,7 @@ def find_ghost_runtime_pids() -> List[int]:
     ghosts: List[int] = []
     for line in (out.stdout or "").splitlines():
         line = line.strip()
-        if needle not in line:
+        if needle not in line.casefold():
             continue
         head = line.split(None, 1)
         if not head or not head[0].isdigit():
