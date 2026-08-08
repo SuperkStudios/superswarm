@@ -11,6 +11,10 @@ import json
 import re
 
 from backend.apps.agents.browser import browser_send_parse
+from backend.apps.agents.browser.intervention_copy import (
+    LOOP_WARNING_INTERVENTION_FIX,
+    STAGNATION_INTERVENTION_TAIL,
+)
 
 # Tools that are read-only / idempotent and should NOT count toward loop detection. Repeating these is normal (scrolling through a feed, taking successive screenshots, polling for an element to appear).
 LOOP_DETECTION_EXCLUDED_TOOLS = {
@@ -106,8 +110,8 @@ LOOP_WARNING_TEXT = (
     "hidden, or covered by an overlay; use BrowserGetText or BrowserScreenshot to check "
     "whether the page is really a login wall, captcha, or error page. THEN fix that exact "
     "cause: a wrong selector means switch to BrowserListInteractives + BrowserClickIndex "
-    "or BrowserPressKey; a blocked element means clear the blocker first; a login, "
-    "captcha, or error page means call RequestHumanIntervention. Don't just try another "
+    "or BrowserPressKey; a blocked element means clear the blocker first; "
+    + LOOP_WARNING_INTERVENTION_FIX + ". Don't just try another "
     "selector if the problem isn't a selector."
 )
 
@@ -177,9 +181,8 @@ def stagnation_nudge(streak: int) -> str:
         base += (
             " Switching selectors hasn't worked, so the PLAN itself is likely "
             "wrong: step back and revise your overall approach (a different page, "
-            "route, or entry point), not just the selector. If even a fresh plan "
-            "can't make progress, call RequestHumanIntervention instead of "
-            "continuing to fail."
+            "route, or entry point), not just the selector. "
+            + STAGNATION_INTERVENTION_TAIL
         )
     return base
 

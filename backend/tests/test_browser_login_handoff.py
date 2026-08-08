@@ -47,14 +47,6 @@ def test_first_seen_preserved_last_login_advances():
     assert second["last_login"] >= first["last_login"]
 
 
-def test_prompt_copy_wording_flips_on_history():
-    assert "needs you to sign in" in h.prompt_copy("reddit.com")[0]
-    h.record_login("reddit.com")
-    assert "expired or be a different account" in h.prompt_copy("reddit.com")[0]
-    # instruction is always the same actionable line
-    assert "click Done" in h.prompt_copy("reddit.com")[1]
-
-
 def test_record_login_is_fail_open(monkeypatch):
     # an unwritable path must not raise; the run just treats it as a fresh sign-in next time
     monkeypatch.setattr(h, "P_STORE_PATH", "/nonexistent-dir-xyz/authenticated_domains.json")

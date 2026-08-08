@@ -53,7 +53,9 @@ from backend.apps.agents.browser.browser_loop import (
     stagnation_exhausted,
 )
 from backend.apps.agents.browser.browser_validator import adjudicate_stuck
+from backend.apps.agents.browser.human_intervention_allowed import human_intervention_allowed
 from backend.apps.agents.browser.humanize_element_rows import humanize_element_rows
+from backend.apps.agents.browser.intervention_copy import strip_intervention_copy
 from backend.apps.agents.browser.strip_lone_surrogates import strip_lone_surrogates
 
 # Single actions the model could have folded into one BrowserBatch turn; reads, waits, and the batch tools themselves don't count toward the streak.
@@ -1052,6 +1054,10 @@ async def run_browser_agent(
     from backend.apps.agents.agent_manager import agent_manager
 
     p_browser_perms = load_builtin_permissions()
+    # One decision for the whole run: may this agent even OFFER to ask a human? Code never fires
+    # RequestHumanIntervention itself; this only gates the model's menu (Eric's call, 2026-08-08).
+    p_hitl_allowed = human_intervention_allowed(
+        p_browser_perms, parent_session_id, agent_manager.sessions)
 
     session_id = uuid4().hex
     cancel_event = asyncio.Event()
@@ -1349,7 +1355,7 @@ async def run_browser_agent(
     loop_trigger_count = 0
     card_gone_streak = 0  # consecutive "card is gone" results -> fail fast, don't spin
     route_hinted_hosts: set[str] = set()  # surface the fast network tier once per host
-    p_login_prompted: set[str] = set()  # login-once handoff: at most one sign-in pause per domain per run
+    p_login_attempted: set[str] = set()  # login-once handoff: at most one silent borrow attempt per domain per run
 
     # Stagnation state: busy-but-stuck detection (no URL change + failures across a run of actions), distinct from the exact-repeat loop above.
     stagnation_streak = 0
@@ -1450,6 +1456,10 @@ async def run_browser_agent(
             pass
 
     # Prompt-caching shapes built once: system as a single cached text block, and the last tool carrying the cache_control marker (Anthropic keys on the trailing marker, so one marker covers the whole tool array + system).
+    if not p_hitl_allowed:
+        # No human exists for this run: strip the tool's prompt copy everywhere (including seeded
+        # and learned playbook lines), so "don't ask" is physics, not a plea the model can ignore.
+        run_system_prompt = strip_intervention_copy(run_system_prompt)
     p_cached_system = [{
         "type": "text", "text": run_system_prompt,
         "cache_control": {"type": "ephemeral"},
@@ -1458,6 +1468,8 @@ async def run_browser_agent(
     p_cached_tools = [dict(t) for t in (APP_VISIBLE_TOOLS if app_mode else browser_schema.MODEL_VISIBLE_TOOLS)]
     if not browser_delete_script.delete_tool_enabled():
         p_cached_tools = [t for t in p_cached_tools if t["name"] != "BrowserDeleteItem"]
+    if not p_hitl_allowed:
+        p_cached_tools = [t for t in p_cached_tools if t["name"] != "RequestHumanIntervention"]
     if p_cached_tools:
         p_cached_tools[-1] = {**p_cached_tools[-1], "cache_control": {"type": "ephemeral"}}
 
@@ -1901,28 +1913,18 @@ async def run_browser_agent(
             if done_called or cancel_event.is_set():
                 break
 
-            # Login-once handoff: if we've landed on a login wall, pause so the user can sign in ONCE
-            # in this card (the persistent partition keeps the session, so future runs won't ask
-            # again), then continue. At most one pause per domain per run; the model's own
-            # RequestHumanIntervention stays as the fallback for walls this detector misses.
+            # Login-once handoff: on a login wall, silently borrow the sign-in the user already has
+            # in their everyday browser (the persistent partition keeps it for future runs). At
+            # most one attempt per domain per run. NOTHING here may fire RequestHumanIntervention;
+            # asking for help is the model's choice alone, and only when the tool is offered at all
+            # (Eric's call, 2026-08-08: auto-injection made workflows impossible to run unattended).
             # Soft signed-out (composer withheld behind a "Sign in") only counts once the agent has
-            # actually tried and is still stuck, so a first-turn glance can't raise a false prompt.
+            # actually tried and is still stuck, so a first-turn glance can't raise a false attempt.
             p_wall_dom = browser_login_handoff.login_wall_domain(
                 last_seen_url, "\n".join(attached_state_seen), allow_soft=(turn >= 2))
-            if p_wall_dom and p_wall_dom not in p_login_prompted:
-                p_login_prompted.add(p_wall_dom)
-                # Borrow the sign-in the user already has in their everyday browser first: when it
-                # lands nobody is interrupted at all. Anything less falls through to the pause.
-                p_signed_in = await try_borrow_signin(p_wall_dom, browser_id, tab_id, last_seen_url)
-                if not p_signed_in:
-                    p_login_problem, p_login_instruction = browser_login_handoff.prompt_copy(p_wall_dom)
-                    p_login_decision = await p_request_browser_approval(
-                        session, "RequestHumanIntervention",
-                        {"problem": p_login_problem, "instruction": p_login_instruction})
-                    if cancel_event.is_set():
-                        break
-                    p_signed_in = p_login_decision.get("behavior") != "deny"
-                if p_signed_in:
+            if p_wall_dom and p_wall_dom not in p_login_attempted:
+                p_login_attempted.add(p_wall_dom)
+                if await try_borrow_signin(p_wall_dom, browser_id, tab_id, last_seen_url):
                     browser_login_handoff.record_login(p_wall_dom)
                     p_signed_note = (f"You are now signed in to {p_wall_dom}. The page has changed; "
                                      "look at it fresh and continue the task.")
@@ -2450,8 +2452,28 @@ async def run_browser_agent(
                     })
                     break
 
-                # Handle RequestHumanIntervention; pause and wait for user
+                # Handle RequestHumanIntervention; pause and wait for user. Only the model can
+                # reach here, and only when the tool was actually offered this run.
                 if tu.name == "RequestHumanIntervention":
+                    if not p_hitl_allowed:
+                        # Non-Anthropic lanes don't enforce the tool schema, so a hallucinated
+                        # call must land as a wall, not a pause.
+                        p_no_hitl_text = ("Human intervention is not available in this run. "
+                                          "Adapt, or call Done with success=false naming the blocker.")
+                        tool_results.append({
+                            "type": "tool_result", "tool_use_id": tu.id,
+                            "content": [{"type": "text", "text": p_no_hitl_text}],
+                        })
+                        result_msg = Message(
+                            role="tool_result",
+                            content={"text": p_no_hitl_text, "tool_name": tu.name, "elapsed_ms": 0},
+                        )
+                        session.messages.append(result_msg)
+                        await ws_manager.send_to_session(session_id, "agent:message", {
+                            "session_id": session_id,
+                            "message": result_msg.model_dump(mode="json"),
+                        })
+                        continue
                     problem = tu.input.get("problem", "")
                     instruction = tu.input.get("instruction", "")
                     decision = await p_request_browser_approval(
@@ -2889,6 +2911,8 @@ async def run_browser_agent(
                     loop_trigger_count += 1
                     repeat_count = sum(1 for c in recent_tool_calls if c == call_key)
                     warning = LOOP_WARNING_TEXT.format(count=repeat_count)
+                    if not p_hitl_allowed:
+                        warning = strip_intervention_copy(warning)
                     logger.warning(
                         f"[browser-agent {session_id}] loop detected on {tu.name} "
                         f"(trigger #{loop_trigger_count}): {warning}"
@@ -2903,6 +2927,8 @@ async def run_browser_agent(
                 )
                 # Skip the nudge when the loud loop warning already fired this turn (avoid double-messaging), but the aux adjudication below is NOT gated on is_loop: repeated identical failures trip BOTH detectors, and that's exactly when the escape hatch is needed.
                 if stag_nudge and not is_loop:
+                    if not p_hitl_allowed:
+                        stag_nudge = strip_intervention_copy(stag_nudge)
                     logger.warning(
                         f"[browser-agent {session_id}] stagnation streak "
                         f"{stagnation_streak} on {tu.name}"
@@ -2957,6 +2983,8 @@ async def run_browser_agent(
                             aux_client, aux_model, current_next_goal, recent, page_text,
                         ))
                         if guidance:
+                            if not p_hitl_allowed:
+                                guidance = strip_intervention_copy(guidance)
                             content_blocks = content_blocks + [
                                 {"type": "text", "text": f"\n\n💡 Suggested next step: {guidance}"}
                                 ]

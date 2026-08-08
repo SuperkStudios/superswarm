@@ -6,6 +6,11 @@ prompt, and the turn/report invariants. Exceeds the 300-LOC soft ceiling on
 purpose because it is one cohesive data blob, not multiple responsibilities.
 """
 
+from backend.apps.agents.browser.intervention_copy import (
+    INTERVENTION_SECTION,
+    LOOP_AWARENESS_INTERVENTION_PHRASE,
+)
+
 # Two prompt levers that A/B-proved out and now ship unconditionally. THINK_SHORTER (no prose beside action tools; ReportProgress IS the thinking) cut per-turn output ~28% and roughly halved narration turns. MERGE_VERIFY (a confirmed `expect` is the proof, skip the re-check) drops a wasted round-trip at the end.
 P_THINK_SHORTER = (
     "Do NOT write a free-text sentence next to your action tools: your ReportProgress "
@@ -975,8 +980,8 @@ SYSTEM_PROMPT = (
     "have called the same tool with the same parameters and gotten the same "
     "result multiple times in a row. STOP. Do NOT retry the same approach. "
     "Switch strategy entirely: try a different tool, a different selector, "
-    "keyboard shortcuts, or call RequestHumanIntervention if you genuinely "
-    "cannot proceed. The loop detector will force-exit the agent if you "
+    "keyboard shortcuts" + LOOP_AWARENESS_INTERVENTION_PHRASE + ". "
+    "The loop detector will force-exit the agent if you "
     "ignore it more than 5 times.\n\n"
 
     "## Use prior context\n"
@@ -1102,12 +1107,7 @@ SYSTEM_PROMPT = (
     "whole thing to a file and hands you the path. Then Done, telling the user that path. That "
     "is one step instead of a dozen.\n\n"
 
-    "## When you genuinely cannot proceed\n"
-    "Use RequestHumanIntervention for:\n"
-    "- Login walls (the user thinks they're logged in but the session expired)\n"
-    "- Captchas, 2FA prompts, age verification gates\n"
-    "- Anything genuinely ambiguous about user intent\n"
-    "Don't use it for normal tool failures; try a different approach first.\n\n"
+    + INTERVENTION_SECTION +
 
     "Complete the task autonomously. When you're finished, end the run by calling the Done "
     "tool, never by typing a sentence. Put your reply to the user in Done's `message`, "

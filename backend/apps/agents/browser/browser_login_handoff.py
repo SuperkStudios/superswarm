@@ -11,7 +11,7 @@ the send-script's decline can never disagree about what a login wall is.
 
 import datetime
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from typeguard import typechecked
@@ -90,13 +90,3 @@ def login_wall_domain(current_url: str, state_text: str, allow_soft: bool = Fals
     return None
 
 
-@typechecked
-def prompt_copy(domain: str) -> Tuple[str, str]:
-    """(problem, instruction) for the pause overlay, worded by whether the user has signed into
-    this site before (re-auth) or it's a first sign-in."""
-    if is_authenticated(domain):
-        problem = f"Your {domain} sign-in looks signed out, it may have expired or be a different account."
-    else:
-        problem = f"{domain} needs you to sign in before I can keep going."
-    instruction = "Log in to the site in the browser above, then click Done and I'll pick up right where I left off."
-    return problem, instruction

@@ -1871,9 +1871,9 @@ def test_autosend_finishes_the_send_after_the_model_fills(monkeypatch):
     assert len(primary.calls) == 1, f"model called {len(primary.calls)}x; the send should cost zero model turns"
 
 
-def test_login_wall_pauses_and_remembers_the_site(monkeypatch, tmp_path):
-    """Landing on a login wall auto-fires the RequestHumanIntervention pause with sign-in wording,
-    and once the user resolves it (Done), the domain is remembered so future runs skip re-prompting."""
+def test_login_wall_never_auto_fires_intervention(monkeypatch, tmp_path):
+    """A login wall must NEVER auto-fire RequestHumanIntervention (ENG-198): the silent cookie
+    borrow is the only automatic assist, and when it misses the model just keeps its turn."""
     from backend.apps.agents.browser import browser_login_handoff as H
     monkeypatch.setattr(H, "P_STORE_PATH", str(tmp_path / "auth.json"))
 
@@ -1884,6 +1884,42 @@ def test_login_wall_pauses_and_remembers_the_site(monkeypatch, tmp_path):
         return {"behavior": "allow"}
     monkeypatch.setattr(BA, "p_request_browser_approval", p_fake_approval)
 
+    borrows = []
+
+    async def p_no_borrow(domain, browser_id, tab_id, url):
+        borrows.append(domain)
+        return False
+    monkeypatch.setattr(BA, "try_borrow_signin", p_no_borrow)
+
+    primary = FakeLLM([
+        Resp([p_rp("open the login page"), p_tu("BrowserNavigate", url="https://acme.example/login")]),
+        Resp([p_tu("Done", message="blocked by the acme login wall", success=False)]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    p_run_settled(task="log into acme and open my dashboard", browser_id="b1", model="sonnet")
+
+    assert borrows == ["acme.example"], "the silent borrow is the only automatic assist"
+    assert approvals == [], "nothing may auto-fire RequestHumanIntervention"
+    assert not H.is_authenticated("acme.example")
+
+
+def test_login_wall_borrow_success_remembers_the_site(monkeypatch, tmp_path):
+    """When the cookie borrow lands, the domain is remembered so future runs skip the wall, with
+    zero human interruptions along the way."""
+    from backend.apps.agents.browser import browser_login_handoff as H
+    monkeypatch.setattr(H, "P_STORE_PATH", str(tmp_path / "auth.json"))
+
+    approvals = []
+
+    async def p_fake_approval(session, tool_name, tool_input):
+        approvals.append((tool_name, tool_input))
+        return {"behavior": "allow"}
+    monkeypatch.setattr(BA, "p_request_browser_approval", p_fake_approval)
+
+    async def p_borrow_ok(domain, browser_id, tab_id, url):
+        return True
+    monkeypatch.setattr(BA, "try_borrow_signin", p_borrow_ok)
+
     primary = FakeLLM([
         Resp([p_rp("open the login page"), p_tu("BrowserNavigate", url="https://acme.example/login")]),
         Resp([p_tu("Done", message="all set")]),
@@ -1891,28 +1927,49 @@ def test_login_wall_pauses_and_remembers_the_site(monkeypatch, tmp_path):
     p_install(monkeypatch, primary, FakeAux())
     p_run_settled(task="log into acme and open my dashboard", browser_id="b1", model="sonnet")
 
-    assert any(t == "RequestHumanIntervention" and "sign in" in ti["problem"].lower()
-               for t, ti in approvals), approvals
+    assert approvals == []
     assert H.is_authenticated("acme.example")
 
 
-def test_login_wall_skip_does_not_remember(monkeypatch, tmp_path):
-    """Skipping the sign-in (deny) leaves the site UNremembered and lets the run continue."""
-    from backend.apps.agents.browser import browser_login_handoff as H
-    monkeypatch.setattr(H, "P_STORE_PATH", str(tmp_path / "auth.json"))
+def test_workflow_child_never_gets_the_intervention_tool(monkeypatch):
+    """A browser run whose parent chain contains a workflow run must not even be OFFERED
+    RequestHumanIntervention: the tool is absent from the wire schema and the system prompt stops
+    advertising it (ENG-198)."""
+    from backend.apps.agents.agent_manager import agent_manager
+    from backend.apps.agents.core.models import AgentSession
 
-    async def p_deny(session, tool_name, tool_input):
-        return {"behavior": "deny", "message": "Skipped by user"}
-    monkeypatch.setattr(BA, "p_request_browser_approval", p_deny)
+    parent_id = "wfparent-" + uuid.uuid4().hex[:8]
+    agent_manager.sessions[parent_id] = AgentSession(
+        id=parent_id, name="wf", model="sonnet", mode="chat", workflow_run_id="wf-run-1")
 
     primary = FakeLLM([
-        Resp([p_rp("open the login page"), p_tu("BrowserNavigate", url="https://acme.example/login")]),
-        Resp([p_tu("Done", message="ok")]),
+        Resp([p_rp("look around"), p_tu("BrowserListInteractives")]),
+        Resp([p_tu("Done", message="done")]),
     ])
     p_install(monkeypatch, primary, FakeAux())
-    p_run_settled(task="log into acme", browser_id="b1", model="sonnet")
+    try:
+        p_run_settled(task="check the docs page", browser_id="b1", model="sonnet",
+                      parent_session_id=parent_id)
+    finally:
+        agent_manager.sessions.pop(parent_id, None)
 
-    assert not H.is_authenticated("acme.example")
+    wire_tools = [t["name"] for t in primary.calls[0]["tools"]]
+    assert "RequestHumanIntervention" not in wire_tools
+    system_text = "".join(b.get("text", "") for b in primary.calls[0]["system"])
+    assert "RequestHumanIntervention" not in system_text
+
+
+def test_chat_child_still_gets_the_intervention_tool(monkeypatch):
+    """Interactive runs keep the tool on the menu; removing it is only for workflows/toggle-off."""
+    primary = FakeLLM([
+        Resp([p_rp("look around"), p_tu("BrowserListInteractives")]),
+        Resp([p_tu("Done", message="done")]),
+    ])
+    p_install(monkeypatch, primary, FakeAux())
+    p_run_settled(task="check the docs page", browser_id="b1", model="sonnet")
+
+    wire_tools = [t["name"] for t in primary.calls[0]["tools"]]
+    assert "RequestHumanIntervention" in wire_tools
 
 
 def test_an_unconfirmed_post_teaches_us_nothing(monkeypatch):
