@@ -254,6 +254,7 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
   // instead of gliding to a wrong spot and snapping at settle (the left-then-center jerk).
   let ox = origin.x;
   let oy = origin.y;
+  let rectConfirmed = false;
   if (!isParked(el)) {
     try {
       const r0 = el.getBoundingClientRect();
@@ -266,35 +267,19 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       if (Math.abs(dx - origin.x) < ORIGIN_TRUST_PX && Math.abs(dy - origin.y) < ORIGIN_TRUST_PX) {
         ox = dx;
         oy = dy;
+        rectConfirmed = true;
       }
     } catch { /* keep the passed origin */ }
   }
-  // TEMPORARY (minimized-to-fullscreen offset): one flat STRING, because devtools collapses nested
-  // arrays to "Array(2)" and the values are lost the moment you copy the line out.
-  try {
-    const r0 = el.getBoundingClientRect();
-    const m = new DOMMatrixReadOnly(getComputedStyle(el).transform);
-    const zr = zoneRect(zone);
-    const w = measureWorkspace();
-    const n = (v: number) => Math.round(v);
-    // eslint-disable-next-line no-console
-    console.log(
-      `[TILE] ${id} ${zone} parked=${isParked(el)} rail=${!!document.querySelector('[data-minimized-rail]')}`
-      + ` | react=${n(origin.x)},${n(origin.y)} rect=${n((r0.left - cam.panX) / cam.zoom - m.e)},${n((r0.top - cam.panY) / cam.zoom - m.f)}`
-      + ` used=${n(ox)},${n(oy)}`
-      + ` | painted=${n(r0.left)},${n(r0.top)} ${n(r0.width)}x${n(r0.height)}`
-      + ` tf=${n(m.e)},${n(m.f)}@${m.a.toFixed(2)}`
-      + ` | zone=${zr ? `${n(zr.x)},${n(zr.y)} ${n(zr.w)}x${n(zr.h)}` : 'null'}`
-      + ` cam=${n(cam.panX)},${n(cam.panY)}@${cam.zoom.toFixed(2)}`
-      + ` ws=x0:${n(w.x0)} x1:${n(w.x1)} ${n(w.w)}x${n(w.h)}`,
-    );
-  } catch { /* diagnostics must never break tiling */ }
   // If the rect confirmed React's origin, the origin is right and the settle re-baseline can only
   // make it worse: measured over 12 live fullscreens, EVERY run where re-baselining left the origin
   // alone landed at OFFBY 0,0, and every run where it moved the origin landed off by 1-10px. It only
   // ever moved it when the camera was still gliding, because it solves against a painted rect that
   // the camera is still changing underneath it.
-  const trusted = Math.abs(ox - origin.x) < 1 && Math.abs(oy - origin.y) < 1;
+  // Trusted means the rect CONFIRMED the origin, never "we fell back to it": a REJECTED rect used
+  // to compare the passed origin against itself, score trusted, and skip the one re-baseline that
+  // could fix it, which is the constant OFFBY = disagreement x zoom (-52px on Eric's 1.7.5 trace).
+  const trusted = rectConfirmed;
   const entry: TiledEntry = { el, zone, originX: ox, originY: oy, trusted };
   entries.set(id, entry);
   startObserving();
@@ -335,19 +320,6 @@ export function registerTiledCard(id: string, zone: string, origin: { x: number;
       const tx = (r.x - lastCamera.panX) * s2 - live.originX;
       const ty = (r.y - lastCamera.panY) * s2 - live.originY;
       rebaseline(live, lastCamera, tx, ty);
-    }
-    if (r) {
-      try {
-        const rr = live.el.getBoundingClientRect();
-        const n = (v: number) => Math.round(v);
-        // eslint-disable-next-line no-console
-        console.log(
-          `[TILE settle] ${id} after=${settleElapsedMs}ms trusted=${!!live.trusted} origin=${n(live.originX)},${n(live.originY)}`
-          + ` | painted=${n(rr.left)},${n(rr.top)} ${n(rr.width)}x${n(rr.height)}`
-          + ` want=${n(r.x)},${n(r.y)} ${n(r.w)}x${n(r.h)}`
-          + ` | OFFBY=${n(rr.left - r.x)},${n(rr.top - r.y)} SIZEOFF=${n(rr.width - r.w)},${n(rr.height - r.h)}`,
-        );
-      } catch { /* diagnostics only */ }
     }
     applyEntry(live, lastCamera);
   });
