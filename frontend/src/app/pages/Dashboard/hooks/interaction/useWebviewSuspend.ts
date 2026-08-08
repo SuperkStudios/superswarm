@@ -23,6 +23,13 @@ const RESUME_MARGIN_PX = 96;
 const SNAPSHOT_MAX_W = 1024;
 // Below this on-screen width a live page is indistinguishable from its placeholder, so booted-parked cards on a zoomed-out canvas stay parked until zoomed into.
 const RESUME_MIN_CARD_PX = 220;
+// ...and the same rule on the way OUT. This used to be one-directional: a card too small to read was
+// never woken, but one already awake stayed awake however far you zoomed out, so eight webviews kept
+// rendering full pages into ~100px boxes on a zoomed-out canvas. That is the app's biggest GPU cost
+// paid for pixels nobody can read, and it is the pressure that makes Chromium evict the wash tiles
+// (the two-tone background band). Lower than the resume bar on purpose, so a card sitting near the
+// threshold cannot flap between live and snapshot.
+const SUSPEND_MAX_CARD_PX = 150;
 // Hard ceiling on simultaneous live webviews; past it the farthest-from-center non-agent card gets parked, so heavy pages degrade gracefully instead of OOMing.
 const MAX_LIVE_WEBVIEWS = 8;
 
@@ -178,6 +185,9 @@ export function useWebviewSuspend(
       const wantsPark = (id: string, card: BrowserCardPosition): boolean =>
         appHidden
         || isMinimized(id)
+        // Read zoom off the ref, never the closure: this fires 800ms after the effect ran, and
+        // zooming out is exactly the gesture that should be parking these.
+        || (!withinRestoreGrace(id) && card.width * vpRef.current.zoom < SUSPEND_MAX_CARD_PX)
         || (!withinRestoreGrace(id) && !cardIntersectsViewport(card, vpRef.current, SUSPEND_MARGIN_PX));
       await refreshVisibleFrames(browserCards, isSuspended, vpRef.current);
       for (const [id, card] of Object.entries(browserCards)) {
