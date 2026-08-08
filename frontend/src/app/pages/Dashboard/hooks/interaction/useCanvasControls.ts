@@ -9,6 +9,11 @@ import { applyBrowserZoom } from '@/shared/browserZoom';
 import { syncTiledGeometry } from '../../canvas/tiledGeometry';
 import { revealZoom, REVEAL_MIN_ZOOM } from '../../canvas/revealZoom';
 
+// Surfaces that are WINDOWS, not canvas cards: they behave like an OS window, so a wheel inside one
+// belongs to it whether or not you clicked in first. Canvas cards (agent, browser, view) keep the
+// Google Maps model instead, where a plain scroll over an unfocused card drives the canvas.
+const APP_WINDOW_SELECT_TYPES = new Set(['settings-card', 'marketplace-card', 'workflows-hub-card']);
+
 const MIN_ZOOM = 0.15;
 // The floor for AUTOMATIC reveals only. revealCards takes min(current, fit), which can only ever go
 // down, so every spawn that did not fit ratcheted the camera out and nothing ever brought it back:
@@ -356,12 +361,13 @@ export function useCanvasControls(
       // old walk-up handed those to the canvas: reaching the end of Settings zoomed the world out.
       const windowEl = (e.target as HTMLElement | null)?.closest?.('[data-select-type]') as HTMLElement | null;
       if (windowEl && !(e.ctrlKey || e.metaKey)) {
-        // Only a card you have clicked INTO owns the wheel. Claiming every card unconditionally
-        // killed the Google Maps model: with cards under the pointer the canvas stopped responding
-        // to scroll at all. Singleton windows (Settings, Marketplace) carry no select-id and are
-        // always owners, since their inner panels are exactly the "hit target isn't the scroller" case.
+        // An app WINDOW always owns its wheel; a canvas CARD only owns it once you have clicked in.
+        // That split is the whole rule. Requiring click-focus for windows too meant hovering over
+        // Settings and scrolling leaked straight to the canvas, because nothing had focused it yet,
+        // and windows do carry a select-id so a "no id means a window" test silently never fired.
         const windowId = windowEl.getAttribute('data-select-id');
-        if (!windowId || windowId === getScrollFocusedCard()) {
+        const isAppWindow = APP_WINDOW_SELECT_TYPES.has(windowEl.getAttribute('data-select-type') || '');
+        if (isAppWindow || !windowId || windowId === getScrollFocusedCard()) {
           containedEl = windowEl;
           containedAt = Date.now();
           return;
