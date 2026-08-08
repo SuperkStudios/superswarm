@@ -9,15 +9,17 @@ from backend.apps.agents import schedule_mcp_server as srv
 
 def test_the_handler_waits_for_the_result_instead_of_returning_a_promise():
     src = inspect.getsource(srv.handle_test_workflow)
-    assert "while time.time() < deadline" in src, "the tool must block until the test settles"
+    assert "while True:" in src and "last_progress_at" in src, (
+        "the tool must block, waiting on PROGRESS (transcript growth resets the clock)")
     assert "test-transcript" in src, "and read the transcript itself, not delegate that to the model"
     assert "Test finished" in src
 
 
 def test_a_long_test_returns_honestly_instead_of_hanging_the_turn():
     src = inspect.getsource(srv.handle_test_workflow)
-    assert "still running after" in src
-    assert srv.TEST_WAIT_S <= 300, "a bounded wait; a wedged test must never hold a turn forever"
+    assert "went quiet" in src, "the give-up message must say the run stalled, with the partial attached"
+    assert srv.TEST_IDLE_S <= 300, "silence must end the wait in bounded time"
+    assert srv.TEST_MAX_S <= 3600, "even a chatty run has an absolute ceiling"
     assert srv.TEST_POLL_S >= 1
 
 
