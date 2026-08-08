@@ -11,10 +11,17 @@ import { getActivity, isAnyBrowserBusy } from '@/shared/browserCommandHandler';
 import { isKeepAliveBrowser } from '@/shared/browserFocus';
 import { captureTabCapsule } from '@/shared/browserStateCapsule';
 import { getMinimizedShot } from '../../desktop/minimizedShots';
+import { guestBudgetHasRoom, wireBrowserLiveCounter } from '@/shared/appWebviewBudget';
 import { useAppHidden } from './useAppHidden';
 import { cardIntersectsViewport, distFromCenter, type Viewport } from './suspendGeometry';
 
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.includes('Electron');
+
+// Feed the global guest budget the live-browser count, so apps and browsers share ONE ceiling.
+wireBrowserLiveCounter(() => {
+  const dl = store.getState().dashboardLayout;
+  return Object.keys(dl.browserCards).filter((id) => !dl.suspendedBrowserCards[id]).length;
+});
 
 const SETTLE_MS = 800;
 // Hysteresis: suspend only well past the edge, resume just past it, so a card sitting on the boundary never flaps between webview and snapshot.
@@ -184,7 +191,9 @@ export function useWebviewSuspend(
         continue;
       }
       const bigEnough = card.width * zoom >= RESUME_MIN_CARD_PX;
-      if (bigEnough && cardIntersectsViewport(card, vpRef.current, RESUME_MARGIN_PX)) {
+      // Passive wake also asks the GLOBAL budget: a free browser slot means nothing if apps already
+      // hold the machine at its ceiling. Explicit restores and working agents above never ask.
+      if (bigEnough && cardIntersectsViewport(card, vpRef.current, RESUME_MARGIN_PX) && guestBudgetHasRoom()) {
         dispatch(resumeBrowserCard(id));
         budget--;
       }
