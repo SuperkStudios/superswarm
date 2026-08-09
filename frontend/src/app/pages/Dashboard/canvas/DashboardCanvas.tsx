@@ -552,8 +552,8 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       />
       </Box>
 
-      {/* The one exit that survives everything: mouse events over a fullscreen webview go to the guest, so hover reveals and window-level Escape can both be unreachable; this pill is an embedder element painted above the guest and always clickable. */}
-      {fullscreenCardId && (
+      {/* The one exit that survives everything: mouse events over a fullscreen webview go to the guest, so hover reveals and window-level Escape can both be unreachable; this pill is an embedder element painted above the guest and always clickable. App cards carry their own exit in the fullscreen bar, so they skip the pill (three exits read as clutter, Eric 2026-08-09). */}
+      {fullscreenCardId && !viewCards[fullscreenCardId] && (
         <Box
           onClick={() => dispatch(clearTiledCard(fullscreenCardId))}
           sx={{

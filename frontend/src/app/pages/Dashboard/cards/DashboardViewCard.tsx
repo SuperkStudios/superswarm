@@ -797,10 +797,8 @@ const DashboardViewCard: React.FC<Props> = ({
           gap: 0.75,
           px: 1,
           py: 0.25,
-          // Fullscreen flips the bar to the dark edge-to-edge system-chrome treatment (Zen/Safari
-          // compact), so it reads as window chrome instead of a floating card fragment.
-          bgcolor: isFullscreen ? '#211d19' : c.bg.secondary,
-          borderBottom: `1px solid ${isFullscreen ? 'rgba(255,255,255,0.08)' : c.border.subtle}`,
+          // Homogenized with the card body: same surface, no separator, the content just starts (Eric's call; the dark fullscreen flip felt like a foreign strip).
+          bgcolor: c.bg.surface,
           cursor: isDragging ? 'grabbing' : 'grab',
           flexShrink: 0,
           minHeight: 28,
@@ -810,25 +808,28 @@ const DashboardViewCard: React.FC<Props> = ({
         <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, mr: 0.25 }}>
           <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
         </Box>
-        <GridViewRoundedIcon sx={{ fontSize: 14, color: isFullscreen ? 'rgba(232,226,216,0.85)' : c.accent.primary, flexShrink: 0 }} />
-        <Typography
-          sx={{
-            flex: 1,
-            fontSize: '0.75rem',
-            fontWeight: 600,
-            color: isFullscreen ? '#e8e2d8' : c.text.primary,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {output.name}
-          {instance > 1 && (
-            <Box component="span" sx={{ ml: 0.75, fontSize: '0.6875rem', fontWeight: 500, color: isFullscreen ? 'rgba(232,226,216,0.5)' : c.text.ghost }}>
-              #{instance}
-            </Box>
-          )}
-        </Typography>
+        {/* Centered identity (Safari compact): the name floats over the bar's midpoint, not the corner. */}
+        <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 0.6, maxWidth: '50%', pointerEvents: 'none' }}>
+          <GridViewRoundedIcon sx={{ fontSize: 13, color: c.accent.primary, flexShrink: 0 }} />
+          <Typography
+            sx={{
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              color: c.text.primary,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {output.name}
+            {instance > 1 && (
+              <Box component="span" sx={{ ml: 0.75, fontSize: '0.6875rem', fontWeight: 500, color: c.text.ghost }}>
+                #{instance}
+              </Box>
+            )}
+          </Typography>
+        </Box>
+        <Box sx={{ flex: 1 }} />
 
         {showControls && (
           <>
@@ -846,7 +847,7 @@ const DashboardViewCard: React.FC<Props> = ({
                   });
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                sx={{ color: isFullscreen ? 'rgba(232,226,216,0.6)' : c.text.muted, p: 0.5, '&:hover': { color: isFullscreen ? '#fff' : c.text.primary } }}
+                sx={{ color: c.text.muted, p: 0.5, '&:hover': { color: c.text.primary } }}
               >
                 <RefreshIcon sx={{ fontSize: 15 }} />
               </IconButton>
@@ -862,7 +863,7 @@ const DashboardViewCard: React.FC<Props> = ({
             role="button"
             onClick={(e) => { e.stopPropagation(); onTile('restore'); }}
             onPointerDown={(e) => e.stopPropagation()}
-            sx={{ flexShrink: 0, fontSize: '0.6875rem', fontWeight: 600, color: '#e8e2d8', bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 999, px: 1.25, py: 0.35, cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.18)' } }}
+            sx={{ flexShrink: 0, fontSize: '0.6875rem', fontWeight: 600, color: c.text.secondary, bgcolor: `${c.text.primary}0d`, borderRadius: 999, px: 1.25, py: 0.35, cursor: 'pointer', '&:hover': { bgcolor: `${c.text.primary}1a`, color: c.text.primary } }}
           >
             Exit full screen
           </Box>
@@ -874,7 +875,7 @@ const DashboardViewCard: React.FC<Props> = ({
             size="small"
             onClick={(e) => { e.stopPropagation(); openCardContextMenu(e, { items: headerKebabRows() }); }}
             onPointerDown={(e) => e.stopPropagation()}
-            sx={{ color: isFullscreen ? 'rgba(232,226,216,0.6)' : c.text.ghost, p: 0.5, '&:hover': { color: isFullscreen ? '#fff' : c.text.primary } }}
+            sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
           >
             <MoreHorizRoundedIcon sx={{ fontSize: 17 }} />
           </IconButton>

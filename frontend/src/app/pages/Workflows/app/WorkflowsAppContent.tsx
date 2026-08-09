@@ -71,7 +71,7 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader; tileZone: string | und
         onPointerUp={header.onPointerUp}
         onPointerCancel={header.onPointerCancel}
         onLostPointerCapture={header.onLostPointerCapture}
-        style={{ height: 42, flex: 'none', display: 'flex', alignItems: 'center', padding: '0 16px', borderBottom: `1px solid ${WC.line}`, background: WC.panel, gap: 14, cursor: header.dragging ? 'grabbing' : 'grab', touchAction: 'none', userSelect: 'none' }}
+        style={{ height: 38, flex: 'none', display: 'flex', alignItems: 'center', padding: '0 14px', background: WC.page, gap: 14, cursor: header.dragging ? 'grabbing' : 'grab', touchAction: 'none', userSelect: 'none' }}
       >
         {/* macOS traffic lights: the whole window gets close / minimize / full size view like every card. */}
         <span
