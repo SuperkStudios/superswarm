@@ -5,7 +5,6 @@ import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE, updateOutput } from '@/shared/state/outputsSlice';
@@ -646,6 +645,16 @@ const DashboardViewCard: React.FC<Props> = ({
   const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !isMinimized;
   const tiledSize = useTiledCard({ cardId: cardKey, zone: tileZone, active: !isMinimized, originX: displayX, originY: displayY, getCamera: getCanvasState });
 
+  // Same identity math as the dock and Applications window, shrunk to chrome size.
+  const appHue = ((): number => {
+    let h = 0;
+    const name = output.name || '?';
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return h % 360;
+  })();
+  const p_glyph = (output.icon || '').trim();
+  const appGlyph = p_glyph && p_glyph.length <= 3 ? p_glyph : (output.name || '?').trim().charAt(0).toUpperCase();
+
   // The old 8-icon header cluster, demoted behind one kebab: view switcher, new window, toolbar
   // collapse, then the same rows the card's right-click menu carries.
   const headerKebabRows = (): CardMenuRow[] => ([
@@ -808,26 +817,28 @@ const DashboardViewCard: React.FC<Props> = ({
         <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, mr: 0.25 }}>
           <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
         </Box>
-        {/* Centered identity (Safari compact): the name floats over the bar's midpoint, not the corner. */}
-        <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 0.6, maxWidth: '50%', pointerEvents: 'none' }}>
-          <GridViewRoundedIcon sx={{ fontSize: 13, color: c.accent.primary, flexShrink: 0 }} />
-          <Typography
+        {/* Centered identity: the app's own monogram tile, no name (bare-chrome grammar shared with Settings/Marketplace; the tile matches the dock and Applications window). */}
+        <Box sx={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 0.5, pointerEvents: 'none' }} title={output.name}>
+          <Box
             sx={{
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              color: c.text.primary,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
+              width: 17,
+              height: 17,
+              borderRadius: '5px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.5625rem',
+              fontWeight: 700,
+              color: 'rgba(255,255,255,0.94)',
+              background: `linear-gradient(160deg, hsl(${appHue}, 42%, 52%), hsl(${(appHue + 24) % 360}, 48%, 34%))`,
+              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14)',
             }}
           >
-            {output.name}
-            {instance > 1 && (
-              <Box component="span" sx={{ ml: 0.75, fontSize: '0.6875rem', fontWeight: 500, color: c.text.ghost }}>
-                #{instance}
-              </Box>
-            )}
-          </Typography>
+            {appGlyph}
+          </Box>
+          {instance > 1 && (
+            <Typography sx={{ fontSize: '0.6875rem', fontWeight: 600, color: c.text.ghost }}>#{instance}</Typography>
+          )}
         </Box>
         <Box sx={{ flex: 1 }} />
 

@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import EventRepeatIcon from '@mui/icons-material/EventRepeat';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { clearWorkflowsAppTarget, closeWorkflowsApp, toggleMinimizeCard, WORKFLOWS_HUB_ID } from '@/shared/state/dashboardLayoutSlice';
 import WindowControls from '@/app/pages/Dashboard/cards/WindowControls';
@@ -88,10 +87,6 @@ const WorkflowsAppContent: React.FC<{ header: CardHeader; tileZone: string | und
             tiled={!!tileZone}
           />
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <EventRepeatIcon sx={{ fontSize: 18, color: WC.accent, display: 'block' }} />
-          <span style={{ fontFamily: FONT_SERIF, fontSize: 14.5, fontWeight: 500, color: WC.ink, letterSpacing: '-0.01em', lineHeight: 1, transform: 'translateY(2.5px)' }}>Workflows</span>
-        </div>
         <div style={{ flex: 1 }} />
         {selected && (
           // The share dialog portals to the body but its events still bubble the React tree, so stop them here or dragging the card follows a click inside the modal.
