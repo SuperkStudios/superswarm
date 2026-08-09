@@ -468,6 +468,7 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
         {(
           <div
             ref={canvas.contentRef}
+            data-canvas-content
             style={{
               transform: `translate(${canvas.panX}px, ${canvas.panY}px) scale(${canvas.zoom})`,
               transformOrigin: '0 0',

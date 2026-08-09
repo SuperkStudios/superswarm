@@ -911,6 +911,8 @@ export function useCanvasControls(
   }, [applyLive]);
 
   const getLiveState = useCallback((): CanvasState => stateRef.current, []);
+  // Dev-only forensic handle: lets a CDP harness compare the live camera against the DOM transform.
+  if (process.env.NODE_ENV !== 'production') (window as unknown as Record<string, unknown>).__OSW_LIVE_CAM__ = getLiveState;
 
   const actions = useMemo(() => ({
     zoomIn, zoomOut, resetZoom, fitToView, fitToCards, fitTidy, revealCards, animateTo, cancelAnimation,

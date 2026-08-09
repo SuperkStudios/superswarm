@@ -66,6 +66,16 @@ export function useDashboardSelection(
       const vp = canvas.viewportRef.current;
       if (!vp) return { x: 0, y: 0 };
       const rect = marqueeVpRectRef.current ?? vp.getBoundingClientRect();
+      // Invert the PAINTED transform, not a second copy of the camera: the marquee renders inside
+      // that exact matrix, so deriving from it makes a drawn-vs-painted mismatch unrepresentable
+      // (a stale live-camera copy once put the rect ~240px left of the cursor).
+      const content = vp.querySelector('[data-canvas-content]') as HTMLElement | null;
+      if (content) {
+        const m = new DOMMatrixReadOnly(getComputedStyle(content).transform);
+        if (m.a > 0) {
+          return { x: (screenX - rect.left - m.e) / m.a, y: (screenY - rect.top - m.f) / m.a };
+        }
+      }
       const cam = canvas.getLiveState();
       return {
         x: (screenX - rect.left - cam.panX) / cam.zoom,
