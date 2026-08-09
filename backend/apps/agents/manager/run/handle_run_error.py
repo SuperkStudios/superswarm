@@ -18,6 +18,7 @@ from backend.apps.agents.core.error_classify import (
     is_free_trial_exhausted,
     is_out_of_tokens,
     is_auth_error,
+    is_cert_failure,
     is_cli_binary_missing,
     is_unknown_model_error,
     parse_retry_after,
@@ -111,6 +112,22 @@ async def handle_run_error(e: Exception, session: AgentSession, session_id: str,
             })
         except Exception:
             logger.debug("submit_diagnostic for context_overflow failed", exc_info=True)
+    elif is_cert_failure(e, extra_text=p_stderr_tail):
+        # Deterministic per host: corporate TLS-inspection proxy, clock skew, or a stale CA bundle. Waiting can't fix any of them, so name the real remedies instead of a rate-limit-shaped pill (ENG-218).
+        friendly_msg = (
+            "OpenSwarm couldn't verify the AI provider's security certificate, so the "
+            "connection was refused. This usually means a corporate proxy or security "
+            "tool (Zscaler, Netskope) is inspecting your traffic, or your system clock "
+            "is wrong. Check the clock, try a different network, or ask IT to allow "
+            "api.anthropic.com; retrying won't help until one of those changes."
+        )
+        error_msg = Message(role="system", content=friendly_msg, branch_id=session.active_branch_id)
+        session.messages.append(error_msg)
+        await ws_manager.send_to_session(session_id, "agent:message", {
+            "session_id": session_id,
+            "message": error_msg.model_dump(mode="json"),
+        })
+        p_report_model_error("cert_failure", session_id, session, turn, e, p_stderr_tail)
     elif is_cli_binary_missing(e, extra_text=p_stderr_tail):
         # The bundled CLI vanished from an installed app (Windows AV quarantine class; 22 of 25 field installs never recovered). The raw "not found at: C:\..." card is unactionable; name the likely cause and the two real fixes.
         friendly_msg = (

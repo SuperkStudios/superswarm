@@ -131,3 +131,16 @@ def test_first_real_exception_all_cancelled_is_none():
 def test_first_real_exception_plain_passthrough():
     boom = RuntimeError("x")
     assert first_real_exception(boom) is boom
+
+
+def test_cert_failure_is_never_transient():
+    import httpx
+    from backend.apps.agents.core.error_classify import is_cert_failure, is_transient_capacity_error
+    exc = httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate")
+    assert is_cert_failure(exc) is True
+    # httpx.ConnectError subclasses the transient TransportError; the cert check must win (ENG-218).
+    assert is_transient_capacity_error(exc) is False
+    for msg in ("unable to get local issuer certificate", "certificate has expired", "Hostname mismatch"):
+        assert is_transient_capacity_error(httpx.ConnectError(msg)) is False
+    # A cert-free transport hiccup keeps its transient classification.
+    assert is_transient_capacity_error(httpx.ConnectError("Connection refused")) is True

@@ -245,12 +245,30 @@ def p_get_transient_exc_types() -> Tuple[type, ...]:
     return p_transient_exc_types
 
 
+# A broken cert chain is deterministic per host (corporate TLS-inspection proxy, clock skew, stale
+# CA bundle): it never heals inside a retry schedule, so it must be checked BEFORE the exception-type
+# tuple, because the raising httpx.ConnectError subclasses the transient httpx.TransportError.
+CERT_FAILURE_PATTERNS = re.compile(
+    r"certificate\s+verify\s+failed|CERTIFICATE_VERIFY_FAILED|unable\s+to\s+get\s+local\s+issuer"
+    r"|self.signed\s+certificate|certificate\s+has\s+expired|hostname\s+mismatch",
+    re.IGNORECASE,
+)
+
+
+@typechecked
+def is_cert_failure(exc: BaseException, extra_text: str = "") -> bool:
+    return bool(CERT_FAILURE_PATTERNS.search(f"{exc!s}\n{extra_text}"))
+
+
 @typechecked
 def is_transient_capacity_error(exc: BaseException, extra_text: str = "") -> bool:
     # The Claude CLI's underlying ProcessError stringifies to a generic "Command failed with exit code 1 / Check stderr output for details"; the real cause (rate_limit_error / No pool capacity available / 429 / overloaded) only surfaces in the subprocess's stderr stream, which we capture via the SDK's `stderr` callback and pass in as extra_text. Classify against both so we catch capacity errors regardless of which channel carried the message.
     combined = f"{exc!s}\n{extra_text}".strip()
     # An overflow can arrive dressed as a 429 ("request too large"); retrying the identical oversized request is guaranteed futile, the valve owns it.
     if is_context_overflow_error(exc, extra_text):
+        return False
+    # 335s of retries cannot fix a certificate; the user has to (ENG-218, reproduced against badssl).
+    if is_cert_failure(exc, extra_text):
         return False
     # A failure that names its own recovery window ("reset after 1m 57s") heals itself, even when
     # it's dressed as a 401; the reset hint outranks the auth-shaped non-transient veto (caught live).
