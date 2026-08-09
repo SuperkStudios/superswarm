@@ -62,6 +62,9 @@ export function VoiceDictationProvider({ children }: { children: React.ReactNode
   const latchedRef = useRef(false);
 
   const pressStart = useCallback((): void => {
+    // The Settings recorder chip owns the keyboard while it's armed: without this, pressing the
+    // CURRENT hotkey to rebind it started a dictation, which stole focus and snapped the chip back.
+    if ((window as unknown as Record<string, unknown>).__OSW_SHORTCUT_RECORDING__) return;
     if (holdMode) {
       // A TAP while recording must stop: the quick tap's press-end fires before the async start
       // flips state to 'recording', so without this the mic could be started by a click but never

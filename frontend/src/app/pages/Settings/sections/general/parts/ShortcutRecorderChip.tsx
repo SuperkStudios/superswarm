@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
@@ -26,31 +26,53 @@ export function comboDisplay(combo: string): string {
     .join(IS_MAC ? '' : '+');
 }
 
-/** Click-to-record shortcut chip: click arms it, the next non-modifier keydown becomes the combo ("Meta+Shift+d" parts format, same as new_agent_shortcut). */
+/** Click-to-record shortcut chip: click arms it, the next non-modifier keydown becomes the combo
+ * ("Meta+Shift+d" parts format, same as new_agent_shortcut). While armed, the WINDOW owns the
+ * keyboard at capture phase and app hotkeys are suppressed: the old chip-local listener lost the
+ * keys to global shortcuts (pressing the current dictation combo started a dictation, stole focus,
+ * and snapped the chip back before any combo could land, ENG-183). */
 const ShortcutRecorderChip: React.FC<{ value: string; onChange: (combo: string) => void }> = ({ value, onChange }) => {
   const c = useClaudeTokens();
   const [recording, setRecording] = useState(false);
+  const hostRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!recording) return undefined;
+    const w = window as unknown as Record<string, unknown>;
+    w.__OSW_SHORTCUT_RECORDING__ = true;
+    const onKey = (e: KeyboardEvent): void => {
+      // Swallow EVERYTHING while armed so no app shortcut fires mid-recording.
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
+      if (e.key === 'Escape') { setRecording(false); return; }
+      const parts: string[] = [];
+      if (e.metaKey) parts.push('Meta');
+      if (e.ctrlKey) parts.push('Ctrl');
+      if (e.altKey) parts.push('Alt');
+      if (e.shiftKey) parts.push('Shift');
+      parts.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
+      onChange(parts.join('+'));
+      setRecording(false);
+    };
+    // Click-away cancels; blur alone must not (a global hotkey stealing focus was the snap-back).
+    const onPointerDown = (e: PointerEvent): void => {
+      if (hostRef.current && e.target instanceof Node && hostRef.current.contains(e.target)) return;
+      setRecording(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      w.__OSW_SHORTCUT_RECORDING__ = false;
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [recording, onChange]);
+
   return (
     <Box
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (!recording) return;
-        if (['Meta', 'Control', 'Shift', 'Alt'].includes(e.key)) return;
-        e.preventDefault();
-        if (e.key === 'Escape') { setRecording(false); return; }
-        const parts: string[] = [];
-        if (e.metaKey) parts.push('Meta');
-        if (e.ctrlKey) parts.push('Ctrl');
-        if (e.altKey) parts.push('Alt');
-        if (e.shiftKey) parts.push('Shift');
-        parts.push(e.key.length === 1 ? e.key.toLowerCase() : e.key);
-        onChange(parts.join('+'));
-        setRecording(false);
-      }}
-      onBlur={() => setRecording(false)}
-      // Arming without taking focus meant the next blur disarmed it before any key could land, so
-      // the chip snapped back to its old value and looked like it refused to be rebound.
-      onClick={(e) => { (e.currentTarget as HTMLElement).focus(); setRecording(true); }}
+      ref={hostRef}
+      onClick={() => setRecording(true)}
       sx={{
         display: 'inline-flex',
         alignItems: 'center',
