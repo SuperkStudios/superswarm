@@ -551,6 +551,23 @@ const DashboardCanvas: React.FC<DashboardCanvasProps> = ({
       />
       </Box>
 
+      {/* The one exit that survives everything: mouse events over a fullscreen webview go to the guest, so hover reveals and window-level Escape can both be unreachable; this pill is an embedder element painted above the guest and always clickable. */}
+      {fullscreenCardId && (
+        <Box
+          onClick={() => dispatch(clearTiledCard(fullscreenCardId))}
+          sx={{
+            position: 'fixed', top: 34, left: '50%', transform: 'translateX(-50%)', zIndex: 1400,
+            px: '12px', py: '5px', borderRadius: 999, cursor: 'pointer', userSelect: 'none',
+            background: 'rgba(24,14,32,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+            color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: 600, letterSpacing: 0.2,
+            opacity: 0.3, transition: 'opacity 140ms ease', '&:hover': { opacity: 1 },
+            WebkitAppRegion: 'no-drag',
+          }}
+        >
+          Exit full screen
+        </Box>
+      )}
+
     </Box>
     </>
   );

@@ -251,6 +251,13 @@ interface LayoutPayload {
   zOrders?: Record<string, number>;
 }
 
+// Window-state entries (tiles, minimized pills) are only meaningful while some card map owns the id.
+function tileOwnerExists(s: DashboardLayoutState, id: string): boolean {
+  return id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards
+    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard)
+    || (id === MARKETPLACE_CARD_ID && !!s.marketplaceCard);
+}
+
 function ledgerAdd(ledger: string[], id: string): void {
   if (!ledger.includes(id)) ledger.push(id);
 }
@@ -670,6 +677,14 @@ const dashboardLayoutSlice = createSlice({
     },
     setTiledCard(state, action: PayloadAction<{ cardId: string; zone: string }>) {
       const { cardId, zone } = action.payload;
+      // The rail defers its tile dispatch two frames, so the card can be gone by the time it lands; a stranded 'fullscreen' hides the whole shell.
+      if (!tileOwnerExists(state, cardId)) return;
+      // One fullscreen owner, ever: two entries would fight over who hides the chrome and who gets the Escape.
+      if (zone === 'fullscreen') {
+        for (const [id, z] of Object.entries(state.tiledCards)) {
+          if (z === 'fullscreen' && id !== cardId) delete state.tiledCards[id];
+        }
+      }
       state.tiledCards[cardId] = zone;
       if (state.minimizedCards[cardId]) delete state.minimizedCards[cardId];
     },
@@ -1867,6 +1882,13 @@ const dashboardLayoutSlice = createSlice({
           state.browserCards = { ...incoming, ...keptAlive };
           state.workflowCards = action.payload.workflowCards || {};
           state.workflowsHub = action.payload.workflowsHub || null;
+          // The wholesale replace bypasses every removal reducer, so window-state entries can orphan; a stale 'fullscreen' re-engages the moment the same id reappears, hiding all chrome with zero clicks.
+          for (const id of Object.keys(state.tiledCards)) {
+            if (!tileOwnerExists(state, id)) delete state.tiledCards[id];
+          }
+          for (const id of Object.keys(state.minimizedCards)) {
+            if (!tileOwnerExists(state, id)) delete state.minimizedCards[id];
+          }
         } else {
           const occupied = collectOccupiedRects(state, action.payload.expandedSessionIds);
           addMissingCards(state.cards, action.payload.cards, occupied);
@@ -2103,10 +2125,7 @@ export const selectFullscreenCardId = (state: { dashboardLayout: DashboardLayout
   if (!entry) return null;
   const id = entry[0];
   // Belt over the reducer hygiene: an entry whose card is gone (any removal path) must not hold the app in fullscreen.
-  const exists = id in s.cards || id in s.viewCards || id in s.browserCards || id in s.workflowCards
-    || (id === WORKFLOWS_HUB_ID && !!s.workflowsHub) || (id === SETTINGS_CARD_ID && !!s.settingsCard)
-    || (id === MARKETPLACE_CARD_ID && !!s.marketplaceCard);
-  return exists && !s.minimizedCards[id] ? id : null;
+  return tileOwnerExists(s, id) && !s.minimizedCards[id] ? id : null;
 };
 
 export default dashboardLayoutSlice.reducer;
