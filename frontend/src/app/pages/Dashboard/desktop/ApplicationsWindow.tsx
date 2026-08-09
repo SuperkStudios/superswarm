@@ -19,10 +19,11 @@ function hueFor(name: string): number {
   return h % 360;
 }
 
-// Every tile is a generated ICON (gradient + monogram): a screenshot crushed to 68px reads as mud,
-// so the screenshot lives in the hover preview instead and the row stays dock-uniform.
+// Never letters or numbers on a tile (Eric 2026-08-09): the app's own screenshot is the icon; an
+// emoji glyph (a real symbol, not an initial) is the next-best mark; the generic app SVG closes.
 function AppTile({ output }: { output: Output }): React.ReactElement {
   const glyph = (output.icon || '').trim();
+  const glyphIsSymbol = glyph.length > 0 && glyph.length <= 3 && !/[a-z0-9]/i.test(glyph);
   const h = hueFor(output.name || '?');
   return (
     <Box
@@ -34,14 +35,20 @@ function AppTile({ output }: { output: Output }): React.ReactElement {
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
+        overflow: 'hidden',
         boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.14), 0 6px 18px rgba(0,0,0,0.32)',
         background: `linear-gradient(160deg, hsl(${h}, 42%, 52%), hsl(${(h + 24) % 360}, 48%, 34%))`,
-        fontSize: glyph && glyph.length <= 3 ? '1.5rem' : '1.375rem',
-        fontWeight: 590,
+        fontSize: '1.5rem',
         color: 'rgba(255,255,255,0.94)',
       }}
     >
-      {glyph && glyph.length <= 3 ? glyph : (output.name || '?').trim().charAt(0).toUpperCase()}
+      {output.thumbnail ? (
+        <Box component="img" src={output.thumbnail} alt="" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      ) : glyphIsSymbol ? (
+        glyph
+      ) : (
+        <GridViewRoundedIcon sx={{ fontSize: 30, color: 'rgba(255,255,255,0.92)' }} />
+      )}
     </Box>
   );
 }
@@ -126,7 +133,7 @@ function ApplicationsWindow({ outputs, onOpenApp, onClose }: ApplicationsWindowP
           )}
         </Box>
 
-        {Object.keys(outputs).length > 8 && (
+        {Object.keys(outputs).length > 0 && (
           <Box
             component="input"
             autoFocus

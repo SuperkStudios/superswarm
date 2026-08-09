@@ -514,6 +514,9 @@ export function useCanvasControls(
     // tree, not the DOM: without this guard their clicks started a canvas pan and the preventDefault
     // killed input focus (the "can't click into the Add-connector fields" bug).
     if (e.currentTarget instanceof Node && e.target instanceof Node && !e.currentTarget.contains(e.target)) return;
+    // Fullscreen has no canvas nav, period (same rule the wheel handler enforces): a drag that
+    // slipped past the fullscreen surface panned the hidden canvas underneath it.
+    if (selectFullscreenCardId(store.getState())) return;
     e.preventDefault();
     cancelAnimation();
     cancelInertia();
