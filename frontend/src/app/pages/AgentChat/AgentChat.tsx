@@ -69,7 +69,7 @@ import { isShowUiPair, isAskUiPair, extractPendingAskUi } from './tool-ui/showUi
 import { composerPlaceholder } from './composerPlaceholder';
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ForceStopAgentBar from './ForceStopAgentBar';
-import { RateLimitPill } from './shell/RateLimitPill';
+import { ProviderRetryPill, RateLimitPill } from './shell/RateLimitPill';
 import { ContextRecoveredPill } from './shell/ContextRecoveredPill';
 import ChatInput, { ChatInputHandle } from './ChatInput';
 import FollowupChips from './FollowupChips';
@@ -2132,6 +2132,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
         )}
 
         <RateLimitPill sessionId={session.id} />
+        <ProviderRetryPill sessionId={session.id} />
         <ContextRecoveredPill sessionId={session.id} />
 
         {isGlowing ? (

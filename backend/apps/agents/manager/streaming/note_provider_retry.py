@@ -32,6 +32,14 @@ def note_provider_retry(session_id: str, raw: object, turn: TurnState) -> None:
             attempt=data.get("attempt"),
             delay_ms=delay_ms,
         )
+        # The card sat DEAD through these waits (30s+ with no explanation, ENG-178); a muted pill is honest without reading as an error.
+        import asyncio
+        from backend.apps.agents.core.ws_manager import ws_manager
+        asyncio.get_running_loop().create_task(ws_manager.send_to_session(session_id, "agent:provider_retrying", {
+            "session_id": session_id,
+            "attempt": data.get("attempt"),
+            "delay_ms": delay_ms if isinstance(delay_ms, int) else None,
+        }))
     except Exception:
         pass
 

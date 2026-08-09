@@ -118,6 +118,7 @@ export interface AgentSession {
   framework_overhead_tokens?: number;
   context_overflow?: { reason: string; message: string; at: string } | null;
   rate_limited?: { retry_after_s: number | null; at: string } | null;
+  provider_retrying?: { attempt: number | null; delay_ms: number | null; at: string } | null;
   context_recovered?: { at: string } | null;
   // Set when a view-builder turn installed/changed deps, so the app card does a HARD reload (Vite restart) at turn-finish instead of the soft one. Reset when the next turn starts.
   app_deps_changed?: boolean;
@@ -741,6 +742,9 @@ const agentsSlice = createSlice({
         branches: { ...existing?.branches, ...action.payload.branches },
         pending_approvals: mergedApprovals,
         tool_group_meta: { ...existing?.tool_group_meta, ...action.payload.tool_group_meta },
+        // Renderer-local transient pills; the wire payload never carries them, so a status frame mid-backoff would wipe the "provider busy" pill it exists to explain.
+        provider_retrying: existing?.provider_retrying ?? null,
+        rate_limited: existing?.rate_limited ?? null,
       };
       if (action.payload.status === 'running' && !state.trackedNotificationIds.includes(action.payload.id)) {
         state.trackedNotificationIds.push(action.payload.id);
@@ -1003,6 +1007,23 @@ const agentsSlice = createSlice({
       }
     },
 
+    setProviderRetrying(
+      state,
+      action: PayloadAction<{ sessionId: string; attempt: number | null; delayMs: number | null }>
+    ) {
+      const session = state.sessions[action.payload.sessionId];
+      if (session) {
+        session.provider_retrying = {
+          attempt: action.payload.attempt,
+          delay_ms: action.payload.delayMs,
+          at: new Date().toISOString(),
+        };
+      }
+    },
+    clearProviderRetrying(state, action: PayloadAction<{ sessionId: string }>) {
+      const session = state.sessions[action.payload.sessionId];
+      if (session) session.provider_retrying = null;
+    },
     clearRateLimited(state, action: PayloadAction<{ sessionId: string }>) {
       const session = state.sessions[action.payload.sessionId];
       if (session) session.rate_limited = null;
@@ -1489,6 +1510,8 @@ export const {
   setContextOverflow,
   setRateLimited,
   clearRateLimited,
+  setProviderRetrying,
+  clearProviderRetrying,
   setContextRecovered,
   clearContextRecovered,
   setAppDepsChanged,

@@ -13,6 +13,7 @@ import {
   updateSessionContext,
   setContextOverflow,
   setRateLimited,
+  setProviderRetrying,
   setContextRecovered,
   setAppDepsChanged,
   setMcpSuggestions,
@@ -640,6 +641,17 @@ class WebSocketManager {
             sessionId: session_id,
             reason: data.reason ?? 'long_context_required',
             message: data.message ?? 'Context full.',
+          }));
+        }
+        break;
+
+      case 'agent:provider_retrying':
+        // Mid-turn CLI backoff: the provider 500/429'd and the CLI is silently waiting; show the muted pill so the card doesn't read as dead (ENG-178).
+        if (session_id) {
+          store.dispatch(setProviderRetrying({
+            sessionId: session_id,
+            attempt: typeof data.attempt === 'number' ? data.attempt : null,
+            delayMs: typeof data.delay_ms === 'number' ? data.delay_ms : null,
           }));
         }
         break;
