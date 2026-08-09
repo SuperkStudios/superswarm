@@ -162,8 +162,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       setThinkingLevel(level);
       promoteToDefault('default_thinking_level', level);
     }, [promoteToDefault]);
-    const [viewPickerOpen, setViewPickerOpen] = useState(false);
-    const [viewSearch, setViewSearch] = useState('');
     const [historyOpen, setHistoryOpen] = useState(false);
     const [historyQuery, setHistoryQuery] = useState('');
     const [popoverMode, setPopoverMode] = useState<'search' | 'runs' | 'schedule'>('search');
@@ -177,13 +175,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const workflowsHubOpen = useAppSelector((s) => Boolean(s.dashboardLayout.workflowsHub) && !s.dashboardLayout.minimizedCards[WORKFLOWS_HUB_ID]);
 
     const outputList = useMemo(() => Object.values(outputs), [outputs]);
-    const filteredOutputs = useMemo(() => {
-      if (!viewSearch.trim()) return outputList;
-      const q = viewSearch.toLowerCase();
-      return outputList.filter(
-        (o) => o.name.toLowerCase().includes(q) || o.description.toLowerCase().includes(q),
-      );
-    }, [outputList, viewSearch]);
 
 
     React.useImperativeHandle(ref, () => containerRef.current!, []);
@@ -212,33 +203,10 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     const handleDismiss = useCallback(() => {
       if (historyOpen) {
         handleCloseHistory();
-      } else if (viewPickerOpen) {
-        setViewPickerOpen(false);
-        setViewSearch('');
       } else {
         onCancel();
       }
-    }, [historyOpen, viewPickerOpen, onCancel, handleCloseHistory]);
-
-    // Alt/Option-click opens ANOTHER independent instance of an already-open app (its own runtime + ports); plain click focuses the existing card.
-    const handleSelectView = useCallback((output: Output, newInstance?: boolean) => {
-      onAddView(output.id, { newInstance });
-      setViewPickerOpen(false);
-      setViewSearch('');
-    }, [onAddView]);
-
-    const handleOpenViewPicker = useCallback(() => {
-      if (viewPickerOpen) {
-        setViewPickerOpen(false);
-        setViewSearch('');
-        return;
-      }
-      setHistoryOpen(false);
-      setHistoryQuery('');
-      dispatch(clearHistorySearch());
-      setViewPickerOpen(true);
-      setViewSearch('');
-    }, [viewPickerOpen, dispatch]);
+    }, [historyOpen, onCancel, handleCloseHistory]);
 
     // Opens the History popover on Chat history, with a tab to the Scheduled tasks run log. The calendar is a separate destination reached via the Schedule pill, never from here.
     const handleOpenHistory = useCallback(() => {
@@ -246,8 +214,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
         setHistoryOpen(false);
         return;
       }
-      setViewPickerOpen(false);
-      setViewSearch('');
       setPopoverMode('search');
       setHistoryOpen(true);
     }, [historyOpen]);
@@ -285,7 +251,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       }));
     }, [dispatch, historyQuery, historySearch.loading, historySearch.hasMore, historySearch.results.length]);
 
-    const isExpanded = inputOpen || viewPickerOpen || historyOpen;
+    const isExpanded = inputOpen || historyOpen;
 
     const autoSelectOnNew = useAppSelector((s) => s.settings.data.auto_select_mode_on_new_agent);
     const prevInputOpenRef = useRef(inputOpen);
@@ -362,12 +328,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
     }, [isExpanded, handleDismiss, elementSelection?.selectMode]);
 
     useEffect(() => {
-      if (viewPickerOpen) {
-        setTimeout(() => searchInputRef.current?.focus(), 60);
-      }
-    }, [viewPickerOpen]);
-
-    useEffect(() => {
       if (historyOpen) {
         setTimeout(() => historyInputRef.current?.focus(), 60);
       }
@@ -377,7 +337,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
       const handleKey = (e: KeyboardEvent) => {
         if (e.metaKey && e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
           e.preventDefault();
-          handleOpenViewPicker();
+          onOpenApplications();
         }
         if (e.metaKey && e.key.toLowerCase() === 'o' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
           e.preventDefault();
@@ -396,7 +356,7 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
         window.removeEventListener('keydown', handleKey);
         window.removeEventListener('openswarm:open-history', handleOpenHistoryEvent);
       };
-    }, [handleOpenViewPicker, handleOpenHistory, onAddBrowser]);
+    }, [onOpenApplications, handleOpenHistory, onAddBrowser]);
 
     // No dashboardId: chat history is global, so a chat you started on another dashboard is still findable here.
     useEffect(() => {
@@ -434,18 +394,18 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
           // Drop toolbar card chrome when popover is open (popover supplies its own surface) and when
           // collapsed (the spawn pill carries its own dark glass). The open composer wears the same
           // desktop dark glass as the rest of the shell.
-          background: historyOpen ? 'transparent' : viewPickerOpen ? c.bg.surface : inputOpen ? 'rgba(22,12,34,0.82)' : 'transparent',
-          backdropFilter: inputOpen && !historyOpen && !viewPickerOpen ? 'blur(20px) saturate(160%)' : undefined,
-          WebkitBackdropFilter: inputOpen && !historyOpen && !viewPickerOpen ? 'blur(20px) saturate(160%)' : undefined,
-          border: viewPickerOpen ? `1px solid ${c.border.subtle}` : '1px solid transparent',
+          background: historyOpen ? 'transparent' : inputOpen ? 'rgba(22,12,34,0.82)' : 'transparent',
+          backdropFilter: inputOpen && !historyOpen ? 'blur(20px) saturate(160%)' : undefined,
+          WebkitBackdropFilter: inputOpen && !historyOpen ? 'blur(20px) saturate(160%)' : undefined,
+          border: '1px solid transparent',
           borderRadius: `${c.radius.xl}px`,
           boxShadow: historyOpen || !isExpanded ? 'none' : '0 12px 32px rgba(0,0,0,0.4)',
           padding: isExpanded ? '6px' : '0px',
           userSelect: 'none' as const,
           // Only the view picker needs clipping (it scrolls its own list); anything else clipped the collapsed spawn pill's drop shadow flat against its own border box.
-          overflow: viewPickerOpen ? 'hidden' : 'visible',
+          overflow: 'visible',
           // historyOpen: width owned by SchedulePopover; leave undefined so framer-motion measures intrinsic size.
-          width: viewPickerOpen ? 580 : historyOpen ? undefined : isExpanded ? 540 : undefined,
+          width: historyOpen ? undefined : isExpanded ? 540 : undefined,
         }}
       >
         {inputOpen && !historyOpen ? (
@@ -504,123 +464,6 @@ const DashboardToolbar = React.forwardRef<HTMLDivElement, Props>(
               historyScrollRef={historyListRef as React.RefObject<HTMLDivElement>}
               onHistoryScroll={handleHistoryScroll}
             />
-          </div>
-        ) : viewPickerOpen ? (
-          <div style={{ width: '100%' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1 }}>
-              <SearchIcon sx={{ fontSize: 18, color: c.text.muted }} />
-              <InputBase
-                inputRef={searchInputRef}
-                value={viewSearch}
-                onChange={(e) => setViewSearch(e.target.value)}
-                placeholder="Search apps..."
-                sx={{
-                  flex: 1,
-                  fontSize: '0.875rem',
-                  color: c.text.primary,
-                  fontFamily: c.font.sans,
-                  '& input::placeholder': { color: c.text.ghost, opacity: 1 },
-                }}
-              />
-            </Box>
-            <Box
-              sx={{
-                maxHeight: 400,
-                overflow: 'auto',
-                borderTop: `1px solid ${c.border.subtle}`,
-                '&::-webkit-scrollbar': { width: 4 },
-                '&::-webkit-scrollbar-track': { background: 'transparent' },
-                '&::-webkit-scrollbar-thumb': {
-                  background: c.border.medium,
-                  borderRadius: 2,
-                },
-                scrollbarWidth: 'thin',
-                scrollbarColor: `${c.border.medium} transparent`,
-              }}
-            >
-              {filteredOutputs.length === 0 ? (
-                <EmptyState title={outputList.length === 0 ? 'No apps created yet' : 'No matching apps'} />
-              ) : (
-                filteredOutputs.map((output) => (
-                  <Box
-                    key={output.id}
-                    onClick={(e) => handleSelectView(output, e.altKey)}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 1.5,
-                      px: 1.5,
-                      py: 1,
-                      cursor: 'pointer',
-                      transition: 'background-color 0.1s',
-                      '&:hover': { bgcolor: c.bg.elevated },
-                    }}
-                  >
-                    {output.thumbnail ? (
-                      <Box
-                        component="img"
-                        src={output.thumbnail}
-                        alt={output.name}
-                        sx={{
-                          width: 144,
-                          height: 96,
-                          borderRadius: '6px',
-                          objectFit: 'cover',
-                          objectPosition: 'top left',
-                          flexShrink: 0,
-                          border: `1px solid ${c.border.subtle}`,
-                        }}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          width: 144,
-                          height: 96,
-                          borderRadius: '6px',
-                          flexShrink: 0,
-                          border: `1px solid ${c.border.subtle}`,
-                          bgcolor: c.accent.primary + '12',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Icon sx={{ fontSize: 32, color: c.accent.primary, opacity: 0.7 }}>
-                          {output.icon || 'view_quilt'}
-                        </Icon>
-                      </Box>
-                    )}
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography
-                        sx={{
-                          fontSize: '0.8125rem',
-                          fontWeight: 500,
-                          color: c.text.primary,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {output.name}
-                      </Typography>
-                      {output.description && (
-                        <Typography
-                          sx={{
-                            fontSize: '0.75rem',
-                            color: c.text.muted,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {output.description}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                ))
-              )}
-            </Box>
           </div>
         ) : canvasEmpty ? null : (
           <DesktopSpawnPill
