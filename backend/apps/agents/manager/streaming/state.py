@@ -45,6 +45,10 @@ class TurnState(BaseModel):
     tool_count: int = 0
     started_ts: Optional[float] = None
     total_ms: int = 0
+    # ACTIVE time: sum of inter-event deltas with stall gaps capped, so a turn that waits an hour
+    # on an approval or a wedged workflow books seconds of work, not the wall gap (ENG-189).
+    last_event_ts: Optional[float] = None
+    active_ms: int = 0
     output_tokens: int = 0
     assistant_text_chars: int = 0
     tool_input_chars: int = 0

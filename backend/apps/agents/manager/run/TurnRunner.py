@@ -107,6 +107,13 @@ class TurnRunner(AgentManagerProtocol):
                     flight_recorder.crumb(session_id, "first-event", kind=type(message).__name__)
                     turn.first_event = False
 
+                # Active-time ledger: count the gap since the previous event, capped so a stall
+                # (approval wait, paused workflow, provider backoff) can't book its wall-clock.
+                p_now_ts = time.time()
+                if turn.last_event_ts is not None:
+                    turn.active_ms += int(min(p_now_ts - turn.last_event_ts, 30.0) * 1000)
+                turn.last_event_ts = p_now_ts
+
                 # Log system messages (MCP server status, errors, etc.)
                 if isinstance(message, SystemMessage):
                     raw = message.__dict__ if hasattr(message, '__dict__') else str(message)

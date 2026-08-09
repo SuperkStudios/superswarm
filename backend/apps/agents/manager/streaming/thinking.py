@@ -86,11 +86,14 @@ async def emit_consolidated_thinking(thinking: ThinkingState, turn: TurnState, s
             pass
     if turn.started_ts is not None:
         turn.total_ms = int((time.time() - turn.started_ts) * 1000)
-        # Accumulate into session-level "agent active time" and the per-model breakdown so a session that spans multiple turns reports the total wall-clock time the agent was running. Per-model bucket uses the model active *now* (model can be switched mid-turn but the current value is the right attribution for the work just produced).
+        # Session-level "agent active time" books ACTIVE ms (stall-capped inter-event deltas), not
+        # turn wall-clock: one 9-message session once booked 54 hours by waiting (ENG-189). Fallback
+        # to wall-clock only when no events accrued (a turn that died before its first event).
         try:
-            session.agent_active_ms = int(getattr(session, "agent_active_ms", 0) or 0) + turn.total_ms
+            p_worked_ms = turn.active_ms if turn.active_ms > 0 else turn.total_ms
+            session.agent_active_ms = int(getattr(session, "agent_active_ms", 0) or 0) + p_worked_ms
             m = session.model or "unknown"
-            session.time_per_model[m] = int(session.time_per_model.get(m, 0)) + turn.total_ms
+            session.time_per_model[m] = int(session.time_per_model.get(m, 0)) + p_worked_ms
         except Exception:
             pass
     if thinking.msg_id is None:
