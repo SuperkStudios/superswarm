@@ -168,24 +168,27 @@ export function useVoiceDictation() {
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
     try {
-      // Fire the OS mic prompt through the main process first: a packaged hardened-runtime build denies renderer getUserMedia outright until TCC granted (the prod dictation-dead cause, ENG-103).
-      const micOk = await (window.openswarm as any)?.voiceRequestMicAccess?.() ?? true;
-      if (micOk === false) { setError('mic-denied'); return; }
+      // Everything below used to run SERIAL and speech during that window is simply dropped, so it
+      // was all felt latency (measured live on the packaged build: mic 210ms warm / 2.5s cold on a
+      // powered-down input device, plus ~115ms of IPC + context + worklet). Only getUserMedia is
+      // physics; the rest overlaps it now. The TCC prompt (ENG-103) still fires via
+      // voiceRequestMicAccess; in parallel is safe because pre-grant getUserMedia fails right too.
+      const micOkP: Promise<boolean> = (window.openswarm as any)?.voiceRequestMicAccess?.() ?? Promise.resolve(true);
       // autoGainControl OFF is the OSS-dictation consensus (Chromium's hidden AGC rides the mic and
       // garbles levels mid-utterance; none of the five surveyed shipping apps allow any AGC), and
       // noiseSuppression smears speech whisper handles better raw. Echo cancellation stays: we play
       // cues out the speakers while the mic is hot.
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+      const streamP = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
       ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
-      const source = ctx.createMediaStreamSource(stream);
       const chunks: Float32Array[] = [];
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
-      const streamRes = await window.openswarm?.voiceStreamStart?.();
-      const streaming = streamRes?.ok === true;
+      // Read through a let: the capture node is built while stream-start is still in flight, and no
+      // chunk can flow before the source connects below, by which point this is assigned.
+      let streaming = false;
       // No AGC: boosting "quiet" speech clipped NORMAL speech into distortion and wrecked accuracy
       // (Eric's garbled-history report). Whisper handles real levels fine; a whisper-mode boost can
       // only come back as an opt-in with a proper peak limiter, never inline on the hot path.
-      const capture = await createCaptureNode(ctx, (i16) => {
+      const captureP = createCaptureNode(ctx, (i16) => {
         if (streaming) window.openswarm?.voiceStreamChunk?.(i16.buffer as ArrayBuffer);
         const data = new Float32Array(i16.length);
         for (let i = 0; i < i16.length; i++) data[i] = i16[i] / 0x8000;
@@ -201,6 +204,17 @@ export function useVoiceDictation() {
           : volumeRef.current * 0.78 + level * 0.22;
         if (endpointer && endpointer.push(data) !== 'listening') void stopRef.current?.();
       });
+      const [micOk, streamGot, streamRes, capture] = await Promise.all([
+        micOkP, streamP, window.openswarm?.voiceStreamStart?.() ?? Promise.resolve(undefined), captureP,
+      ]);
+      stream = streamGot;
+      if (micOk === false) {
+        stream.getTracks().forEach((t) => t.stop());
+        setError('mic-denied');
+        return;
+      }
+      streaming = streamRes?.ok === true;
+      const source = ctx.createMediaStreamSource(stream);
       source.connect(capture.node);
       capture.node.connect(ctx.destination);
       recRef.current = { ctx, stream, node: capture.node, requestFlush: capture.requestFlush, source, chunks, streaming };
@@ -239,11 +253,10 @@ export function useVoiceDictation() {
       // Accuracy first (Eric's call): phrases decoded in isolation lose whisper's cross-phrase
       // context, which read as "sometimes fine, sometimes off". The FULL clip is always decoded at
       // stop and wins; the streamed assembly only stands in if the batch decode fails outright.
-      let streamedFallback: string | null = null;
-      if (streaming) {
-        const sres = await window.openswarm?.voiceStreamStop?.();
-        if (sres?.ok && sres.text) streamedFallback = sres.text;
-      }
+      // Fire the streaming shutdown but DON'T wait for it here: it blocks on the session's in-flight
+      // partial decode, and its text is only ever needed if the batch decode below fails outright.
+      // Awaiting it up front sat between the user's stop and the answer on every single dictation.
+      const streamStopP = streaming ? window.openswarm?.voiceStreamStop?.() : null;
       let res: { ok: boolean; text?: string; error?: string } | undefined;
       {
         // OpenWhispr's window gate: whole-clip RMS misses a clip that is silence plus one cough, so
@@ -268,7 +281,10 @@ export function useVoiceDictation() {
             : samples;
           const wav = encodeWav(padded);
           res = await window.openswarm?.voiceTranscribe?.(wav);
-          if ((!res || !res.ok || !res.text) && streamedFallback) res = { ok: true, text: streamedFallback };
+          if ((!res || !res.ok || !res.text) && streamStopP) {
+            const sres = await streamStopP;
+            if (sres?.ok && sres.text) res = { ok: true, text: sres.text };
+          }
         }
       }
       // Whisper captions non-speech in brackets/parens ("[ Background sounds ]", "(laughs)") and marks speaker turns with ">>"; those are annotations, not dictation.
