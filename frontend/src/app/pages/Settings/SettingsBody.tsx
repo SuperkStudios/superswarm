@@ -2,9 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import IconButton from '@mui/material/IconButton';
 import Typography from '@mui/material/Typography';
-import { X } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
 import { fetchModels } from '@/shared/state/modelsSlice';
 import { fetchModes } from '@/shared/state/modesSlice';
@@ -41,17 +39,16 @@ const isValidTab = (t: string | null | undefined): t is SettingsTab =>
 interface SettingsBodyProps {
   /** The host is showing this body; gates the fetches, the live theme apply and the debounced save. */
   active: boolean;
-  onRequestClose: () => void;
 }
 
 // The settings UI itself: rail + section. Hosted by the modal (Settings.tsx) and by the on-canvas window (SettingsAppCard) with no forked copy between them.
-const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) => {
+const SettingsBody: React.FC<SettingsBodyProps> = ({ active }) => {
   const c = useClaudeTokens();
   const dispatch = useAppDispatch();
   const modes = useAppSelector((s) => s.modes.items);
   const modesList = useMemo(() => Object.values(modes), [modes]);
   const modelOptions = useModelOptions();
-  const { form, setForm, saveError, dismissSaveError, flushPendingSave } = useSettingsForm(active);
+  const { form, setForm, saveError, dismissSaveError } = useSettingsForm(active);
   const requestedTab = useAppSelector((s) => s.dashboardLayout.settingsRequestedTab);
 
   const [activeTab, setActiveTab] = useState<SettingsTab>(isValidTab(lastOpenTab) ? lastOpenTab : 'general');
@@ -82,11 +79,6 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) =
     lastOpenTab = activeTab;
   }, [activeTab]);
 
-  const handleRequestClose = (): void => {
-    flushPendingSave();
-    onRequestClose();
-  };
-
   const styles = makeSettingsStyles(c);
 
   return (
@@ -94,13 +86,10 @@ const SettingsBody: React.FC<SettingsBodyProps> = ({ active, onRequestClose }) =
       <SettingsRail activeTab={activeTab} onTabChange={(v) => setActiveTab(v as SettingsTab)} />
 
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 3, pt: 0.5, pb: 0.75, flexShrink: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', px: 3, pt: 0.5, pb: 0.75, flexShrink: 0 }}>
         <Typography sx={{ color: c.text.primary, fontWeight: 600, fontSize: '1rem' }}>
           {railLabelFor(activeTab)}
         </Typography>
-        <IconButton onClick={handleRequestClose} size="small" data-onboarding="settings-close-button" sx={{ color: c.text.tertiary, '&:hover': { color: c.text.primary } }}>
-          <X size={18} />
-        </IconButton>
       </Box>
 
       <Box sx={{

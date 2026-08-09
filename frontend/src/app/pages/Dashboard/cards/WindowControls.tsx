@@ -8,6 +8,8 @@ interface WindowControlsProps {
   onMinimize: () => void;
   onTile: (zone: string) => void; // a TILE_ZONES key, 'fullscreen', or 'restore'
   tiled?: boolean;
+  /** Onboarding anchor riding the close dot (the settings flow points its cursor here). */
+  closeDataOnboarding?: string;
 }
 
 // macOS-style traffic lights on every card = the "AI OS" window feel. Grey at rest so a canvas
@@ -47,7 +49,7 @@ export const ARC_CHIP_SX: Record<string, unknown> = {
   '.osw-pill-host:hover & .osw-window-lights > [data-light="zoom"]': { transform: 'translate(calc(-50% + 11px), calc(-50% + 5px)) scale(1)', opacity: 1, transitionDelay: '80ms' },
 };
 
-function WindowControls({ onClose, onMinimize, onTile, tiled }: WindowControlsProps): React.ReactElement {
+function WindowControls({ onClose, onMinimize, onTile, tiled, closeDataOnboarding }: WindowControlsProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   // Menu DOM (12 tiles + labels, ~30 nodes) mounts on first green-dot hover, not per card at boot.
   const [menuHot, setMenuHot] = useState(false);
@@ -67,6 +69,7 @@ function WindowControls({ onClose, onMinimize, onTile, tiled }: WindowControlsPr
 
   const btn = (color: string, symbol: string, onClick: () => void, label: string, slot: string): React.ReactElement => (
     <Box component="button" type="button" aria-label={label} data-light={slot}
+      {...(slot === 'close' && closeDataOnboarding ? { 'data-onboarding': closeDataOnboarding } : {})}
       onClick={(e: React.MouseEvent) => { e.stopPropagation(); onClick(); }} onPointerDown={stop} sx={dotSx(color)}>
       <span>{symbol}</span>
     </Box>

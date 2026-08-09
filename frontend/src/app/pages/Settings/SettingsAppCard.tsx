@@ -106,10 +106,10 @@ const SettingsAppCard: React.FC<Props> = ({
               onClick={(e) => e.stopPropagation()}
               style={{ display: 'flex', alignItems: 'center' }}
             >
-              <WindowControls onClose={close} onMinimize={minimize} onTile={onTileZone} tiled={!!tileZone} />
+              <WindowControls onClose={close} onMinimize={minimize} onTile={onTileZone} tiled={!!tileZone} closeDataOnboarding="settings-close-button" />
             </span>
           </div>
-          <SettingsBody active onRequestClose={close} />
+          <SettingsBody active />
         </>
       )}
     </CanvasWindowCard>
