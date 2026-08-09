@@ -36,6 +36,14 @@ interface Recorder {
   streaming: boolean;
 }
 
+interface WarmMic {
+  stream: MediaStream;
+  ctx: AudioContext;
+  timer: number;
+}
+
+const WARM_MIC_GRACE_MS = 5 * 60_000;
+
 // One object per terminal outcome so the overlay's effect always re-fires (new identity every time).
 export interface VoiceFeedback {
   tone: 'ok' | 'warn' | 'error';
@@ -107,6 +115,7 @@ export function useVoiceDictation() {
   const [target, setTarget] = useState<InjectTargetInfo>({ label: '', icon: null });
   const partialSeqRef = useRef<number>(0);
   const recRef = useRef<Recorder | null>(null);
+  const warmMicRef = useRef<WarmMic | null>(null);
   const stateRef = useRef<VoiceState>('idle');
   // Live mic level (0..1) for the aurora; a ref, not state, so 60Hz visuals never re-render React.
   const volumeRef = useRef<number>(0);
@@ -128,21 +137,47 @@ export function useVoiceDictation() {
     void tick();
   }, []);
 
+  // ENG-210: macOS powers the input device down when the last stream closes and the next open costs
+  // ~2.5s (worse on Bluetooth, which renegotiates HFP per open). Park the live stream + context for a
+  // grace window instead of stopping them; the next fn press reconnects in ~5ms. Tracks are disabled
+  // while parked so nothing is captured; the OS mic indicator stays lit for the window, Eric's call.
+  const releaseWarmMic = useCallback((): void => {
+    const warm = warmMicRef.current;
+    warmMicRef.current = null;
+    if (!warm) return;
+    window.clearTimeout(warm.timer);
+    try { warm.stream.getTracks().forEach((t) => t.stop()); } catch (_) { /* already dead */ }
+    try { void warm.ctx.close(); } catch (_) { /* already closed */ }
+  }, []);
+
+  const parkWarmMic = useCallback((stream: MediaStream, ctx: AudioContext): void => {
+    releaseWarmMic();
+    if (!stream.getTracks().some((t) => t.readyState === 'live') || ctx.state === 'closed') {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) { /* already dead */ }
+      try { void ctx.close(); } catch (_) { /* already closed */ }
+      return;
+    }
+    stream.getTracks().forEach((t) => { t.enabled = false; });
+    const timer = window.setTimeout(() => releaseWarmMic(), WARM_MIC_GRACE_MS);
+    warmMicRef.current = { stream, ctx, timer };
+  }, [releaseWarmMic]);
+
+  useEffect(() => () => releaseWarmMic(), [releaseWarmMic]);
+
   const teardown = useCallback((): Float32Array | null => {
     const rec = recRef.current;
     recRef.current = null;
     if (!rec) return null;
     try { rec.node.disconnect(); } catch (_) { /* already gone */ }
     try { rec.source.disconnect(); } catch (_) { /* already gone */ }
-    try { rec.stream.getTracks().forEach((t) => t.stop()); } catch (_) { /* already gone */ }
-    try { void rec.ctx.close(); } catch (_) { /* already gone */ }
+    parkWarmMic(rec.stream, rec.ctx);
     const total = rec.chunks.reduce((n, c) => n + c.length, 0);
     if (!total) return new Float32Array(0);
     const out = new Float32Array(total);
     let off = 0;
     for (const c of rec.chunks) { out.set(c, off); off += c.length; }
     return out;
-  }, []);
+  }, [parkWarmMic]);
 
   // `hold` = the user is physically holding a key or button, so they own the end of the utterance
   // and silence must never cut them off mid-thought. Only a tap session endpoints itself.
@@ -174,12 +209,26 @@ export function useVoiceDictation() {
       // physics; the rest overlaps it now. The TCC prompt (ENG-103) still fires via
       // voiceRequestMicAccess; in parallel is safe because pre-grant getUserMedia fails right too.
       const micOkP: Promise<boolean> = (window.openswarm as any)?.voiceRequestMicAccess?.() ?? Promise.resolve(true);
+      // A parked warm mic (ENG-210) skips getUserMedia entirely; a dead one is released and we fall
+      // through to a fresh open. Popped from the ref FIRST so a failure below can never double-use it.
+      const warm = warmMicRef.current;
+      warmMicRef.current = null;
+      if (warm) window.clearTimeout(warm.timer);
+      const warmLive = !!warm && warm.stream.getTracks().some((t) => t.readyState === 'live') && warm.ctx.state !== 'closed';
+      if (warm && !warmLive) {
+        try { warm.stream.getTracks().forEach((t) => t.stop()); } catch (_) { /* already dead */ }
+        try { void warm.ctx.close(); } catch (_) { /* already closed */ }
+      }
+      if (warmLive) warm.stream.getTracks().forEach((t) => { t.enabled = true; });
       // autoGainControl OFF is the OSS-dictation consensus (Chromium's hidden AGC rides the mic and
       // garbles levels mid-utterance; none of the five surveyed shipping apps allow any AGC), and
       // noiseSuppression smears speech whisper handles better raw. Echo cancellation stays: we play
       // cues out the speakers while the mic is hot.
-      const streamP = navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
-      ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+      const streamP = warmLive
+        ? Promise.resolve(warm.stream)
+        : navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+      ctx = warmLive ? warm.ctx : new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
+      if (ctx.state === 'suspended') void ctx.resume();
       const chunks: Float32Array[] = [];
       const endpointer = hold ? null : createSilenceDetector(ctx.sampleRate);
       // Read through a let: the capture node is built while stream-start is still in flight, and no
