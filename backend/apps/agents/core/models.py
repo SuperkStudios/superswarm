@@ -141,6 +141,9 @@ class AgentSession(BaseModel):
     empty_finish_progress_mark: int = 0
     # One honest "stopped without a report" line per exhausted nudge budget; resets with the budget.
     empty_finish_surfaced: bool = False
+    # Memory prompt block frozen at first compose (prefix-cache discipline: mid-chat fact writes must
+    # not shift the prompt bytes). Excluded from persistence so a resumed session re-snapshots fresh.
+    memory_snapshot: Optional[str] = Field(default=None, exclude=True)
     # Sanitized server names model has explicitly activated this session; _build_mcp_servers intersects connected MCPs with this. Non-bypassable; dispatch-layer gate.
     active_mcps: list[str] = Field(default_factory=list)
     # Heuristic preamble tokens (preset + tool defs + MCP descs + composed prompt); subtracted from displayed input.

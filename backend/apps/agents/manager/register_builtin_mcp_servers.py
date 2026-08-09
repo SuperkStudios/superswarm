@@ -36,6 +36,14 @@ def register_builtin_mcp_servers(
     # Settings, and CreateApp.
     modules = ["meta", "settings", "apps"]
 
+    # Memory tools ride the same Settings toggle as the prompt block, so "off" means zero bytes AND zero tools.
+    try:
+        from backend.apps.settings.settings import load_settings
+        if getattr(load_settings(), "memory_enabled", True):
+            modules.append("memory")
+    except Exception:
+        modules.append("memory")
+
     browser_all_denied = all(
         builtin_perms.get(t, "always_allow") == "deny"
         for t in browser_delegation_tools

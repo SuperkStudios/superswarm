@@ -54,9 +54,13 @@ def build_effective_tool_lists(
                 # wildcard would blanket gated tools; enumerate per module instead, same policies as
                 # when each module was its own process. Module list = what registration wired.
                 p_modules = [m for m in mcp_servers[name].get("env", {}).get("OSW_MCP_MODULES", "").split(",") if m]
-                from backend.apps.agents import apps_mcp_server, mcp_meta_server, schedule_mcp_server, settings_meta_server
+                from backend.apps.agents import apps_mcp_server, mcp_meta_server, memory_meta_server, schedule_mcp_server, settings_meta_server
                 for p_t in (x["name"] for x in mcp_meta_server.TOOLS + settings_meta_server.TOOLS + apps_mcp_server.TOOLS):
                     effective_allowed.append(f"mcp__openswarm-core__{p_t}")
+                # Module presence already encodes the Settings memory toggle; absent module = tools not offered.
+                if "memory" in p_modules:
+                    for p_t in (x["name"] for x in memory_meta_server.TOOLS):
+                        effective_allowed.append(f"mcp__openswarm-core__{p_t}")
                 if "schedule" in p_modules:
                     for p_t in (x["name"] for x in schedule_mcp_server.TOOLS):
                         effective_allowed.append(f"mcp__openswarm-core__{p_t}")

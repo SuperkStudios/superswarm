@@ -51,7 +51,8 @@ def test_long_fact_truncated():
 
 
 def test_prompt_block_shape():
-    assert store.build_memory_context() == ""
+    empty = store.build_memory_context()
+    assert "No saved facts yet" in empty and "MemoryWrite" in empty
     store.add_fact("Ships a desktop app called OpenSwarm")
     block = store.build_memory_context()
     assert block.startswith("<user_memory>") and block.endswith("</user_memory>")
@@ -62,3 +63,67 @@ def test_prompt_block_shape():
 def test_delete_missing_is_false():
     assert store.delete_fact("nope") is False
     assert store.update_fact("nope", "text") is None
+
+
+def test_ops_batch_applies_atomically():
+    kept = store.add_fact("Keeps espresso notes in a spreadsheet")
+    assert kept is not None
+    result = store.apply_ops([
+        store.MemoryOp(action="add", text="Ships the newsletter on Fridays"),
+        store.MemoryOp(action="remove", id="nope-no-such-id"),
+    ])
+    assert result.ok is False
+    assert result.facts is not None
+    assert [f.text for f in store.list_facts()] == ["Keeps espresso notes in a spreadsheet"]
+
+
+def test_ops_replace_and_remove_by_id():
+    a = store.add_fact("Prefers tabs over spaces in yaml")
+    b = store.add_fact("Runs a marathon every October")
+    assert a is not None and b is not None
+    result = store.apply_ops([
+        store.MemoryOp(action="replace", id=a.id, text="Prefers spaces over tabs in yaml"),
+        store.MemoryOp(action="remove", id=b.id),
+    ])
+    assert result.ok is True
+    assert result.facts is None
+    facts = store.list_facts()
+    assert [f.text for f in facts] == ["Prefers spaces over tabs in yaml"]
+    assert "1/60 facts" in result.usage
+
+
+def test_ops_overflow_returns_inventory_and_one_batch_consolidates():
+    for i in range(store.MAX_FACTS):
+        store.add_fact(f"zebra{i} quartz{i} lantern{i} violet{i}")
+    full = store.apply_ops([store.MemoryOp(action="add", text="one past the cap")])
+    assert full.ok is False
+    assert full.facts is not None and len(full.facts) == store.MAX_FACTS
+    assert "Consolidate NOW" in full.note
+    victim = store.list_facts()[0]
+    retry = store.apply_ops([
+        store.MemoryOp(action="remove", id=victim.id),
+        store.MemoryOp(action="add", text="landed after freeing space in the same batch"),
+    ])
+    assert retry.ok is True
+    assert len(store.list_facts()) == store.MAX_FACTS
+
+
+def test_prompt_block_carries_meter_and_tool_guidance():
+    assert "MemoryWrite" in store.build_memory_context()
+    store.add_fact("Only drinks decaf after noon")
+    block = store.build_memory_context()
+    assert "1/60 facts" in block and "MemoryWrite" in block and "decaf" in block
+
+
+def test_memory_snapshot_freezes_per_session():
+    from backend.apps.agents.core.models import AgentSession
+    from backend.apps.agents.manager.prompt.compose_turn_system_prompt import compose_turn_system_prompt
+    store.add_fact("Names every dashboard after a national park")
+    session = AgentSession(name="t")
+    first = compose_turn_system_prompt(session, None, None, None, None, None)
+    assert first is not None and "national park" in first
+    store.add_fact("Refuses to use dark mode before sunset")
+    second = compose_turn_system_prompt(session, None, None, None, None, None)
+    assert second == first
+    assert "sunset" not in (second or "")
+    assert "memory_snapshot" not in session.model_dump()

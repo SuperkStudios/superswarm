@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 P_MODULE_FILES = {
     "meta": "mcp_meta_server",
     "settings": "settings_meta_server",
+    "memory": "memory_meta_server",
     "apps": "apps_mcp_server",
     "spawn": "spawn_agent_mcp_server",
     "invoke": "invoke_agent_mcp_server",

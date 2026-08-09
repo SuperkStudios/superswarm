@@ -1,14 +1,14 @@
 """CRUD for the user's memory facts; the Settings > Memory page is the only intended client."""
 
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Dict, List
+from typing import Any, AsyncIterator, Dict, List
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 from typeguard import typechecked
 
 from backend.config.Apps import SubApp
-from backend.apps.memory.store import MemoryFact, add_fact, delete_fact, list_facts, update_fact
+from backend.apps.memory.store import MemoryFact, MemoryOp, add_fact, apply_ops, delete_fact, list_facts, update_fact
 
 
 @asynccontextmanager
@@ -36,6 +36,19 @@ async def create_fact(body: FactBody) -> MemoryFact:
     if fact is None:
         raise HTTPException(status_code=400, detail="Empty fact, or the memory list is full (60 max); delete something first.")
     return fact
+
+
+class OpsBody(BaseModel):
+    ops: List[MemoryOp]
+
+
+@memory.router.post("/ops")
+@typechecked
+async def apply_memory_ops(body: OpsBody) -> Dict[str, Any]:
+    """Atomic batch for the MemoryWrite tool: all ops land or none do, cap checked on the final state."""
+    if not body.ops:
+        raise HTTPException(status_code=400, detail="ops must be a non-empty list.")
+    return apply_ops(body.ops).model_dump()
 
 
 @memory.router.patch("/{fact_id}")
