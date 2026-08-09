@@ -207,6 +207,20 @@ export interface InstallDisclosure {
   secret_findings: string[];
 }
 
+// The grammar people copy out of READMEs; cheap local gate so plain searches never buy a round-trip.
+export const INSTALL_COMMAND_RE = /^(npx|npm|pnpm|bunx|yarn)\s|skills\.sh\//i;
+
+export async function parseInstallCommand(command: string): Promise<string | null> {
+  const res = await fetch(`${SKILL_REGISTRY_API}/parse-command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { skill_id: string | null };
+  return data.skill_id ?? null;
+}
+
 export async function searchCommunitySkills(q: string): Promise<CommunitySkill[]> {
   const params = new URLSearchParams({ q, limit: '30', source: 'community' });
   const res = await fetch(`${SKILL_REGISTRY_API}/search?${params}`);

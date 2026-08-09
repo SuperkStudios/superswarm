@@ -14,6 +14,8 @@ import { fetchSkills } from '@/shared/state/skillsSlice';
 import {
   fetchAllRegistrySkills,
   installCuratedSkill,
+  INSTALL_COMMAND_RE,
+  parseInstallCommand,
   searchCommunitySkills,
   CommunitySkill,
   RegistrySkill,
@@ -73,7 +75,14 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
       const seq = ++searchSeq.current;
       setCommunityLoading(true);
       try {
-        const res = await searchCommunitySkills(query.trim());
+        // A pasted README install command ("npx skills add pdf-filler", a skills.sh URL) resolves to
+        // its skill id server-side first, so the box accepts the grammar people actually copy (ENG-217).
+        let effective = query.trim();
+        if (INSTALL_COMMAND_RE.test(effective)) {
+          const skillId = await parseInstallCommand(effective).catch(() => null);
+          if (skillId) effective = skillId;
+        }
+        const res = await searchCommunitySkills(effective);
         if (seq === searchSeq.current) setCommunity(res);
       } catch {
         if (seq === searchSeq.current) setCommunity([]);
@@ -95,7 +104,9 @@ const DirectorySkillsTab: React.FC<Props> = ({ onOpenInstalled }) => {
   }, [localSkills]);
 
   const cards = useMemo((): SkillCardModel[] => {
-    const q = query.trim().toLowerCase();
+    // A pasted install command already resolved server-side into the community results; filtering
+    // those hits against the raw paste string would hide the exact skill the user asked for.
+    const q = INSTALL_COMMAND_RE.test(query.trim()) ? '' : query.trim().toLowerCase();
     // Join curated skills to their skills.sh twin (source anthropics/skills) so Anthropic cards get real install counts.
     const communityByName = new Map(community.map((cs) => [cs.name.trim().toLowerCase(), cs]));
     const out: SkillCardModel[] = [];
