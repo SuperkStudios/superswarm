@@ -120,18 +120,23 @@ async def serve_workspace_file(workspace_id: str, filepath: str, p_d: str = ""):
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    with open(full_path) as f:
-        content = f.read()
-
-    if filepath == "index.html":
+    # endswith, not equality: serve-mode delivers frontend/dist/index.html through this same route and needs the identical injection + token rewrite (ENG-209).
+    if filepath.endswith("index.html"):
+        with open(full_path) as f:
+            content = f.read()
         input_json, result_json = decode_data_param(p_d) if p_d else ("{}", "null")
         backend_url_json = backend_url_for_workspace(workspace_id)
         content = inject_data_into_html(content, input_json, result_json, backend_url_json, with_runtime=True)
         # Iframe sub-resource fetches (<link>, <script src>, <img>) drop the parent's ?token= query string, so rewrite the HTML to put the token back on every relative URL; otherwise sub-resources 401.
         content = inject_token_into_relative_urls(content, get_auth_token())
+        mime, _ = mimetypes.guess_type(filepath)
+        return Response(content=content, media_type=mime or "text/plain")
 
+    # Binary-safe for everything else: a built bundle carries fonts and images that a text read would corrupt.
+    with open(full_path, "rb") as f:
+        raw = f.read()
     mime, _ = mimetypes.guess_type(filepath)
-    return Response(content=content, media_type=mime or "text/plain")
+    return Response(content=raw, media_type=mime or "application/octet-stream")
 
 
 @outputs.router.get("/{output_id}/serve/{filepath:path}")
@@ -460,6 +465,8 @@ def runtime_status_payload(workspace_id: str, instance: int = 1) -> dict:
         "running": rt.running,
         # 'spawned' vs 'serving': ready flips only once the primary port answered the bind poll (and un-flips when the process dies or is frozen).
         "ready": rt.ready,
+        # True when the app is served as a built bundle with no dev-server process (ENG-209).
+        "serve_static": rt.serve_static,
         "port": rt.port,
         "serving_url": serving_url,
         "has_backend_file": rt.has_backend_file,

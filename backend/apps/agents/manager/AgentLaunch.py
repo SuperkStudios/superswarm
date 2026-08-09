@@ -62,6 +62,13 @@ class AgentLaunch(AgentManagerProtocol):
             from backend.apps.outputs.workspace_io import app_workspace_dir
             bound = app_workspace_dir(config.selected_app_output_ids[0])
             if bound:
+                # The user is about to EDIT this app: a serve-static runtime must boot vite now or the agent's changes render nowhere (ENG-209).
+                try:
+                    from backend.apps.outputs.runtime import manager as p_rt_manager
+                    await p_rt_manager.ensure_editing(bound)
+                except Exception:
+                    pass
+            if bound:
                 config.target_directory = bound
 
         mode_tools, _, mode_folder = resolve_mode(config.mode, get_all_tool_names)

@@ -108,6 +108,8 @@ class AppRuntime:
         # Old-mode: `port` is the backend.py port. New-mode: `port` is the workspace's optional FastAPI backend (only set if BACKEND_PORT!=NONE) and `frontend_port` is the Vite dev server port. Both Nones until start() decides what's there.
         self.port: Optional[int] = None
         self.frontend_port: Optional[int] = None
+        # Serve-mode (ENG-209): a fresh built bundle + no agent editing means NO process at all; the workspace serve route delivers frontend/dist and this flag makes ready/frontend_url say so.
+        self.serve_static: bool = False
         # New-mode only: flips True once something is actually listening on frontend_port (we kick off a background poll task in p_start_new_mode). frontend_url returns null until this flips, so the preview pane doesn't try to navigate to an unbound port and show a "Site can't be reached" error mid-npm-install.
         self.p_frontend_ready: bool = False
         # True while the process tree is SIGSTOP'd in the idle pool. A frozen vite still holds its port but can't answer it, so frontend_url must stay null while suspended (else the webview loads a dead port = the ERR_FAILED on fast app-switching).
@@ -174,6 +176,8 @@ class AppRuntime:
         """True only when the runtime is actually SERVING (process alive, not frozen, and its
         primary port answered the bind poll), so callers can tell 'spawned' from 'serving'.
         Old-mode workspaces have no bind poll; a live process is their best readiness signal."""
+        if self.serve_static:
+            return True
         if not self.running or self.p_suspended:
             return False
         if self.is_new_mode:
@@ -183,6 +187,11 @@ class AppRuntime:
     @property
     def frontend_url(self) -> Optional[str]:
         # Gated on `_frontend_ready` (set by the background bind-poll task in p_start_new_mode) so the preview pane only switches over once Vite is actually accepting connections. Without this, the editor flashes a "Site can't be reached" error while `npm install` is running. Also gated on `running`: a vite that crashed or got orphaned still has _frontend_ready=True, and handing the webview that dead port is the ERR_FAILED you see on reopen. No live process, no URL. And gated on `not _suspended`: a SIGSTOP'd idle runtime is "running" (returncode is None) but frozen, so its port won't answer.
+        if self.serve_static:
+            # The existing workspace serve route: index injection + token rewrite apply, and the dist's relative assets resolve under the same path.
+            from backend.auth import init_auth_token
+            p_port = os.environ.get("OPENSWARM_PORT", "8324")
+            return f"http://127.0.0.1:{p_port}/api/outputs/workspace/{self.workspace_id}/serve/frontend/dist/index.html?token={init_auth_token()}"
         if self.frontend_port and self.p_frontend_ready and self.running and not self.p_suspended:
             return f"http://127.0.0.1:{self.frontend_port}/"
         return None
@@ -230,6 +239,14 @@ class AppRuntime:
             return await self.p_start_old_mode()
 
     async def p_start_new_mode(self) -> bool:
+        # Serve-mode (ENG-209): a fresh built bundle + nobody editing = no process at all. Primary
+        # instance only (secondaries are explicitly "another independent window", keep them live).
+        if self.instance == 1:
+            from backend.apps.outputs.static_serve import static_fresh, workspace_being_edited
+            if static_fresh(self.workspace_path) and not workspace_being_edited(self.workspace_path):
+                self.serve_static = True
+                self.p_broadcast(LogLine("runtime", "[runtime] serving the built bundle (no dev server); editing an app boots vite automatically"))
+                return True
         # Legacy workspaces (scaffolded pre-multi-instance) ignore the forced ports; self-heal their run.sh so a second instance stops colliding on the primary's ports.
         ensure_force_port_shim(self.workspace_path)
         env_path = os.path.join(self.workspace_path, ".env")
@@ -672,8 +689,15 @@ class AppRuntimeManager:
                 # Workspace paths shouldn't change for a given id, but if somehow they did (e.g. the user moved the workspace folder), trust the latest caller; they have the current truth.
                 rt.workspace_path = workspace_path
             self.p_attached[key] = self.p_attached.get(key, 0) + 1
-        if not revived and not rt.running:
+        if not revived and not rt.running and not rt.serve_static:
             await rt.start()
+        # A serve-static runtime re-checks its world on every attach: an agent may have bound to the
+        # workspace since, or the dist may have gone stale; either flips it back to a real vite boot.
+        if rt.serve_static:
+            from backend.apps.outputs.static_serve import static_fresh, workspace_being_edited
+            if workspace_being_edited(rt.workspace_path) or not static_fresh(rt.workspace_path):
+                rt.serve_static = False
+                await rt.start()
         # Stop any dead idle runtime outside the lock to avoid blocking.
         if dead is not None:
             try:
@@ -681,6 +705,15 @@ class AppRuntimeManager:
             except Exception:
                 logger.exception("failed to reap dead idle runtime %s", key)
         return rt
+
+    async def ensure_editing(self, workspace_path: str) -> None:
+        """An agent just bound to this workspace: any serve-static runtime for it must become a real
+        vite dev server, or the agent edits files the user never sees."""
+        norm = os.path.realpath(workspace_path)
+        for rt in list(self.runtimes.values()) + list(self.idle_lru.values()):
+            if os.path.realpath(rt.workspace_path) == norm and rt.serve_static:
+                rt.serve_static = False
+                await rt.start()
 
     async def detach(self, workspace_id: str, instance: int = 1) -> None:
         key = runtime_key(workspace_id, instance)
@@ -695,6 +728,10 @@ class AppRuntimeManager:
             rt = self.runtimes.pop(key, None)
             if rt is None:
                 return
+            # Park-time dist build (ENG-209): a vite runtime going idle is the moment to bake the static bundle, so the NEXT open serves it processlessly. Fire-and-forget; failure just means vite again.
+            if rt.running and not rt.serve_static and rt.instance == 1 and is_new_mode(rt.workspace_path):
+                from backend.apps.outputs.static_serve import build_dist_in_background
+                asyncio.create_task(build_dist_in_background(rt.workspace_path, rt.workspace_id))
             # If the process is already dead, no point keeping it around; just clean up. Otherwise move to the LRU AND SIGSTOP the process tree so it consumes 0% CPU while idle. The matching SIGCONT lives in attach() above.
             if not rt.running:
                 to_reap.append(rt)

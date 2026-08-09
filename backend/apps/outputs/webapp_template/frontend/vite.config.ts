@@ -49,6 +49,8 @@ export default defineConfig(({ mode }) => {
   const backendEnabled = backendPort && backendPort !== 'NONE';
 
   return {
+    // Relative asset URLs: the built bundle is served under /api/outputs/workspace/<id>/serve/frontend/dist/, where absolute /assets/ paths would 404 (ENG-209 serve-mode).
+    base: './',
     cacheDir: sharedViteCacheDir(),
     plugins: [
       react(),
