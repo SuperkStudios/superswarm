@@ -159,7 +159,84 @@ def test_template_ships_both_sdk_helpers_and_the_skill_references_them():
     with open(skill_path, "r", encoding="utf-8") as f:
         skill = f.read()
     assert "SDK.md" in skill and "openswarmHost" in skill and "openswarm_host" in skill
-    # The tools/MCP surface is deliberately not wired yet; the guide must not advertise it as available.
+    # The tools surface is wired behind per-app grants; the guide must teach the deny contract, not hide the gate.
     with open(guide, "r", encoding="utf-8") as f:
         text = f.read()
-    assert "does NOT give you" in text
+    assert "per-app" in text and "Allow once" in text and "never retry" in text
+
+
+def p_isolated_grants(tmp_path, monkeypatch):
+    from backend.apps.apps_sdk import tool_grants
+    monkeypatch.setattr(tool_grants, "GRANTS_FILE", str(tmp_path / "grants.json"))
+    return tool_grants
+
+
+def test_tool_call_denied_grant_is_refused_flat(tmp_path, monkeypatch):
+    grants = p_isolated_grants(tmp_path, monkeypatch)
+    grants.set_grant("app1", "srv1:SendEmail", "denied")
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {}})
+    assert r.status_code == 403
+    assert "denied" in r.json()["detail"]
+
+
+def test_tool_call_ungranted_times_out_to_deny(tmp_path, monkeypatch):
+    from backend.apps.apps_sdk import tool_grants
+    p_isolated_grants(tmp_path, monkeypatch)
+    monkeypatch.setattr(tool_grants, "GRANT_WAIT_SECONDS", 0.05)
+    called = {"n": 0}
+
+    async def p_never(*a, **k):
+        called["n"] += 1
+        return "should not run"
+    import backend.apps.tools_lib.mcp_call as mcp_call
+    monkeypatch.setattr(mcp_call, "call_mcp_tool", p_never)
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {}})
+    assert r.status_code == 403
+    assert called["n"] == 0
+
+
+def test_tool_call_granted_dispatches(tmp_path, monkeypatch):
+    grants = p_isolated_grants(tmp_path, monkeypatch)
+    grants.set_grant("app1", "srv1:SendEmail", "granted")
+
+    async def p_fake_call(tool_id, tool_name, arguments):
+        assert (tool_id, tool_name) == ("srv1", "SendEmail")
+        return "sent: " + arguments["to"]
+    import backend.apps.tools_lib.mcp_call as mcp_call
+    monkeypatch.setattr(mcp_call, "call_mcp_tool", p_fake_call)
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {"to": "a@b.c"}})
+    assert r.status_code == 200
+    assert r.json()["result"] == "sent: a@b.c"
+
+
+def test_grant_prompt_approval_flow_allows_and_remembers(tmp_path, monkeypatch):
+    import asyncio
+    grants = p_isolated_grants(tmp_path, monkeypatch)
+
+    async def p_fake_call(tool_id, tool_name, arguments):
+        return "ok"
+    import backend.apps.tools_lib.mcp_call as mcp_call
+    monkeypatch.setattr(mcp_call, "call_mcp_tool", p_fake_call)
+
+    captured = {}
+
+    async def p_capture_broadcast(event, payload):
+        captured.update(payload)
+        asyncio.get_running_loop().call_soon(
+            lambda: grants.resolve_grant(payload["request_id"], True, True))
+    from backend.apps.agents.core import ws_manager as wsm
+    monkeypatch.setattr(wsm.ws_manager, "broadcast_global", p_capture_broadcast)
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"output_id": "app2", "tool": "srv9:ReadSheet", "args": {}})
+    assert r.status_code == 200
+    assert captured["tool_label"] == "ReadSheet"
+    assert grants.grant_status("app2", "srv9:ReadSheet") == "granted"
+
+
+def test_tools_grant_route_unknown_request_is_no_op():
+    r = client.post("/api/apps-sdk/tools/grant", headers=p_auth(),
+                    json={"request_id": "nope", "allow": True})
+    assert r.status_code == 200 and r.json()["ok"] is False

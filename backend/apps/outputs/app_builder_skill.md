@@ -361,8 +361,13 @@ listing + firing the user's workflows and reading run results, and spawning real
 cards on the canvas (optionally positioned). **Read `SDK.md` at the workspace root before
 building any feature that needs intelligence, automation, or agents** — the helpers are:
 
-- Frontend: `import { llm, listWorkflows, runWorkflow, spawnAgent } from '@/openswarmHost'`
-- Backend: `from backend.apps.openswarm_host.openswarm_host import llm, run_workflow, spawn_agent`
+- Frontend: `import { llm, listWorkflows, runWorkflow, spawnAgent, listTools, callTool } from '@/openswarmHost'`
+- Backend: `from backend.apps.openswarm_host.openswarm_host import llm, run_workflow, spawn_agent, list_tools, call_tool`
+
+The user's connected tools (Gmail, Calendar, custom MCP connectors) are callable too, behind a
+PER-APP grant: the first `callTool('<serverId>:<ToolName>', args)` pops an approval card and
+blocks on the user's answer; a deny is a 403 and means no, never retry it in a loop. Design tool
+features to degrade cleanly when the connector is absent or the user declines.
 
 Auth is automatic (host-injected token); never hand-roll fetches against host routes. The SDK
 works in preview and installed apps; for features that must survive PUBLISHING to the public

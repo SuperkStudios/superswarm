@@ -538,6 +538,11 @@ class WebSocketManager {
         }
         break;
 
+      case 'apps_sdk:tool_grant_request':
+        // An app asked to use a connected MCP tool; AppToolGrantHost (global mount) owns the dialog.
+        window.dispatchEvent(new CustomEvent('openswarm:app-tool-grant', { detail: data }));
+        break;
+
       case 'apps_sdk:place_agent_card': {
         // An app asked for its spawned agent at a specific canvas spot; the card is created async
         // by the session lifecycle, so nudge it into place with a short bounded retry.

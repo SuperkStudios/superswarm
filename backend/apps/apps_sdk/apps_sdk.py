@@ -10,7 +10,7 @@ can land its card at a position on the canvas.
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, Optional
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from pydantic import BaseModel, ConfigDict
 from typeguard import typechecked
 
@@ -70,7 +70,7 @@ async def llm(body: LlmRequest) -> LlmReply:
             resp = await stream.get_final_message()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    text = "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text")
     return LlmReply(text=text, model=api_model)
 
 
@@ -90,6 +90,116 @@ class SpawnAgentReply(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     session_id: str
+
+
+class ToolsListRequest(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
+    output_id: Optional[str] = None
+
+
+@typechecked
+def resolve_app_from_origin(origin: str) -> Optional[str]:
+    """Server-derived app identity: a webview app's fetch carries Origin http://127.0.0.1:<port>,
+    and the runtime manager knows which app owns that port. Stronger than a self-reported id."""
+    try:
+        from urllib.parse import urlparse
+
+        from backend.apps.outputs.runtime import manager
+
+        parsed = urlparse(origin)
+        if parsed.hostname not in ("127.0.0.1", "localhost") or not parsed.port:
+            return None
+        for registry in (manager.runtimes, manager.idle_lru):
+            for rt in registry.values():
+                if parsed.port in (rt.frontend_port, rt.port):
+                    return rt.workspace_id
+    except Exception:
+        return None
+    return None
+
+
+class AppToolServerRow(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
+    id: str
+    name: str
+    description: str
+
+
+@apps_sdk.router.post("/tools/list")
+@typechecked
+async def tools_list(body: ToolsListRequest) -> Dict[str, Any]:
+    """Connected tool servers an app could ask to use: the SAME enabled, vetted set agents see,
+    nothing wider. Sub-tools come from POST /api/tools/{id}/discover; calls go through the grant."""
+    from backend.apps.tools_lib.tools_lib import load_all_tools
+
+    rows = [
+        AppToolServerRow(id=tool.id, name=tool.name, description=tool.description[:200])
+        for tool in load_all_tools()
+        if tool.mcp_config and tool.enabled and tool.auth_status in ("configured", "connected")
+    ]
+    return {"servers": [r.model_dump() for r in rows]}
+
+
+class ToolCallRequest(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
+    # App backends name themselves via OPENSWARM_OUTPUT_ID; webview apps are identified by Origin instead.
+    output_id: Optional[str] = None
+    # "<tool_id>:<ToolName>" from /tools/list.
+    tool: str
+    args: Dict[str, Any] = {}
+
+
+@apps_sdk.router.post("/tools/call")
+@typechecked
+async def tools_call(body: ToolCallRequest, request: Request) -> Dict[str, Any]:
+    """The grant gate: denied is refused flat, ungranted blocks on a user approval card, granted
+    dispatches through the same transport + credential path agents use. Enforced server-side."""
+    import json as p_json
+
+    from backend.apps.apps_sdk.tool_grants import grant_status, request_grant
+    from backend.apps.outputs.workspace_io import load_output
+    from backend.apps.tools_lib.mcp_call import call_mcp_tool
+
+    # Origin wins over the body: it's derived from which live app runtime owns the calling port.
+    output_id = resolve_app_from_origin(request.headers.get("origin", "")) or body.output_id
+    if not output_id:
+        raise HTTPException(status_code=403, detail="Could not identify the calling app; tool access is per-app.")
+    tool_id, sep, tool_name = body.tool.partition(":")
+    if not sep or not tool_id or not tool_name:
+        raise HTTPException(status_code=422, detail="tool must be '<tool_id>:<ToolName>' from /tools/list")
+    status = grant_status(output_id, body.tool)
+    if status == "denied":
+        raise HTTPException(status_code=403, detail=f"The user has denied this app access to {tool_name}.")
+    if status != "granted":
+        try:
+            output = load_output(output_id)
+            app_name = output.name if output else output_id
+        except Exception:
+            app_name = output_id
+        allowed = await request_grant(output_id, app_name, body.tool, tool_name, p_json.dumps(body.args)[:400])
+        if not allowed:
+            raise HTTPException(status_code=403, detail=f"The user did not approve this app using {tool_name}.")
+    text = await call_mcp_tool(tool_id, tool_name, body.args)
+    return {"result": text}
+
+
+class GrantResolveRequest(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
+    request_id: str
+    allow: bool
+    remember: bool = False
+
+
+@apps_sdk.router.post("/tools/grant")
+@typechecked
+async def tools_grant(body: GrantResolveRequest) -> Dict[str, bool]:
+    from backend.apps.apps_sdk.tool_grants import resolve_grant
+
+    return {"ok": resolve_grant(body.request_id, body.allow, body.remember)}
 
 
 @apps_sdk.router.post("/agents/spawn")

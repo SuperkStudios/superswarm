@@ -14,7 +14,7 @@ from backend.apps.tools_lib.mcp_failure_reason import readable_mcp_failure
 logger = logging.getLogger(__name__)
 
 
-def p_parse_sse_json(text: str) -> dict | None:
+def parse_sse_json(text: str) -> dict | None:
     """Extract JSON from an SSE response body (handles `data: {...}` lines)."""
     for line in text.splitlines():
         stripped = line.strip()
@@ -63,7 +63,7 @@ async def discover_mcp_tools_http(url: str, headers: dict | None = None) -> list
 
         ct = list_resp.headers.get("content-type", "")
         if "text/event-stream" in ct:
-            data = p_parse_sse_json(list_resp.text)
+            data = parse_sse_json(list_resp.text)
         else:
             data = list_resp.json()
 

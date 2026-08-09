@@ -27,6 +27,7 @@ import { fetchOutputs } from '@/shared/state/outputsSlice';
 import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
 import WhatsNewCard from '@/app/components/Layout/WhatsNewCard';
 import ShareRequestHost from '@/app/components/share/ShareRequestHost';
+import AppToolGrantHost from '@/app/components/apps/AppToolGrantHost';
 import CardContextMenu from '@/app/pages/Dashboard/desktop/CardContextMenu';
 import { findBrowserByWebContentsId } from '@/shared/browserRegistry';
 import { byPreviewRecency } from '@/shared/previewOrder';
@@ -604,6 +605,7 @@ const AppShell: React.FC = () => {
       </React.Suspense>
 
       <ShareRequestHost />
+      <AppToolGrantHost />
 
       {/* Shell-global right-click host (portals to body): chat surfaces render on non-dashboard routes too, so the menu can't live inside DashboardCanvas. */}
       <CardContextMenu />

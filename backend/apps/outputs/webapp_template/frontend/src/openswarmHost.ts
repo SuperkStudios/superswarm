@@ -104,3 +104,35 @@ export async function spawnAgent(prompt: string, opts: SpawnAgentOptions = {}): 
 export async function agentSession(sessionId: string): Promise<Record<string, unknown>> {
   return hostFetch<Record<string, unknown>>(`/api/agents/sessions/${encodeURIComponent(sessionId)}`);
 }
+
+export interface ToolServer {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** The user's connected tool servers (Gmail, Calendar, custom MCP connectors, ...). */
+export async function listTools(): Promise<ToolServer[]> {
+  const reply = await hostFetch<{ servers: ToolServer[] }>('/api/apps-sdk/tools/list', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  return reply.servers;
+}
+
+/** The individual tools a server exposes (name + input schema), straight from the live server. */
+export async function discoverTools(serverId: string): Promise<Record<string, unknown>[]> {
+  const reply = await hostFetch<{ tools: Record<string, unknown>[] }>(`/api/tools/${encodeURIComponent(serverId)}/discover`, { method: 'POST', body: JSON.stringify({}) });
+  return reply.tools ?? [];
+}
+
+/** Call one tool as `<serverId>:<ToolName>`. The FIRST call per tool shows the user an approval
+ * card (Allow once / Always / Never); a deny or an unanswered card rejects with a 403. Design for
+ * that: it is the user saying no, not an error to retry. */
+export async function callTool(tool: string, args: Record<string, unknown> = {}): Promise<string> {
+  const reply = await hostFetch<{ result: string }>('/api/apps-sdk/tools/call', {
+    method: 'POST',
+    body: JSON.stringify({ tool, args }),
+  });
+  return reply.result;
+}

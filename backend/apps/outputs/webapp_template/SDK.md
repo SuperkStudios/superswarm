@@ -80,11 +80,19 @@ Each component folder carries its own README + zod schema (`@toolui/registry` ma
 name -> schema). They style themselves (scoped Tailwind, no preflight), so they drop
 into the MUI app without fights, and they follow the app's light/dark mode.
 
-## What the SDK does NOT give you (yet)
+## Tools (the user's connected MCP connectors), behind per-app grants
 
-- Direct calls to the user's connected tools/MCP connectors (Gmail, Slack, ...). That surface
-  needs per-app permission grants and is not wired; do not fake it by calling other host routes.
-  If your app needs a tool action today, spawn an agent and ask it to do the task.
+Apps can call the user's connected tools, but every tool is gated per app: the first call to a
+tool pops an approval card in OpenSwarm (Allow once / Always allow / Never allow), and the call
+blocks until the user answers. A deny (or ignoring the card for 2 minutes) rejects with a 403;
+treat that as the user's answer, never retry in a loop.
+
+Frontend: `listTools()` -> servers, `discoverTools(serverId)` -> that server's tools with input
+schemas, `callTool('<serverId>:<ToolName>', args)` -> result text.
+Backend: `list_tools()`, `discover_tools(server_id)`, `call_tool('<server_id>:<ToolName>', args)`.
+
+Only servers the user has connected and enabled are reachable; there is no way to widen that from
+app code, so design the feature to degrade when the tool it wants is absent or denied.
 
 ## Ground rules
 

@@ -91,3 +91,33 @@ def spawn_agent(
 def agent_session(session_id: str) -> Dict[str, Any]:
     """A spawned agent's live state: status plus its transcript so far."""
     return p_request("GET", f"/api/agents/sessions/{session_id}")
+
+
+@typechecked
+def list_tools() -> List[Dict[str, Any]]:
+    """The user's connected tool servers (Gmail, Calendar, custom MCP connectors, ...)."""
+    reply = p_request("POST", "/api/apps-sdk/tools/list", {})
+    servers = reply.get("servers", [])
+    return servers if isinstance(servers, list) else []
+
+
+@typechecked
+def discover_tools(server_id: str) -> List[Dict[str, Any]]:
+    """The individual tools a server exposes (name + input schema), straight from the live server."""
+    reply = p_request("POST", f"/api/tools/{server_id}/discover", {})
+    tools = reply.get("tools", [])
+    return tools if isinstance(tools, list) else []
+
+
+@typechecked
+def call_tool(tool: str, args: Optional[Dict[str, Any]] = None) -> str:
+    """Call one tool as '<server_id>:<ToolName>'. The FIRST call per tool shows the user an
+    approval card (Allow once / Always / Never); a deny or an unanswered card raises with a 403.
+    Design for that: it is the user saying no, not an error to retry. Backend processes are
+    identified by OPENSWARM_OUTPUT_ID (injected by the host runtime)."""
+    reply = p_request("POST", "/api/apps-sdk/tools/call", {
+        "tool": tool,
+        "args": args or {},
+        "output_id": os.environ.get("OPENSWARM_OUTPUT_ID") or None,
+    })
+    return str(reply.get("result", ""))
