@@ -17,6 +17,21 @@ NUDGE_PROMPT = (
     "finish the task; when done, always end with your findings or answer as normal text."
 )
 
+# The last allowed nudge stops asking for more work: field data (Haik, 2026-08-08, 20 nudges in 5
+# sessions) showed the model reads "continue and finish" as MORE tool calls then another silent
+# quit, so the escalation demands the one thing the user is actually missing: text.
+FINAL_NUDGE_PROMPT = (
+    "Stop. Do not call any more tools. In plain chat text, right now: report what you have done "
+    "so far, what is left, and anything blocking you. Even a partial status is required."
+)
+
+# Post-cap honesty: the machinery is out of nudges and the turn STILL ended silent, so say so in
+# the transcript instead of leaving a Done pill over a wall of tool rows.
+EXHAUSTED_NOTE = (
+    "The agent stopped working without a final report. Ask it to summarize, or check the tool "
+    "results above for where it got to."
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,9 +44,12 @@ def maybe_nudge_empty_finish(session: AgentSession, session_id: str) -> bool:
     auto-continuation block dispatches it. A re-nudge must be EARNED by new tool work since the
     last one (the model is visibly still working, just mute); a stalled continuation surfaces
     honestly, so this can never ping-pong a model that has nothing left to do."""
-    if getattr(session, "pending_continuation", False) or session.empty_finish_nudges >= NUDGE_HARD_CAP:
+    if getattr(session, "pending_continuation", False):
         return False
     if not turn_finished_empty(session):
+        return False
+    if session.empty_finish_nudges >= NUDGE_HARD_CAP:
+        p_surface_exhausted(session, session_id)
         return False
     p_tool_calls = p_count_tool_calls(session)
     if session.empty_finish_nudges >= 1 and p_tool_calls <= session.empty_finish_progress_mark:
@@ -39,7 +57,9 @@ def maybe_nudge_empty_finish(session: AgentSession, session_id: str) -> bool:
     session.empty_finish_progress_mark = p_tool_calls
     session.empty_finish_nudges += 1
     session.pending_continuation = True
-    session.pending_continuation_prompt = NUDGE_PROMPT
+    session.pending_continuation_prompt = (
+        FINAL_NUDGE_PROMPT if session.empty_finish_nudges >= NUDGE_HARD_CAP else NUDGE_PROMPT
+    )
     logger.warning(f"Agent {session_id}: turn finished with no answer after tool work; one hidden continue nudge")
     try:
         from backend.apps.service.client import submit_diagnostic
@@ -59,6 +79,28 @@ def maybe_nudge_empty_finish(session: AgentSession, session_id: str) -> bool:
     except Exception:
         pass
     return True
+
+@typechecked
+def p_surface_exhausted(session: AgentSession, session_id: str) -> None:
+    """All nudges spent and the turn still ended mute: put one honest system line in the
+    transcript, once per exhaustion (the flag resets with the counters on a real user message)."""
+    if getattr(session, "empty_finish_surfaced", False):
+        return
+    session.empty_finish_surfaced = True
+    try:
+        import asyncio
+        from backend.apps.agents.core.models import Message
+        from backend.apps.agents.core.ws_manager import ws_manager
+        p_msg = Message(role="system", content=EXHAUSTED_NOTE, branch_id=session.active_branch_id)
+        session.messages.append(p_msg)
+        asyncio.get_running_loop().create_task(ws_manager.send_to_session(session_id, "agent:message", {
+            "session_id": session_id,
+            "message": p_msg.model_dump(mode="json"),
+        }))
+        logger.warning(f"Agent {session_id}: silent finish after {NUDGE_HARD_CAP} nudges; surfaced honestly")
+    except Exception:
+        logger.exception("failed to surface exhausted empty-finish")
+
 
 # A turn legitimately ENDS on these tools: the rendered widget or delegation IS the answer.
 P_ANSWER_TOOL_MARKERS = ("openswarm-ui", "ShowUI", "AskUI", "AskUserQuestion")

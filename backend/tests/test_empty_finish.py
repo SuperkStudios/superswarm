@@ -9,6 +9,7 @@ from backend.apps.agents.agent_manager import agent_manager
 import backend.apps.agents.agent_manager as agent_manager_module
 from backend.apps.agents.core.models import AgentSession, Message
 from backend.apps.agents.manager.run.empty_finish import (
+    FINAL_NUDGE_PROMPT,
     NUDGE_HARD_CAP,
     NUDGE_PROMPT,
     maybe_nudge_empty_finish,
@@ -94,18 +95,27 @@ def test_loop_renudges_while_progressing_then_caps(monkeypatch) -> None:
         await agent_manager.run_agent_loop(session.id, "audit everything")
         await asyncio.sleep(0)
 
-    # Each silent quit made fresh tool progress, so each earns a nudge, up to the hard cap.
+    # Each silent quit made fresh tool progress, so each earns a nudge, up to the hard cap;
+    # the LAST one escalates to the text-only demand (field data: "continue" just bought more
+    # silent tool work, so the closer must extract an answer, not more work).
     for expected in range(1, NUDGE_HARD_CAP + 1):
         continues.clear()
         asyncio.run(main())
-        assert continues == [{"prompt": NUDGE_PROMPT, "hidden": True}]
+        want = FINAL_NUDGE_PROMPT if expected == NUDGE_HARD_CAP else NUDGE_PROMPT
+        assert continues == [{"prompt": want, "hidden": True}]
         assert session.empty_finish_nudges == expected
 
-    # At the cap even a progressing silent quit surfaces honestly: no nudge, no loop.
+    # At the cap even a progressing silent quit surfaces honestly: no nudge, one system line.
     continues.clear()
     asyncio.run(main())
     assert continues == []
     assert session.empty_finish_nudges == NUDGE_HARD_CAP
+    p_sys = [m for m in session.messages if m.role == "system" and "without a final report" in str(m.content)]
+    assert len(p_sys) == 1, "exhaustion surfaces exactly once"
+    # A second exhausted quit in the same ask must NOT stack another line.
+    asyncio.run(main())
+    p_sys = [m for m in session.messages if m.role == "system" and "without a final report" in str(m.content)]
+    assert len(p_sys) == 1
 
 
 def test_stalled_continuation_is_not_renudged() -> None:
