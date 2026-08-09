@@ -166,16 +166,22 @@ def test_template_ships_both_sdk_helpers_and_the_skill_references_them():
 
 
 def p_isolated_grants(tmp_path, monkeypatch):
-    from backend.apps.apps_sdk import tool_grants
+    from backend.apps.apps_sdk import app_identity, tool_grants
     monkeypatch.setattr(tool_grants, "GRANTS_FILE", str(tmp_path / "grants.json"))
+    monkeypatch.setattr(app_identity, "APP_TOKENS_FILE", str(tmp_path / "app_tokens.json"))
     return tool_grants
+
+
+def p_token_for(app: str) -> str:
+    from backend.apps.apps_sdk.app_identity import mint_app_token
+    return mint_app_token(app)
 
 
 def test_tool_call_denied_grant_is_refused_flat(tmp_path, monkeypatch):
     grants = p_isolated_grants(tmp_path, monkeypatch)
     grants.set_grant("app1", "srv1:SendEmail", "denied")
     r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
-                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {}})
+                    json={"app_token": p_token_for("app1"), "tool": "srv1:SendEmail", "args": {}})
     assert r.status_code == 403
     assert "denied" in r.json()["detail"]
 
@@ -192,7 +198,7 @@ def test_tool_call_ungranted_times_out_to_deny(tmp_path, monkeypatch):
     import backend.apps.tools_lib.mcp_call as mcp_call
     monkeypatch.setattr(mcp_call, "call_mcp_tool", p_never)
     r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
-                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {}})
+                    json={"app_token": p_token_for("app1"), "tool": "srv1:SendEmail", "args": {}})
     assert r.status_code == 403
     assert called["n"] == 0
 
@@ -207,7 +213,7 @@ def test_tool_call_granted_dispatches(tmp_path, monkeypatch):
     import backend.apps.tools_lib.mcp_call as mcp_call
     monkeypatch.setattr(mcp_call, "call_mcp_tool", p_fake_call)
     r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
-                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {"to": "a@b.c"}})
+                    json={"app_token": p_token_for("app1"), "tool": "srv1:SendEmail", "args": {"to": "a@b.c"}})
     assert r.status_code == 200
     assert r.json()["result"] == "sent: a@b.c"
 
@@ -230,7 +236,7 @@ def test_grant_prompt_approval_flow_allows_and_remembers(tmp_path, monkeypatch):
     from backend.apps.agents.core import ws_manager as wsm
     monkeypatch.setattr(wsm.ws_manager, "broadcast_global", p_capture_broadcast)
     r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
-                    json={"output_id": "app2", "tool": "srv9:ReadSheet", "args": {}})
+                    json={"app_token": p_token_for("app2"), "tool": "srv9:ReadSheet", "args": {}})
     assert r.status_code == 200
     assert captured["tool_label"] == "ReadSheet"
     assert grants.grant_status("app2", "srv9:ReadSheet") == "granted"
@@ -240,3 +246,42 @@ def test_tools_grant_route_unknown_request_is_no_op():
     r = client.post("/api/apps-sdk/tools/grant", headers=p_auth(),
                     json={"request_id": "nope", "allow": True})
     assert r.status_code == 200 and r.json()["ok"] is False
+
+
+def test_bare_output_id_is_never_identity(tmp_path, monkeypatch):
+    grants = p_isolated_grants(tmp_path, monkeypatch)
+    grants.set_grant("app1", "srv1:SendEmail", "granted")
+    # A caller who only KNOWS app1's id (no minted token, no Origin) must not inherit its grants.
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"output_id": "app1", "tool": "srv1:SendEmail", "args": {}})
+    assert r.status_code == 403
+    assert "identify" in r.json()["detail"]
+
+
+def test_token_for_app_a_cannot_use_app_bs_grants(tmp_path, monkeypatch):
+    grants = p_isolated_grants(tmp_path, monkeypatch)
+    grants.set_grant("app-b", "srv1:SendEmail", "granted")
+    from backend.apps.apps_sdk import tool_grants
+    monkeypatch.setattr(tool_grants, "GRANT_WAIT_SECONDS", 0.05)
+    called = {"n": 0}
+
+    async def p_never(*a, **k):
+        called["n"] += 1
+    import backend.apps.tools_lib.mcp_call as mcp_call
+    monkeypatch.setattr(mcp_call, "call_mcp_tool", p_never)
+    # app-a's token resolves to app-a, whose grant is absent, so the ask times out to deny.
+    r = client.post("/api/apps-sdk/tools/call", headers=p_auth(),
+                    json={"app_token": p_token_for("app-a"), "output_id": "app-b", "tool": "srv1:SendEmail", "args": {}})
+    assert r.status_code == 403
+    assert called["n"] == 0
+
+
+def test_mint_is_stable_and_resolves(tmp_path, monkeypatch):
+    p_isolated_grants(tmp_path, monkeypatch)
+    from backend.apps.apps_sdk.app_identity import mint_app_token, resolve_app_token, revoke_app_token
+    t1 = mint_app_token("app-x")
+    t2 = mint_app_token("app-x")
+    assert t1 == t2 and resolve_app_token(t1) == "app-x"
+    assert resolve_app_token("forged-token") is None
+    revoke_app_token("app-x")
+    assert resolve_app_token(t1) is None

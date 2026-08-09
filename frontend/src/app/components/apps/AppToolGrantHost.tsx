@@ -22,15 +22,19 @@ export interface AppToolGrantRequest {
  * closing the dialog, denying, and the backend's own timeout ALL read as deny. */
 const AppToolGrantHost: React.FC = () => {
   const c = useClaudeTokens();
-  const [req, setReq] = useState<AppToolGrantRequest | null>(null);
+  // A queue, not a slot: concurrent asks from several apps each get their turn instead of the
+  // newest silently replacing a dialog someone was reading (the replaced ask would time out to deny).
+  const [queue, setQueue] = useState<AppToolGrantRequest[]>([]);
   useEffect(() => {
     const onGrant = (e: Event): void => {
       const detail = (e as CustomEvent).detail as AppToolGrantRequest | undefined;
-      if (detail && detail.request_id && detail.tool_key) setReq(detail);
+      if (!detail || !detail.request_id || !detail.tool_key) return;
+      setQueue((prev) => (prev.some((r) => r.request_id === detail.request_id) ? prev : [...prev, detail]));
     };
     window.addEventListener(APP_TOOL_GRANT_EVENT, onGrant);
     return () => window.removeEventListener(APP_TOOL_GRANT_EVENT, onGrant);
   }, []);
+  const req = queue[0] ?? null;
   if (!req) return null;
   const answer = (allow: boolean, remember: boolean): void => {
     void fetch(`${API_BASE}/apps-sdk/tools/grant`, {
@@ -38,7 +42,7 @@ const AppToolGrantHost: React.FC = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ request_id: req.request_id, allow, remember }),
     }).catch(() => { /* backend timeout already reads as deny */ });
-    setReq(null);
+    setQueue((prev) => prev.slice(1));
   };
   return (
     <Dialog open onClose={() => answer(false, false)} maxWidth="xs" fullWidth PaperProps={{ sx: { background: 'transparent', boxShadow: 'none' } }}>

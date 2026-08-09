@@ -7,6 +7,7 @@ not do before: a provider-agnostic LLM completion, and an agent spawn that
 can land its card at a position on the canvas.
 """
 
+import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, Optional
 
@@ -119,6 +120,17 @@ def resolve_app_from_origin(origin: str) -> Optional[str]:
     return None
 
 
+P_SERVE_REFERER_RE = re.compile(r"/api/outputs/([0-9a-f]{16,64})/serve/")
+
+
+@typechecked
+def resolve_app_from_referer(referer: str) -> Optional[str]:
+    """Static serve-mode apps load from /api/outputs/<id>/serve/, so their fetches carry that path
+    as Referer; the browser owns that header, making it as trustworthy as the webview boundary."""
+    m = P_SERVE_REFERER_RE.search(referer or "")
+    return m.group(1) if m else None
+
+
 class AppToolServerRow(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
@@ -145,7 +157,9 @@ async def tools_list(body: ToolsListRequest) -> Dict[str, Any]:
 class ToolCallRequest(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
-    # App backends name themselves via OPENSWARM_OUTPUT_ID; webview apps are identified by Origin instead.
+    # Minted per-app token (OPENSWARM_APP_TOKEN) for app-backend callers; webviews ride Origin instead.
+    app_token: Optional[str] = None
+    # Legacy self-report, kept ONLY as a label fallback; never trusted for identity.
     output_id: Optional[str] = None
     # "<tool_id>:<ToolName>" from /tools/list.
     tool: str
@@ -163,8 +177,17 @@ async def tools_call(body: ToolCallRequest, request: Request) -> Dict[str, Any]:
     from backend.apps.outputs.workspace_io import load_output
     from backend.apps.tools_lib.mcp_call import call_mcp_tool
 
-    # Origin wins over the body: it's derived from which live app runtime owns the calling port.
-    output_id = resolve_app_from_origin(request.headers.get("origin", "")) or body.output_id
+    from backend.apps.apps_sdk.app_identity import resolve_app_token
+
+    # Identity is server-derived only: the Origin port map (vite webviews), the serve-path Referer
+    # (static webviews, whose Origin is the backend itself; a page cannot fake its own Referer), or
+    # the minted per-app token (app backends). A bare self-reported output_id is never enough, or
+    # any local process could borrow another app's remembered grants.
+    output_id = (
+        resolve_app_from_origin(request.headers.get("origin", ""))
+        or resolve_app_from_referer(request.headers.get("referer", ""))
+        or resolve_app_token(body.app_token or "")
+    )
     if not output_id:
         raise HTTPException(status_code=403, detail="Could not identify the calling app; tool access is per-app.")
     tool_id, sep, tool_name = body.tool.partition(":")

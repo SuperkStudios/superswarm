@@ -114,10 +114,10 @@ def call_tool(tool: str, args: Optional[Dict[str, Any]] = None) -> str:
     """Call one tool as '<server_id>:<ToolName>'. The FIRST call per tool shows the user an
     approval card (Allow once / Always / Never); a deny or an unanswered card raises with a 403.
     Design for that: it is the user saying no, not an error to retry. Backend processes are
-    identified by OPENSWARM_OUTPUT_ID (injected by the host runtime)."""
+    identified by the minted OPENSWARM_APP_TOKEN (injected by the host runtime)."""
     reply = p_request("POST", "/api/apps-sdk/tools/call", {
         "tool": tool,
         "args": args or {},
-        "output_id": os.environ.get("OPENSWARM_OUTPUT_ID") or None,
+        "app_token": os.environ.get("OPENSWARM_APP_TOKEN") or None,
     })
     return str(reply.get("result", ""))
