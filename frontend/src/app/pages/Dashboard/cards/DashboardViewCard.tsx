@@ -7,10 +7,6 @@ import Tooltip from '@mui/material/Tooltip';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
-import CodeRoundedIcon from '@mui/icons-material/CodeRounded';
-import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
-import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded';
-import AddIcon from '@mui/icons-material/Add';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import { Output, SERVE_BASE, updateOutput } from '@/shared/state/outputsSlice';
 import { setViewCardPosition, setViewDocked, setViewCardSize, setActiveViewCardId, recordClosedCard, addViewCard, toggleMinimizeCard, activateViewCardPreview } from '@/shared/state/dashboardLayoutSlice';
@@ -21,6 +17,8 @@ import { expandSession } from '@/shared/state/agentsSlice';
 import WindowControls from './WindowControls';
 import { openCardContextMenu, isNativeMenuTarget } from '../desktop/openCardContextMenu';
 import { viewCardMenuRows } from './viewCardMenuRows';
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded';
+import type { CardMenuRow } from '../desktop/openCardContextMenu';
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useTiledCard } from './useTiledCard';
 import { useCardTiling } from './useCardTiling';
@@ -648,6 +646,31 @@ const DashboardViewCard: React.FC<Props> = ({
   const dockActive = !!dockRect && !dragging && !localResize && !isTiled && !isMinimized;
   const tiledSize = useTiledCard({ cardId: cardKey, zone: tileZone, active: !isMinimized, originX: displayX, originY: displayY, getCamera: getCanvasState });
 
+  // The old 8-icon header cluster, demoted behind one kebab: view switcher, new window, toolbar
+  // collapse, then the same rows the card's right-click menu carries.
+  const headerKebabRows = (): CardMenuRow[] => ([
+    ...(hasWorkspace ? [
+      ...([['preview', 'Preview'], ['code', 'Code'], ['terminal', 'Terminal'], ['history', 'History']] as const).map(([view, label]) => ({
+        label: activeView === view ? `${label}   ✓` : label,
+        onClick: () => setActiveView(view),
+      })),
+      { kind: 'separator' as const },
+      { label: 'Open another window', onClick: () => dispatch(addViewCard({ outputId: output.id, newInstance: true })) },
+    ] : []),
+    { label: headerCollapsed ? 'Show toolbar' : 'Hide toolbar', onClick: () => { setHeaderPeek(false); setHeaderCollapsed((v) => !v); } },
+    { kind: 'separator' as const },
+    ...viewCardMenuRows({
+      output, cardKey, dispatch, tileZone, isMinimized,
+      card: { x: cardX, y: cardY, width: cardWidth, height: cardHeight },
+      onTile,
+      onMinimize: () => (isMinimized ? dispatch(toggleMinimizeCard({ cardId: cardKey })) : onMinimize()),
+      onReload: () => previewRef.current?.reload(),
+      onHardReload: () => { void handleHardReload(); },
+      onShare: () => setShareOpen(true),
+      onClose: () => handleRemove(),
+    }),
+  ]);
+
   return (
     <Box
       ref={dockRootRef}
@@ -772,83 +795,43 @@ const DashboardViewCard: React.FC<Props> = ({
           display: 'flex',
           alignItems: 'center',
           gap: 0.75,
-          px: 1.5,
-          py: 0.75,
-          bgcolor: c.bg.secondary,
-          borderBottom: `1px solid ${c.border.subtle}`,
+          px: 1,
+          py: 0.25,
+          // Fullscreen flips the bar to the dark edge-to-edge system-chrome treatment (Zen/Safari
+          // compact), so it reads as window chrome instead of a floating card fragment.
+          bgcolor: isFullscreen ? '#211d19' : c.bg.secondary,
+          borderBottom: `1px solid ${isFullscreen ? 'rgba(255,255,255,0.08)' : c.border.subtle}`,
           cursor: isDragging ? 'grabbing' : 'grab',
           flexShrink: 0,
-          minHeight: 36,
+          minHeight: 28,
           userSelect: 'none',
         }}
       >
         <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', alignItems: 'center', flexShrink: 0, mr: 0.25 }}>
           <WindowControls onClose={() => handleRemove()} onMinimize={onMinimize} onTile={onTile} tiled={!!tileZone} />
         </Box>
-        <GridViewRoundedIcon sx={{ fontSize: 16, color: c.accent.primary, flexShrink: 0 }} />
+        <GridViewRoundedIcon sx={{ fontSize: 14, color: isFullscreen ? 'rgba(232,226,216,0.85)' : c.accent.primary, flexShrink: 0 }} />
         <Typography
           sx={{
             flex: 1,
-            fontSize: '0.8125rem',
+            fontSize: '0.75rem',
             fontWeight: 600,
-            color: c.text.primary,
+            color: isFullscreen ? '#e8e2d8' : c.text.primary,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}
         >
           {output.name}
+          {instance > 1 && (
+            <Box component="span" sx={{ ml: 0.75, fontSize: '0.6875rem', fontWeight: 500, color: isFullscreen ? 'rgba(232,226,216,0.5)' : c.text.ghost }}>
+              #{instance}
+            </Box>
+          )}
         </Typography>
-        {instance > 1 && (
-          <Typography sx={{ fontSize: '0.6875rem', fontWeight: 700, color: c.text.ghost, bgcolor: c.bg.page, borderRadius: 999, px: 0.75, py: 0.1, flexShrink: 0 }}>
-            #{instance}
-          </Typography>
-        )}
 
         {showControls && (
           <>
-            {hasWorkspace && (
-              <Box
-                onPointerDown={(e) => e.stopPropagation()}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.25,
-                  bgcolor: c.bg.page,
-                  borderRadius: 999,
-                  p: 0.25,
-                  flexShrink: 0,
-                }}
-              >
-                {([
-                  { view: 'preview' as const, label: 'Preview', Icon: VisibilityRoundedIcon },
-                  { view: 'code' as const, label: 'Code', Icon: CodeRoundedIcon },
-                  { view: 'terminal' as const, label: 'Terminal', Icon: TerminalRoundedIcon },
-                  { view: 'history' as const, label: 'History', Icon: HistoryRoundedIcon },
-                ]).map(({ view, label, Icon }) => (
-                  <Tooltip key={view} title={label} placement="top">
-                    <IconButton
-                      size="small"
-                      onClick={(e) => { e.stopPropagation(); setActiveView(view); }}
-                      sx={{
-                        p: 0.5,
-                        borderRadius: 999,
-                        color: activeView === view ? c.text.primary : c.text.ghost,
-                        bgcolor: activeView === view ? c.bg.elevated : 'transparent',
-                        '&:hover': { color: c.text.primary, bgcolor: activeView === view ? c.bg.elevated : `${c.text.primary}0a` },
-                      }}
-                    >
-                      <Icon sx={{ fontSize: 14 }} />
-                    </IconButton>
-                  </Tooltip>
-                ))}
-              </Box>
-            )}
-
-            <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', flexShrink: 0 }}>
-              <ShareButton target={{ kind: 'app', id: output.id, name: output.name }} size="small" iconFontSize={15} />
-            </Box>
-
             <Tooltip
               title={activeView === 'terminal' ? 'Hard reload (restart runtime + reload app)' : 'Reload preview; right-click for Hard Reload'}
               placement="top"
@@ -863,35 +846,37 @@ const DashboardViewCard: React.FC<Props> = ({
                   });
                 }}
                 onPointerDown={(e) => e.stopPropagation()}
-                sx={{ color: c.text.muted, p: 0.5, '&:hover': { color: c.text.primary } }}
+                sx={{ color: isFullscreen ? 'rgba(232,226,216,0.6)' : c.text.muted, p: 0.5, '&:hover': { color: isFullscreen ? '#fff' : c.text.primary } }}
               >
-                <RefreshIcon sx={{ fontSize: 16 }} />
+                <RefreshIcon sx={{ fontSize: 15 }} />
               </IconButton>
             </Tooltip>
-
-            {hasWorkspace && (
-              <Tooltip title="Open another window" placement="top">
-                <IconButton
-                  size="small"
-                  onClick={handleOpenAnother}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
-                >
-                  <AddIcon sx={{ fontSize: 16 }} />
-                </IconButton>
-              </Tooltip>
-            )}
+            <Box onPointerDown={(e) => e.stopPropagation()} sx={{ display: 'flex', flexShrink: 0 }}>
+              <ShareButton target={{ kind: 'app', id: output.id, name: output.name }} size="small" iconFontSize={14} />
+            </Box>
           </>
         )}
 
-        <Tooltip title={headerCollapsed ? 'Show toolbar' : 'Hide toolbar'} placement="top">
+        {isFullscreen && (
+          <Box
+            role="button"
+            onClick={(e) => { e.stopPropagation(); onTile('restore'); }}
+            onPointerDown={(e) => e.stopPropagation()}
+            sx={{ flexShrink: 0, fontSize: '0.6875rem', fontWeight: 600, color: '#e8e2d8', bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 999, px: 1.25, py: 0.35, cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.18)' } }}
+          >
+            Exit full screen
+          </Box>
+        )}
+
+        {/* Everything demoted from the old 8-icon cluster lives here: view switcher, new window, toolbar collapse, and the card menu. */}
+        <Tooltip title="More" placement="top">
           <IconButton
             size="small"
-            onClick={(e) => { e.stopPropagation(); setHeaderPeek(false); setHeaderCollapsed((v) => !v); }}
+            onClick={(e) => { e.stopPropagation(); openCardContextMenu(e, { items: headerKebabRows() }); }}
             onPointerDown={(e) => e.stopPropagation()}
-            sx={{ color: c.text.ghost, p: 0.5, '&:hover': { color: c.text.primary } }}
+            sx={{ color: isFullscreen ? 'rgba(232,226,216,0.6)' : c.text.ghost, p: 0.5, '&:hover': { color: isFullscreen ? '#fff' : c.text.primary } }}
           >
-            <KeyboardArrowUpRounded sx={{ fontSize: 18, transition: 'transform 0.15s', transform: headerCollapsed ? 'rotate(180deg)' : 'none' }} />
+            <MoreHorizRoundedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         </Tooltip>
       </Box>
