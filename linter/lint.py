@@ -47,6 +47,7 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
     max_items: int = rules["max-folder-items"]
     check_imports: bool = rules.get("no-nested-imports", False)
     structural_errors: list[str] = []
+    grandfathered_oversize: list[str] = []
 
     file_lines_on = enabled.get("max-file-lines", True)
     folder_items_on = enabled.get("max-folder-items", True)
@@ -77,14 +78,16 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
             if is_excluded(fp, root, excludes):
                 continue
             rel_file = str(fp.relative_to(root))
-            if (
-                file_lines_on
-                and not is_excepted(rel_file, "max-file-lines", exceptions)
-                and not is_lintignored(fp, root, "max-file-lines", ignores)
-            ):
+            # Debt counts only config-grandfathered files (ours, deferred); .lintignore is vendored/generated code and stays out of both numbers.
+            if file_lines_on and not is_lintignored(fp, root, "max-file-lines", ignores):
+                p_grandfathered = is_excepted(rel_file, "max-file-lines", exceptions)
                 result = check_file_lines(fp, root, max_lines)
                 if result:
-                    structural_errors.append(result[0])
+                    if p_grandfathered:
+                        # Debt is counted even where the gate is silenced: 82 of 102 oversized files were invisible because the exception list hid them from the tally too (ENG-192).
+                        grandfathered_oversize.append(rel_file)
+                    else:
+                        structural_errors.append(result[0])
             if (
                 nested_imports_on
                 and check_imports
@@ -92,6 +95,13 @@ def run_checks(root: Path) -> tuple[list[str], list[str], list[str], list[str], 
                 and not is_lintignored(fp, root, "no-nested-imports", ignores)
             ):
                 structural_errors.extend(check_nested_imports(fp, root))
+
+    if grandfathered_oversize:
+        # The debt line, not a gate: the enforcement number alone made 82 silenced oversized files read as a clean repo.
+        print(f"structural: NOTE {len(grandfathered_oversize)} grandfathered file(s) over {max_lines} lines (debt, not enforced); largest offenders:", flush=True)
+        p_sized = sorted(((sum(1 for _ in open(root / f, errors='ignore')), f) for f in grandfathered_oversize), reverse=True)
+        for p_n, p_f in p_sized[:5]:
+            print(f"  {p_f}: {p_n} lines", flush=True)
 
     vulture_errors: list[str] = []
     if enabled.get("vulture", True):
