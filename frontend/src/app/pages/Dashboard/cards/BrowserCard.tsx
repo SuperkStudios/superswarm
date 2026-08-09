@@ -271,8 +271,11 @@ const BrowserCard: React.FC<Props> = ({
         ro.observe(slot);
         if (slot.parentElement) ro.observe(slot.parentElement);
         scrollHost?.removeEventListener('scroll', onScroll);
+        scrollHost?.removeEventListener('load', measure, true);
         scrollHost = slot.closest('[data-chat-transcript]');
         scrollHost?.addEventListener('scroll', onScroll, { passive: true });
+        // An image/iframe finishing load ABOVE the slot shifts it with no scroll, resize, or mutation; load doesn't bubble but it does capture.
+        scrollHost?.addEventListener('load', measure, true);
         // Streaming appends move/remount the slot without resizing or scrolling anything observed; the mutation observer is what keeps the mini glued during a live turn.
         mo.disconnect();
         if (scrollHost) mo.observe(scrollHost, { childList: true, subtree: true });
@@ -317,6 +320,9 @@ const BrowserCard: React.FC<Props> = ({
       if ((e as CustomEvent).detail?.id === dockedTo) measure();
     };
     window.addEventListener('openswarm:browser-slot-mounted', onSlotMounted);
+    // A 1s belt bounds any move-without-event gap nobody has named yet. Only alive while a mini is
+    // docked, so it costs one layout read per second during active docking instead of 6.7/sec forever.
+    const belt = window.setInterval(measure, 1000);
     return () => {
       ro.disconnect();
       mo.disconnect();
@@ -324,9 +330,11 @@ const BrowserCard: React.FC<Props> = ({
       window.removeEventListener('openswarm:canvas-pan-changed', measure);
       document.removeEventListener('visibilitychange', measure);
       window.removeEventListener('openswarm:browser-slot-mounted', onSlotMounted);
+      scrollHost?.removeEventListener('load', measure, true);
       scrollHost?.removeEventListener('scroll', onScroll);
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
       timers.forEach((tm) => window.clearTimeout(tm));
+      window.clearInterval(belt);
     };
     // dockParentCard x/y/w/h are re-measure triggers: the slot's client rect moves with the chat card.
   }, [dockedTo, dockParentExpanded, dockParentTiled, dockParentCard?.x, dockParentCard?.y, dockParentCard?.width, dockParentCard?.height, getCanvasState, dockParentCard]);

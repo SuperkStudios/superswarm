@@ -136,3 +136,15 @@ def test_mcp_policy_survives_a_real_tool_file_reload(tmp_path, monkeypatch):
     rslot = tl.resolve_policy_slot(name, tools2)
     got = next(t for t in tools2 if t.id == rslot.key)
     assert got.tool_permissions.get(rslot.action) == "always_allow"
+
+
+def test_legacy_precollapse_ids_canonicalize_to_core():
+    # A 1.7.5 session/log can still name the old per-server ids; they must land in the SAME builtin slot as their openswarm-core successors, or a remembered approval silently stops matching after the upgrade.
+    for legacy, inner in (
+        ("mcp__openswarm-browser-agent__BrowserAgent", "BrowserAgent"),
+        ("mcp__openswarm-web__WebSearch", "WebSearch"),
+        ("mcp__openswarm-settings-meta__SettingsWrite", "SettingsWrite"),
+        ("mcp__openswarm-schedule__ScheduleWorkflow", "ScheduleWorkflow"),
+    ):
+        assert resolve_policy_slot(legacy, []) == resolve_policy_slot(f"mcp__openswarm-core__{inner}", [])
+        assert resolve_policy_slot(legacy, []).key == inner
