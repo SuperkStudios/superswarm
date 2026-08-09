@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import Dialog from '@mui/material/Dialog';
-import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import { API_BASE } from '@/shared/config';
 import { useClaudeTokens } from '@/shared/styles/ThemeContext';
+import VendoredToolUi from '@/toolui/VendoredToolUi';
 
 export const APP_TOOL_GRANT_EVENT = 'openswarm:app-tool-grant';
 
@@ -41,25 +41,27 @@ const AppToolGrantHost: React.FC = () => {
     setReq(null);
   };
   return (
-    <Dialog open onClose={() => answer(false, false)} maxWidth="xs" fullWidth>
-      <Box sx={{ p: 2.5, background: c.bg.surface }}>
-        <Typography sx={{ fontWeight: 700, fontSize: 15, mb: 0.5, color: c.text.primary }}>
-          "{req.app_name}" wants to use {req.tool_label}
-        </Typography>
-        <Typography sx={{ fontSize: 12.5, color: c.text.secondary, mb: 1.5 }}>
-          This app is asking to call one of your connected tools. Only allow it if you trust the app
-          with this action.
-        </Typography>
-        {req.args_preview && req.args_preview !== '{}' && (
-          <Box sx={{ fontFamily: 'monospace', fontSize: 11, p: 1, borderRadius: '8px', background: c.bg.page, color: c.text.secondary, mb: 1.5, maxHeight: 96, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-            {req.args_preview}
-          </Box>
-        )}
-        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-          <Button size="small" color="inherit" onClick={() => answer(false, true)}>Never allow</Button>
-          <Button size="small" color="inherit" onClick={() => answer(false, false)}>Deny</Button>
-          <Button size="small" variant="outlined" onClick={() => answer(true, false)}>Allow once</Button>
-          <Button size="small" variant="contained" disableElevation onClick={() => answer(true, true)}>Always allow</Button>
+    <Dialog open onClose={() => answer(false, false)} maxWidth="xs" fullWidth PaperProps={{ sx: { background: 'transparent', boxShadow: 'none' } }}>
+      <Box sx={{ background: c.bg.surface, borderRadius: '14px', p: 1.5 }}>
+        <VendoredToolUi
+          name="approval-card"
+          props={{
+            id: req.request_id,
+            title: `"${req.app_name}" wants to use ${req.tool_label}`,
+            description: 'This app is asking to call one of your connected tools. Only allow it if you trust the app with this action.',
+            metadata: req.args_preview && req.args_preview !== '{}' ? [{ key: 'input', value: req.args_preview.slice(0, 120) }] : undefined,
+            confirmLabel: 'Allow once',
+            cancelLabel: 'Deny',
+          }}
+          extraProps={{
+            onConfirm: () => answer(true, false),
+            onCancel: () => answer(false, false),
+          }}
+        />
+        {/* The remembered decisions ride outside the vendored card: its contract is confirm/cancel. */}
+        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', mt: 0.5 }}>
+          <Button size="small" color="inherit" onClick={() => answer(false, true)} sx={{ fontSize: '0.75rem', textTransform: 'none', color: c.text.muted }}>Never allow</Button>
+          <Button size="small" color="inherit" onClick={() => answer(true, true)} sx={{ fontSize: '0.75rem', textTransform: 'none', color: c.text.secondary, fontWeight: 600 }}>Always allow</Button>
         </Box>
       </Box>
     </Dialog>

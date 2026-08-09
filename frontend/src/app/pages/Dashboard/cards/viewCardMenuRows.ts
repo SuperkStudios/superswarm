@@ -2,6 +2,7 @@ import { addViewCard, bringToFront } from '@/shared/state/dashboardLayoutSlice';
 import { deleteOutput, type Output } from '@/shared/state/outputsSlice';
 import { removeViewCardCleanly } from '@/shared/viewTeardown';
 import { setClipboardCards } from '@/shared/dashboardClipboard';
+import { API_BASE } from '@/shared/config';
 import type { AppDispatch } from '@/shared/state/store';
 import type { CardMenuRow } from '../desktop/openCardContextMenu';
 import { chord } from '../desktop/chord';
@@ -47,6 +48,8 @@ export function viewCardMenuRows({
       }]),
     },
     { label: 'Share or publish...', onClick: onShare },
+    // Undoes remembered Always/Never tool decisions; the next call from this app asks again.
+    { label: 'Reset tool permissions', onClick: () => { void fetch(`${API_BASE}/apps-sdk/tools/grants/${output.id}`, { method: 'DELETE' }); } },
     { kind: 'separator' },
     { label: 'Close', onClick: onClose },
     {

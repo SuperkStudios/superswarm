@@ -194,6 +194,15 @@ class GrantResolveRequest(BaseModel):
     remember: bool = False
 
 
+@apps_sdk.router.delete("/tools/grants/{output_id}")
+@typechecked
+async def reset_tool_grants(output_id: str) -> Dict[str, bool]:
+    from backend.apps.apps_sdk.tool_grants import clear_grants
+
+    clear_grants(output_id)
+    return {"ok": True}
+
+
 @apps_sdk.router.post("/tools/grant")
 @typechecked
 async def tools_grant(body: GrantResolveRequest) -> Dict[str, bool]:

@@ -67,6 +67,15 @@ def set_grant(output_id: str, tool_key: str, decision: Literal["granted", "denie
 
 
 @typechecked
+def clear_grants(output_id: str) -> None:
+    """Reset an app to ask-by-default: forgets its remembered Always/Never decisions."""
+    with p_lock:
+        grants = p_read_grants()
+        if grants.pop(output_id, None) is not None:
+            p_write_grants(grants)
+
+
+@typechecked
 async def request_grant(output_id: str, app_name: str, tool_key: str, tool_label: str, args_preview: str) -> bool:
     """Ask the user over the websocket and block until they answer or the wait expires. Timeout and
     a closed dialog both read as deny: silence is never consent."""

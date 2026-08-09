@@ -48,7 +48,7 @@ import { extractLatestShowUi, extractPendingAskUi, freezeIfDone, artifactName } 
 import { useDragEndBackstops } from '../hooks/interaction/useDragEndBackstops';
 import { useBrowserPillShot } from '../desktop/useBrowserPillShot';
 import { useAppDispatch, useAppSelector } from '@/shared/hooks';
-import { QuestionForm } from '@/app/pages/AgentChat/shell/ApprovalBar';
+import AskQuestionCard from '@/app/pages/AgentChat/tool-ui/AskQuestionCard';
 import AgentChat from '@/app/pages/AgentChat/AgentChat';
 import { parseMcpToolName, getMcpShortAction } from '@/shared/mcpToolMeta';
 import { useClaudeTokens, DarkTokensScope } from '@/shared/styles/ThemeContext';
@@ -1329,7 +1329,7 @@ const AgentCard: React.FC<Props> = ({
 
           {hasPending && pendingReq && pendingReq.tool_name === 'AskUserQuestion' ? (
             <Box onClick={(e) => e.stopPropagation()}>
-              <QuestionForm
+              <AskQuestionCard
                 compact
                 request={pendingReq}
                 onApprove={(requestId, updatedInput) =>

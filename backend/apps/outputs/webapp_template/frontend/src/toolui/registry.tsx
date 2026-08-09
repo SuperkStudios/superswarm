@@ -107,7 +107,8 @@ export const TOOL_UI_REGISTRY: Record<string, ToolUiEntry> = {
   },
   'question-flow': {
     Component: lazy(() => import('./components/question-flow').then((m) => ({ default: m.QuestionFlow }))),
-    loadSchema: () => import('./components/question-flow/schema').then((m) => m.SerializableProgressiveModeSchema),
+    // The full union: progressive (step/title), upfront (steps[]), and receipt modes are all valid wire shapes.
+    loadSchema: () => import('./components/question-flow/schema').then((m) => m.SerializableQuestionFlowSchema),
   },
   'stats-display': {
     Component: lazy(() => import('./components/stats-display').then((m) => ({ default: m.StatsDisplay }))),
