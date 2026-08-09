@@ -396,6 +396,8 @@ const DashboardViewCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // Fullscreen has no drag (macOS rule); same guard as AgentCard/BrowserCard.
+    if (tiling.zone === 'fullscreen') return;
     e.preventDefault();
     e.stopPropagation();
     const cs = getCanvasState();

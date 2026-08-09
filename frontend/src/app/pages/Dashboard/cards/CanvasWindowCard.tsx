@@ -85,6 +85,8 @@ const CanvasWindowCard: React.FC<CanvasWindowCardProps> = ({
 
   const onHeaderPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // Fullscreen has no drag (macOS rule); same guard as AgentCard/BrowserCard.
+    if (tiling.zone === 'fullscreen') return;
     const target = e.target as HTMLElement;
     if (target.closest('[data-no-drag], button, [role="button"], input, textarea, select')) return;
     e.preventDefault();

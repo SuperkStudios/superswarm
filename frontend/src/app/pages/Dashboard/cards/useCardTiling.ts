@@ -70,6 +70,8 @@ export function useCardTiling({ cardId, getCanvasState, commitPosition }: CardTi
   }, [tiledFrame, dispatch, cardId]);
 
   const untileForDrag = useCallback((clientX: number, clientY: number, preTileWidth: number): { x: number; y: number } | null => {
+    // Fullscreen never drag-untiles (macOS rule; also every card's own drag guard): exiting is the pill/green dot/Escape, never a stray header wiggle.
+    if (zone === 'fullscreen') return null;
     const frame = tiledFrame();
     if (!frame) return null;
     const cam = getCanvasState();
