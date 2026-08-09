@@ -170,6 +170,17 @@ class AppRuntime:
         return is_new_mode(self.workspace_path)
 
     @property
+    def ready(self) -> bool:
+        """True only when the runtime is actually SERVING (process alive, not frozen, and its
+        primary port answered the bind poll), so callers can tell 'spawned' from 'serving'.
+        Old-mode workspaces have no bind poll; a live process is their best readiness signal."""
+        if not self.running or self.p_suspended:
+            return False
+        if self.is_new_mode:
+            return self.p_frontend_ready
+        return self.port is not None
+
+    @property
     def frontend_url(self) -> Optional[str]:
         # Gated on `_frontend_ready` (set by the background bind-poll task in p_start_new_mode) so the preview pane only switches over once Vite is actually accepting connections. Without this, the editor flashes a "Site can't be reached" error while `npm install` is running. Also gated on `running`: a vite that crashed or got orphaned still has _frontend_ready=True, and handing the webview that dead port is the ERR_FAILED you see on reopen. No live process, no URL. And gated on `not _suspended`: a SIGSTOP'd idle runtime is "running" (returncode is None) but frozen, so its port won't answer.
         if self.frontend_port and self.p_frontend_ready and self.running and not self.p_suspended:

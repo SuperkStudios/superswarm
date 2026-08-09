@@ -445,18 +445,25 @@ def runtime_status_payload(workspace_id: str, instance: int = 1) -> dict:
         is_new = is_new_mode(folder) if os.path.isdir(folder) else False
         return {
             "running": False,
+            "ready": False,
             "port": None,
+            "serving_url": None,
             "has_backend_file": False,
             "backend_url": None,
             "frontend_port": None,
             "frontend_url": None,
             "is_new_mode": is_new,
         }
+    # The one address a client can actually open (ENG-190: `port` is the OPTIONAL API backend, which legitimately 404s at /, and readers kept treating it as the app).
+    serving_url = rt.frontend_url if rt.is_new_mode else (f"http://127.0.0.1:{rt.port}" if rt.ready and rt.port else None)
     return {
         "running": rt.running,
+        # 'spawned' vs 'serving': ready flips only once the primary port answered the bind poll (and un-flips when the process dies or is frozen).
+        "ready": rt.ready,
         "port": rt.port,
+        "serving_url": serving_url,
         "has_backend_file": rt.has_backend_file,
-        # For old-mode: backend.py serves; backend_url is its port. For new-mode: backend.py is optional (gated by BACKEND_PORT!=NONE); only populated if the agent ran bash backend_init.sh.
+        # For old-mode: backend.py serves; backend_url is its port. For new-mode: backend.py is optional (gated by BACKEND_PORT!=NONE); only populated if the agent ran bash backend_init.sh. 404 at / is NORMAL here: it serves /api routes, not the app.
         "backend_url": f"http://127.0.0.1:{rt.port}" if rt.running and rt.port else None,
         # New-mode only: where the Vite dev server is reachable. Old-mode workspaces report null and the editor falls back to the legacy /api/outputs/workspace/{ws}/serve/... path.
         "frontend_port": rt.frontend_port,
