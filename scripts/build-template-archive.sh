@@ -35,6 +35,14 @@ else
 fi
 OUT_ARCHIVE="$OUT_DIR/node_modules.${PKG_DIGEST}.tar.gz"
 
+# Already built for this exact package.json: skip the ~22s npm install (mirrors build-whisper.sh's
+# version-stamped cache). This is both a build speedup AND the fix for the interrupted-build loop,
+# where every restart re-ran the heavy install because nothing checked for the finished archive.
+if [[ -f "$OUT_ARCHIVE" ]]; then
+    echo "[template-archive] $PKG_DIGEST already built, skipping"
+    exit 0
+fi
+
 # Work in a temp dir so a failed install can't corrupt the template tree.
 WORK_DIR=$(mktemp -d -t openswarm-template-archive-XXXXXX)
 trap "rm -rf '$WORK_DIR'" EXIT
