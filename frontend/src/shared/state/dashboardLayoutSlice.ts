@@ -1886,6 +1886,13 @@ const dashboardLayoutSlice = createSlice({
           for (const id of Object.keys(state.tiledCards)) {
             if (!tileOwnerExists(state, id)) delete state.tiledCards[id];
           }
+          // Pre-1.7.6 profiles can persist several live 'fullscreen' entries; the selector crowns the first, so every OTHER card's drag guard compares against the wrong owner and lets the drag through. One owner, same rule as the write reducer.
+          let fsOwner: string | null = null;
+          for (const [id, zone] of Object.entries(state.tiledCards)) {
+            if (zone !== 'fullscreen') continue;
+            if (fsOwner === null) { fsOwner = id; continue; }
+            delete state.tiledCards[id];
+          }
           for (const id of Object.keys(state.minimizedCards)) {
             if (!tileOwnerExists(state, id)) delete state.minimizedCards[id];
           }
