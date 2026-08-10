@@ -3538,6 +3538,16 @@ async def run_browser_agents(
         # advisory deep entry (from the fast-path brief): a NEW card opens on it directly (no google detour); a REUSED card is never moved by it, so a warm card's deeper page state always wins
         entry_url = task_def.get("entry_url", "")
 
+        # No dashboard to create a card on: without this, the empty browser_id survives into every renderer round-trip and the sub dies narrating "Browser card '' not found" timeouts (ENG-221).
+        if not browser_id and not dashboard_id and not app_mode:
+            return {
+                "summary": (
+                    "Error: this agent session has no dashboard, so a browser card cannot be created. "
+                    "Launch the agent from a dashboard (or pass dashboard_id) and try again; do not retry as-is."
+                ),
+                "action_log": [], "final_screenshot": None,
+            }
+
         reused = False
         if not browser_id and dashboard_id:
             # the url param is often empty with the target buried in the task text; a url there still names the host we must not duplicate
