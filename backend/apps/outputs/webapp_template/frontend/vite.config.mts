@@ -6,11 +6,16 @@ import terminal from 'vite-plugin-terminal';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+
+// ESM config (.mts): the packaged app's bundled node 20 cannot require() ESM-only plugins like @tailwindcss/vite, so the config itself must load as ESM.
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // Shared, hash-keyed vite optimization cache. Every webapp-template
 // workspace shares its node_modules/ via a symlink to OpenSwarm's warm
 // cache, AND now shares the optimized-deps output via this cache too —
-// keyed on the hash of vite.config.ts + package.json so a real config
+// keyed on the hash of vite.config.mts + package.json so a real config
 // or dep bump invalidates automatically. First workspace ever opened
 // pays the ~10–15s MUI pre-bundle; every subsequent workspace reuses
 // the same `.vite-cache/deps/` and boots in under a second.
@@ -25,12 +30,10 @@ import fs from 'fs';
 //   3. Vite's own metadata.json swap is atomic, so concurrent boots
 //      don't corrupt the cache.
 function sharedViteCacheDir(): string {
-  const here = __dirname;
   let digest = 'fallback';
   try {
-    const crypto = require('crypto') as typeof import('crypto');
     const hasher = crypto.createHash('sha256');
-    for (const f of ['vite.config.ts', 'package.json']) {
+    for (const f of ['vite.config.mts', 'package.json']) {
       const p = path.join(here, f);
       if (fs.existsSync(p)) hasher.update(fs.readFileSync(p));
     }
@@ -67,8 +70,8 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, 'src'),
-        '@toolui': path.resolve(__dirname, 'src/toolui'),
+        '@': path.resolve(here, 'src'),
+        '@toolui': path.resolve(here, 'src/toolui'),
       },
       // Force single instances of React and emotion — even if anything
       // tries to resolve them from a deeper node_modules path (which

@@ -23,7 +23,7 @@ def dist_index(workspace_path: str) -> str:
 def p_newest_source_mtime(workspace_path: str) -> float:
     newest = 0.0
     fe = os.path.join(workspace_path, "frontend")
-    for probe in ("package.json", "vite.config.ts", "index.html"):
+    for probe in ("package.json", "vite.config.mts", "vite.config.ts", "index.html"):
         p = os.path.join(fe, probe)
         if os.path.isfile(p):
             newest = max(newest, os.path.getmtime(p))

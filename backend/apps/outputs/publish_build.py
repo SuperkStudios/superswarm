@@ -35,7 +35,7 @@ def p_safe_build_config(fe: str) -> tuple[list[str], Optional[str]]:
 
     Returns (extra build args, temp-config path to delete) or ([], None)."""
     cfg_name = next(
-        (n for n in ("vite.config.ts", "vite.config.js", "vite.config.mjs")
+        (n for n in ("vite.config.mts", "vite.config.ts", "vite.config.js", "vite.config.mjs")
          if os.path.exists(os.path.join(fe, n))),
         None,
     )

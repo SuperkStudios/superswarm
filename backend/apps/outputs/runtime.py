@@ -341,7 +341,7 @@ class AppRuntime:
         [WinError 2] on `bash run.sh` and the preview never started. We only
         take this path when vite is actually present (node_modules linked);
         otherwise fall back to bash so behavior is unchanged everywhere else.
-        vite.config.ts reads FRONTEND_PORT / BACKEND_PORT from the environment."""
+        vite.config.mts reads FRONTEND_PORT / BACKEND_PORT from the environment."""
         if os.name == "nt" and self.port is None:
             node = env.get("OPENSWARM_NODE_PATH") or shutil.which("node")
             vite_bin = os.path.join(
