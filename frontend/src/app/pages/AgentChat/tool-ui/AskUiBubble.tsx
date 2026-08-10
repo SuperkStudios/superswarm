@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import InputBase from '@mui/material/InputBase';
 import IconButton from '@mui/material/IconButton';
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
@@ -116,8 +117,28 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
     );
   }
 
+  // The vendored choice contracts carry no question field, so agents' title/description props silently vanish and the user sees options with no question; render them as a host header instead (ENG-227).
+  const rawProps = (payload.props ?? {}) as Record<string, unknown>;
+  const questionTitle: string = [rawProps.title, rawProps.question, rawProps.prompt, rawProps.heading]
+    .find((v): v is string => typeof v === 'string' && v.trim().length > 0) ?? '';
+  const questionDesc: string = typeof rawProps.description === 'string' && rawProps.description !== questionTitle
+    ? rawProps.description : '';
   return (
     <Box sx={{ my: 1, contain: 'layout style' }} data-select-type="tool-ui-ask" data-select-id={pair.id} data-select-meta={JSON.stringify({ component: payload.name })}>
+      {(questionTitle || questionDesc) && (
+        <Box sx={{ mb: 0.75, px: 0.5 }}>
+          {questionTitle && (
+            <Typography sx={{ fontSize: '0.9375rem', fontWeight: 600, color: 'text.primary', lineHeight: 1.35 }}>
+              {questionTitle}
+            </Typography>
+          )}
+          {questionDesc && (
+            <Typography sx={{ fontSize: '0.8125rem', color: 'text.secondary', mt: 0.25, lineHeight: 1.4 }}>
+              {questionDesc}
+            </Typography>
+          )}
+        </Box>
+      )}
       <VendoredToolUi name={payload.name} props={payload.props} extraProps={extraProps} />
       {waiting && FREE_TEXT_COMPONENTS.has(payload.name) && (
         <Box

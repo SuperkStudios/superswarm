@@ -3,7 +3,6 @@ import Button from '@mui/material/Button';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import AddIcon from '@mui/icons-material/Add';
-import BuildIcon from '@mui/icons-material/Build';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import AddLinkIcon from '@mui/icons-material/AddLink';
@@ -13,13 +12,12 @@ import AddCustomConnectorDialog from '../../Directory/dialogs/AddCustomConnector
 interface Props {
   devMode: boolean;
   onBrowseConnectors?: () => void;
-  onOpenCreate: () => void;
   onOpenRegistry: () => void;
   onSnackbar: (message: string, severity: 'success' | 'error') => void;
 }
 
 // The Tools page's Add button (claude.ai's Connectors-page grammar) plus the custom-connector dialog it opens.
-const ToolsAddMenu: React.FC<Props> = ({ devMode, onBrowseConnectors, onOpenCreate, onOpenRegistry, onSnackbar }) => {
+const ToolsAddMenu: React.FC<Props> = ({ devMode, onBrowseConnectors, onOpenRegistry, onSnackbar }) => {
   const c = useClaudeTokens();
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [customConnectorOpen, setCustomConnectorOpen] = useState(false);
@@ -50,10 +48,6 @@ const ToolsAddMenu: React.FC<Props> = ({ devMode, onBrowseConnectors, onOpenCrea
         <MenuItem onClick={() => { closeMenu(); setCustomConnectorOpen(true); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
           <AddLinkIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
           Add custom connector
-        </MenuItem>
-        <MenuItem onClick={() => { closeMenu(); onOpenCreate(); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>
-          <BuildIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
-          Create Custom
         </MenuItem>
         {devMode && (
           <MenuItem onClick={() => { closeMenu(); onOpenRegistry(); }} sx={{ color: c.text.primary, fontSize: '0.875rem', gap: 1.5, '&:hover': { bgcolor: c.bg.secondary } }}>

@@ -1466,42 +1466,6 @@ const BrowserCard: React.FC<Props> = ({
 
         {/* Right side controls */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, px: 0.5, flexShrink: 0 }}>
-          {/* Agent activity badge */}
-          {agentActive && (
-            <Box
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 0.5,
-                px: 0.75,
-                py: 0.25,
-                borderRadius: '6px',
-                bgcolor: `${accentColor}18`,
-                animation: 'badge-fade-in 0.25s ease-out',
-                '@keyframes badge-fade-in': {
-                  '0%': { opacity: 0, transform: 'scale(0.85)' },
-                  '100%': { opacity: 1, transform: 'scale(1)' },
-                },
-              }}
-            >
-              <Box
-                sx={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  bgcolor: accentColor,
-                  animation: 'badge-dot-pulse 1.4s ease-in-out infinite',
-                  '@keyframes badge-dot-pulse': {
-                    '0%, 100%': { opacity: 0.5, transform: 'scale(0.8)' },
-                    '50%': { opacity: 1, transform: 'scale(1.3)' },
-                  },
-                }}
-              />
-              <Typography sx={{ fontSize: '0.625rem', fontWeight: 600, color: accentColor, lineHeight: 1 }}>
-                AI
-              </Typography>
-            </Box>
-          )}
 
         </Box>
       </Box>

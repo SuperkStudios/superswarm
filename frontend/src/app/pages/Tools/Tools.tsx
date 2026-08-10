@@ -137,7 +137,6 @@ const Tools: React.FC<ToolsProps> = ({ onBrowseConnectors, expandToolId }) => {
         <ToolsAddMenu
           devMode={!!devMode}
           onBrowseConnectors={onBrowseConnectors}
-          onOpenCreate={a.openCreate}
           onOpenRegistry={a.openRegistryBrowser}
           onSnackbar={(message, severity) => a.setSnackbar({ open: true, message, severity: severity === 'error' ? 'error' : undefined })}
         />
