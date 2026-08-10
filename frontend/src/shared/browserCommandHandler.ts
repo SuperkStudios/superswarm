@@ -2111,6 +2111,21 @@ const inflightCommands = new Set<string>();
 const completedCommands = new Map<string, Record<string, any>>();
 const _COMPLETED_CACHE_MAX = 50;
 
+// Agent commands focus elements INSIDE the guest page, and a guest focus pulls the window's focus off whatever the user is typing in, so every agent action yanked the cursor (ENG-226). Capture the user's host focus target before the command; put it back ONLY if the command moved focus to the agent's webview or nowhere, never if the user deliberately clicked elsewhere mid-command.
+function captureHostFocus(): () => void {
+  const before = document.activeElement as HTMLElement | null;
+  const isUserSurface = !!before && before.tagName !== 'WEBVIEW' && before.tagName !== 'BODY'
+    && (before.tagName === 'INPUT' || before.tagName === 'TEXTAREA' || before.isContentEditable);
+  if (!isUserSurface) return () => {};
+  return () => {
+    const now = document.activeElement as HTMLElement | null;
+    const stolen = !now || now === document.body || now.tagName === 'WEBVIEW';
+    if (stolen && before && before.isConnected) {
+      try { before.focus({ preventScroll: true }); } catch { /* surface unmounted mid-command */ }
+    }
+  };
+}
+
 async function handleBrowserCommand(data: Record<string, any>) {
   const { request_id, action, browser_id, tab_id, params = {} } = data;
   if (!request_id) return;
@@ -2121,10 +2136,12 @@ async function handleBrowserCommand(data: Record<string, any>) {
     return;
   }
   inflightCommands.add(request_id);
+  const restoreFocus = captureHostFocus();
   try {
     await runBrowserCommand(request_id, action, browser_id, tab_id, params);
   } finally {
     inflightCommands.delete(request_id);
+    restoreFocus();
   }
 }
 
