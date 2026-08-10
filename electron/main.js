@@ -2350,7 +2350,9 @@ app.whenReady().then(async () => {
       // running on localhost:3000), `ready-to-show` never fires and
       // the splash would hang forever. Show main anyway so the dev
       // sees the load error in the window itself.
-      mainWindow.webContents.once('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+      // Not once(): a boot-time Chromium network-service crash fails the FIRST load and the service self-restarts seconds later, but with no retry the splash was permanent ("Starting..." forever, the ENG-182 brick, reproduced live 2026-08-10 under load). Retry with backoff until a load commits.
+      let bootLoadRetries = 0;
+      mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
         console.warn('[boot] mainWindow load failed:', errorCode, errorDescription, validatedURL);
         if (isDev) {
           // Force-skip the backend gate so dev sees the error.
@@ -2358,7 +2360,19 @@ app.whenReady().then(async () => {
           try { mainWindow.show(); mainWindow.focus(); } catch (_) {}
           if (splashWindow && !splashWindow.isDestroyed()) splashWindow.destroy();
           splashWindow = null;
+          return;
         }
+        if (isMainFrame === false || errorCode === -3) return; // subframe noise and user-aborted loads are not boot failures
+        if (bootLoadRetries >= 10) { console.error('[boot] load retries exhausted; leaving splash'); return; }
+        const delay = Math.min(1000 * Math.pow(2, bootLoadRetries), 8000);
+        bootLoadRetries += 1;
+        setTimeout(() => {
+          if (!mainWindow || mainWindow.isDestroyed()) return;
+          const cur = mainWindow.webContents.getURL() || '';
+          if (cur.startsWith('http')) return; // a later load already succeeded
+          console.warn(`[boot] retrying main URL (attempt ${bootLoadRetries})`);
+          mainWindow.loadURL(`http://127.0.0.1:${frontendServerPort}/index.html`).catch(() => {});
+        }, delay);
       });
     }
 
