@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { API_BASE, getAuthToken } from '@/shared/config';
+import { isSafeMode } from '@/shared/safeMode';
 
 export interface RuntimeLogLine {
   source: 'backend' | 'runtime';
@@ -56,13 +57,16 @@ export function useRuntimePreviewUrl(opts: RuntimePreviewOptions): RuntimePrevie
 
     const connect = async (): Promise<void> => {
       if (cancelled) return;
-      try {
-        await fetch(`${API_BASE}/outputs/workspace/${workspaceId}/runtime/start?instance=${instance}`, {
-          method: 'POST',
-          headers,
-        });
-      } catch (_) {
-        // Spawn errors surface via the log WS; don't double-report.
+      // Safe mode (ENG-228): after repeated dirty exits, app runtimes don't auto-boot on card mount; the card's restart button is the explicit resume, so a crash loop can't respawn the surface storm.
+      if (!isSafeMode()) {
+        try {
+          await fetch(`${API_BASE}/outputs/workspace/${workspaceId}/runtime/start?instance=${instance}`, {
+            method: 'POST',
+            headers,
+          });
+        } catch (_) {
+          // Spawn errors surface via the log WS; don't double-report.
+        }
       }
       if (cancelled) return;
       try {

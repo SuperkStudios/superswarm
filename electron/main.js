@@ -645,12 +645,62 @@ function spawnCrashWatchdog() {
 }
 
 function writeCleanQuitLock() {
+  // Session lock clears on EVERY platform; only the watchdog half below is mac-specific.
+  try { fs.unlinkSync(SESSION_RUNNING_LOCK); } catch (_) {}
   if (process.platform !== 'darwin') return;
   try {
     if (!fs.existsSync(CRASH_WATCHDOG_SUPPORT_DIR)) fs.mkdirSync(CRASH_WATCHDOG_SUPPORT_DIR, { recursive: true });
     fs.writeFileSync(CRASH_WATCHDOG_CLEAN_QUIT_LOCK, '');
   } catch (_) {}
 }
+
+// Safe-mode loop breaker (ENG-228). A session lock written at boot and cleared on clean quit makes
+// dirty exits detectable without any crash handler firing; two dirty exits inside ten minutes means
+// relaunching keeps rebuilding the exact state that dies, so the NEXT boot restores layout with
+// webviews parked as screenshots until clicked. Also grabs a crash fingerprint (exception name +
+// address from the newest Crashpad minidump) so the renderer chip and diagnostics can say WHAT died.
+const SESSION_RUNNING_LOCK = path.join(CRASH_WATCHDOG_SUPPORT_DIR, 'session-running.lock');
+const DIRTY_EXITS_LOG = path.join(CRASH_WATCHDOG_SUPPORT_DIR, 'dirty-exits.json');
+const SAFE_MODE_WINDOW_MS = 10 * 60 * 1000;
+const SAFE_MODE_THRESHOLD = 2;
+let safeModeInfo = { safeMode: false, dirtyCount: 0, fingerprint: null };
+
+function scanCrashFingerprint(sinceMs) {
+  try {
+    const { newDumpsSince } = require('./crashDumpScan');
+    const crashpadDir = path.join(CRASH_WATCHDOG_SUPPORT_DIR, 'Crashpad', 'completed');
+    const dumps = newDumpsSince(crashpadDir, sinceMs, 1);
+    if (!dumps || !dumps.length) return null;
+    const d = dumps[0];
+    return { exception: d.exception_name || null, code: d.exception_code || null, address: d.exception_address || null, mtime: d.mtime_ms || null };
+  } catch (_) { return null; }
+}
+
+function detectDirtyExitAndArmSafeMode() {
+  try {
+    if (!fs.existsSync(CRASH_WATCHDOG_SUPPORT_DIR)) fs.mkdirSync(CRASH_WATCHDOG_SUPPORT_DIR, { recursive: true });
+    let lastBootTs = 0;
+    const wasDirty = fs.existsSync(SESSION_RUNNING_LOCK);
+    if (wasDirty) {
+      try { lastBootTs = parseInt(fs.readFileSync(SESSION_RUNNING_LOCK, 'utf-8'), 10) || 0; } catch (_) {}
+    }
+    let stamps = [];
+    try { stamps = JSON.parse(fs.readFileSync(DIRTY_EXITS_LOG, 'utf-8')); } catch (_) {}
+    const cutoff = Date.now() - SAFE_MODE_WINDOW_MS;
+    stamps = (Array.isArray(stamps) ? stamps : []).filter((t) => typeof t === 'number' && t > cutoff);
+    if (wasDirty) stamps.push(Date.now());
+    try { fs.writeFileSync(DIRTY_EXITS_LOG, JSON.stringify(stamps)); } catch (_) {}
+    safeModeInfo.dirtyCount = stamps.length;
+    safeModeInfo.safeMode = stamps.length >= SAFE_MODE_THRESHOLD;
+    if (wasDirty) safeModeInfo.fingerprint = scanCrashFingerprint(lastBootTs || cutoff);
+    fs.writeFileSync(SESSION_RUNNING_LOCK, String(Date.now()));
+    if (wasDirty) console.log('[safe-mode] dirty exit detected; count=', safeModeInfo.dirtyCount, 'safeMode=', safeModeInfo.safeMode, 'fingerprint=', JSON.stringify(safeModeInfo.fingerprint));
+  } catch (e) {
+    console.warn('[safe-mode] detect failed:', e && e.message);
+  }
+}
+
+ipcMain.handle('get-safe-mode', () => safeModeInfo);
 
 // Quit-cause forensics. On a real quit (Cmd+Q, dock Quit, app.quit()) Electron
 // fires before-quit BEFORE any window 'close' events; a window closing on its
@@ -2019,6 +2069,7 @@ app.whenReady().then(async () => {
   // Spawn the Mac crash watchdog. Detached process; if it fails to spawn the
   // app continues normally (silent fail by design). Guards inside the
   // watchdog itself prevent false-positive relaunches.
+  detectDirtyExitAndArmSafeMode();
   spawnCrashWatchdog();
 
   // Off-window mouse-release crash dodge (macOS). Safe to call before windows exist.

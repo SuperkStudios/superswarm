@@ -25,6 +25,7 @@ import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
+import SafeModePill from '@/app/components/Layout/SafeModePill';
 import WhatsNewCard from '@/app/components/Layout/WhatsNewCard';
 import ShareRequestHost from '@/app/components/share/ShareRequestHost';
 import AppToolGrantHost from '@/app/components/apps/AppToolGrantHost';
@@ -560,6 +561,7 @@ const AppShell: React.FC = () => {
       </Collapse>
 
       {!fsHideChrome && <UpdateReadyPill />}
+      {!fsHideChrome && <SafeModePill />}
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
       {/* Sidebar excised: dashboards live in the Spaces strip (hover the top edge; right-click a tile for rename/duplicate/delete). */}

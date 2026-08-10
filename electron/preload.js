@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('openswarm', {
 
   // Phase 2 provenance: { sha, shortSha, builtAt, channel } for the About panel.
   getBuildInfo: () => ipcRenderer.invoke('get-build-info'),
+  getSafeMode: () => ipcRenderer.invoke('get-safe-mode'),
 
   // Phase 0 boot instrumentation: renderer calls this exactly once, when the
   // first streamed token of the first agent response paints. Fire-and-forget

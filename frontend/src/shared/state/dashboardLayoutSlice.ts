@@ -3,6 +3,7 @@ import { launchAndSendFirstMessage, resumeSession, collapseSession, collapseAllS
 import { untileClosedChats } from './untileClosedChats';
 import { API_BASE } from '@/shared/config';
 import { getLastDashboardId } from '@/shared/lastDashboardId';
+import { isSafeMode } from '@/shared/safeMode';
 
 // fetchSession 404/410 strips the layout card to stop AgentChat remount-loop. Matched by string to avoid circular import.
 const fetchSessionRejectedAction = createAction<
@@ -1885,6 +1886,12 @@ const dashboardLayoutSlice = createSlice({
           // The wholesale replace bypasses every removal reducer, so window-state entries can orphan; a stale 'fullscreen' re-engages the moment the same id reappears, hiding all chrome with zero clicks.
           for (const id of Object.keys(state.tiledCards)) {
             if (!tileOwnerExists(state, id)) delete state.tiledCards[id];
+          }
+          // Safe mode (ENG-228): after repeated dirty exits, every browser webview boots parked as a screenshot; clicking a card resumes it (the existing suspend/resume path), so a crash loop can't rebuild the surface storm that killed the last session.
+          if (isSafeMode()) {
+            for (const id of Object.keys(state.browserCards)) {
+              if (!state.suspendedBrowserCards[id]) state.suspendedBrowserCards[id] = { dataUrl: '', capturedAt: 0 };
+            }
           }
           // Pre-1.7.6 profiles can persist several live 'fullscreen' entries; the selector crowns the first, so every OTHER card's drag guard compares against the wrong owner and lets the drag through. One owner, same rule as the write reducer.
           let fsOwner: string | null = null;
