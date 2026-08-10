@@ -75,8 +75,10 @@ P_RELEASES: List[ReleaseNote] = [
 
 @typechecked
 def release_notes(version: str) -> ReleaseNote | None:
+    # An experimental build (1.7.6-exp1) tells the same story as its base release.
+    base = version.split("-", 1)[0]
     for note in P_RELEASES:
-        if note.version == version:
+        if note.version == version or note.version == base:
             return note
     return None
 
@@ -104,7 +106,9 @@ def as_markdown(note: ReleaseNote) -> str:
 def help_context_block(app_version: str) -> str:
     """What the Help agent must know about what just changed, so "what's new" is never stale."""
     note = release_notes(app_version) or latest_release()
-    body = [f"Version {note.version}: {note.headline}"]
+    # The Help agent names the RUNNING version even on an experimental build riding its base release's story.
+    shown = app_version if release_notes(app_version) is note and app_version else note.version
+    body = [f"Version {shown}: {note.headline}"]
     body += [f"- new: {h}" for h in note.highlights]
     body += [f"- fixed: {f}" for f in note.fixes]
     return "\n".join(body)
