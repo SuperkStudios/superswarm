@@ -70,12 +70,14 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
             setOrphaned(true);
           }
         })
-        .catch(() => { setSubmitted(false); setLocalChoice(undefined); });
+        .catch(() => { setSubmitted(false); setLocalChoice(undefined); setOrphaned(true); });
     },
     [submitted, sessionId, componentId],
   );
 
   const waiting = pair.result === null && !submitted;
+  // A result that isn't the JSON answer envelope (timeout prose, validation bounce) means this ask is dead; it must not look answerable (ENG-232).
+  const expired = pair.result !== null && answered === null;
 
   // Their embedded-actions contract: onAction(actionId, state) delivers the component's full state,
   // and the components ship their own footer actions (Clear/Confirm), so we only wire the callback.
@@ -91,12 +93,17 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
         : { choice: (answered?.choice as string) ?? (localChoice as string | undefined) };
     }
     if (waiting) {
-      return {
+      const base = {
         onAction: (actionId: string, state: unknown) => {
           if (actionId === 'cancel') return;
           respond({ action: actionId, value: state ?? null });
         },
       };
+      // message-draft's send flow fires onSend (after its undo grace), not onAction; without this the send animation completes while nothing reaches the agent.
+      if (payload.name === 'message-draft') {
+        return { ...base, onSend: () => respond({ action: 'send', value: null }) };
+      }
+      return base;
     }
     // A free-text answer isn't an option id; passing it as `choice` would fail their contract.
     if (freeTextAnswer !== null) return {};
@@ -139,7 +146,14 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
           )}
         </Box>
       )}
-      <VendoredToolUi name={payload.name} props={payload.props} extraProps={extraProps} />
+      <Box sx={expired ? { opacity: 0.55, pointerEvents: 'none' } : undefined}>
+        <VendoredToolUi name={payload.name} props={payload.props} extraProps={extraProps} />
+      </Box>
+      {expired && (
+        <Box sx={{ fontSize: '0.75rem', opacity: 0.55, pt: 0.5 }}>
+          This question expired before it was answered; if the agent asked again, use the newer card.
+        </Box>
+      )}
       {waiting && FREE_TEXT_COMPONENTS.has(payload.name) && (
         <Box
           component="form"
@@ -179,7 +193,7 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
       )}
       {orphaned && (
         <Box sx={{ fontSize: '0.75rem', opacity: 0.55, pt: 0.5 }}>
-          No agent is waiting for this answer (the request expired or this is an old transcript).
+          This answer didn't reach the agent (it may have stopped, expired, or the connection dropped). Try again.
         </Box>
       )}
     </Box>

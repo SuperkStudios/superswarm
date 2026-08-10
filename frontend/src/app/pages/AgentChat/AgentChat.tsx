@@ -65,7 +65,7 @@ import ToolCallBubble, { ToolPair } from './tool-bubbles/ToolCallBubble';
 import ToolGroupBubble, { RenderItem, ToolGroup, ToolGroupEntry, isToolGroup, isToolPair } from './tool-bubbles/ToolGroupBubble';
 import ToolUiBubble from './tool-ui/ToolUiBubble';
 import AskUiBubble from './tool-ui/AskUiBubble';
-import { isShowUiPair, isAskUiPair, extractPendingAskUi } from './tool-ui/showUiPayload';
+import { isShowUiPair, isAskUiPair, extractPendingAskUi, callToolUseId, resultToolUseId, isDeadAskResult } from './tool-ui/showUiPayload';
 import { composerPlaceholder } from './composerPlaceholder';
 import ApprovalBar, { BatchApprovalBar } from './shell/ApprovalBar';
 import ForceStopAgentBar from './ForceStopAgentBar';
@@ -1190,12 +1190,22 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
 
         const allCalls = group.filter((m) => m.role === 'tool_call');
         const results = group.filter((m) => m.role === 'tool_result');
-        const allPairs: ToolPair[] = allCalls.map((call, idx) => ({
-          type: 'tool_pair' as const,
-          id: `pair-${call.id}`,
-          call,
-          result: results[idx] || null,
-        }));
+        // Index pairing mispairs any parallel batch (first-completing result lands on the first call, killing a live AskUI card, ENG-232); pair by tool_use_id when the result carries one, index only for legacy unkeyed results.
+        const resultById = new Map<string, (typeof results)[number]>();
+        for (const r of results) {
+          const rid = resultToolUseId(r);
+          if (rid && !resultById.has(rid)) resultById.set(rid, r);
+        }
+        const allPairs: ToolPair[] = allCalls.map((call, idx) => {
+          const byId = resultById.get(callToolUseId(call));
+          const indexed = results[idx] || null;
+          return {
+            type: 'tool_pair' as const,
+            id: `pair-${call.id}`,
+            call,
+            result: byId ?? (indexed && !resultToolUseId(indexed) ? indexed : null),
+          };
+        });
 
         // ShowUI/AskUI calls render as inline components, never buried inside a collapsed group.
         // They typically cap a run of work, so the quiet group row stays above the widget.
@@ -1803,6 +1813,15 @@ const AgentChat: React.FC<AgentChatProps> = ({ sessionId: sessionIdProp, onClose
               if (isToolPair(item)) {
                 const isPending = item.result === null && sessionRunning;
                 if (isAskUiPair(item)) {
+                  // A dead ask (timeout prose or a validation bounce) is not answerable; rendering it full-size is the "two identical cards, only one works" dupe (ENG-232).
+                  if (isDeadAskResult(item)) {
+                    return (
+                      <Box key={item.id} data-window-item-id={item.id} ref={isLastVisibleItem ? lastVisibleItemRef : undefined}>
+                        <ToolCallBubble call={item.call} result={item.result} isPending={false} sessionId={session.id} suppressReveal />
+                        {compactionChip}
+                      </Box>
+                    );
+                  }
                   // Only the LATEST unanswered question is live (the backend parks one component); an
                   // older pending ask renders as a quiet row instead of a second clickable form.
                   if (item.result === null && lastPendingAskCallId !== null && item.call.id !== lastPendingAskCallId) {

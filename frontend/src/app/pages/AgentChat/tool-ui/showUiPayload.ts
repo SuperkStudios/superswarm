@@ -81,6 +81,26 @@ export function isAskUiPair(pair: ToolPair): boolean {
   return /(^|__)AskUI$/.test(tool);
 }
 
+/** The provider tool_use id a call carries in its content; '' when absent. */
+export function callToolUseId(msg: { content: unknown }): string {
+  const c = (typeof msg.content === 'object' && msg.content !== null ? msg.content : {}) as { id?: unknown };
+  return typeof c.id === 'string' ? c.id : '';
+}
+
+/** The provider tool_use id a result says it answers; '' on legacy results that carry none. */
+export function resultToolUseId(msg: { content: unknown }): string {
+  const c = (typeof msg.content === 'object' && msg.content !== null ? msg.content : {}) as { tool_use_id?: unknown };
+  return typeof c.tool_use_id === 'string' ? c.tool_use_id : '';
+}
+
+/** A result that is not the JSON answer envelope (timeout prose, validation bounce, AskUI failure): the ask is dead, not answered, and must not render as a clickable form. */
+export function isDeadAskResult(pair: ToolPair): boolean {
+  if (pair.result === null) return false;
+  const rc = pair.result.content as unknown;
+  const text = typeof rc === 'string' ? rc : (typeof rc === 'object' && rc !== null ? String((rc as { text?: unknown }).text ?? '') : '');
+  return !text.trim().startsWith('{');
+}
+
 /** Latest ShowUI payload anywhere in a transcript; the collapsed card pins this artifact under its pill. */
 /** The newest UNANSWERED AskUI call, so a collapsed card can surface the live question under its
     pill (a blocking question beats every other artifact; the agent is literally waiting on it). */
@@ -90,8 +110,16 @@ export function extractPendingAskUi(messages: Array<{ id: string; role: string; 
     if (msg.role !== 'tool_call') continue;
     const body = (typeof msg.content === 'object' && msg.content !== null ? msg.content : {}) as { tool?: unknown };
     if (!/(^|__)AskUI$/.test(String(body.tool || ''))) continue;
-    const next = messages[i + 1];
-    if (next && next.role === 'tool_result') return null;
+    // Parallel batches break next-message adjacency, so match the answering result by tool_use_id when results carry one; adjacency stays the legacy fallback.
+    const callId = callToolUseId(msg);
+    let answered = false;
+    for (let j = i + 1; j < messages.length && !answered; j++) {
+      const m = messages[j];
+      if (m.role !== 'tool_result') continue;
+      const rid = resultToolUseId(m);
+      answered = rid ? rid === callId : j === i + 1;
+    }
+    if (answered) return null;
     return { type: 'tool_pair', id: msg.id, call: msg as ToolPair['call'], result: null };
   }
   return null;

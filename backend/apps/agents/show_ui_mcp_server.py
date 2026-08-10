@@ -44,6 +44,7 @@ COMPONENT_SPECS.update({name: entry["hint"] for name, entry in GENERATED.items()
 
 INTERACTIVE_COMPONENTS = (
     "option-list", "question-flow", "parameter-slider", "preferences-panel", "approval-card",
+    "message-draft",
 )
 
 TOOLS = [
@@ -250,8 +251,9 @@ def handle_ask_ui(arguments: dict) -> dict:
         return {"content": [{"type": "text", "text": "props must be an object."}], "isError": True}
     if component not in INTERACTIVE_COMPONENTS:
         return {"content": [{"type": "text", "text": f"AskUI only supports: {', '.join(INTERACTIVE_COMPONENTS)}. Use ShowUI for display-only components."}], "isError": True}
-    component_id = str(props.get("id", "")).strip()
-    if not component_id:
+    # Registered RAW, not stripped: the frontend responds with the untrimmed id, and a mismatched key means the answer never lands.
+    component_id = str(props.get("id", ""))
+    if not component_id.strip():
         return {"content": [{"type": "text", "text": "props.id (a stable string) is required so the answer can be correlated."}], "isError": True}
     problem = validate(component, props)
     if problem:
@@ -273,6 +275,13 @@ def handle_tool_call(tool_name: str, arguments: dict) -> dict:
     props = arguments.get("props")
     if not isinstance(props, dict):
         return {"content": [{"type": "text", "text": "props must be an object."}], "isError": True}
+    # A display-only render wires no click handlers, so an interactive component via ShowUI draws dead buttons (message-draft even animates a send that sent nothing); teach instead of rendering a lie.
+    if component in INTERACTIVE_COMPONENTS:
+        return {"content": [{"type": "text", "text": (
+            f"Not rendered: '{component}' is interactive and ShowUI is display-only, so its buttons "
+            "would be dead. Call AskUI with the same component and props (props.id required) to "
+            "collect the user's answer."
+        )}], "isError": True}
     problem = validate(component, props)
     if problem:
         return {"content": [{"type": "text", "text": f"Not rendered: {problem}"}], "isError": True}

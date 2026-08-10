@@ -194,6 +194,9 @@ async def send_message(session_id: str, body: dict):
 @agents.router.post("/sessions/{session_id}/stop")
 async def stop_agent(session_id: str):
     await agent_manager.stop_agent(session_id)
+    # A stopped turn's parked AskUI waits would otherwise zombie for 600s and eat the next click (ENG-232).
+    from backend.apps.agents.ui_request_bridge import cancel_session_waits
+    cancel_session_waits(session_id)
     return {"ok": True}
 
 @agents.router.post("/approval")

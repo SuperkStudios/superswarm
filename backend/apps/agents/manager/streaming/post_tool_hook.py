@@ -136,6 +136,9 @@ async def post_tool_hook(ctx: HookContext, input_data: dict, tool_use_id, contex
             content = f"{content}\n\n" + wrap_platform_note("\n\n".join(notes))
 
     result_payload = {"text": content}
+    # Pairing by array index mispairs any parallel batch (first-completing result lands on the first call); the provider id lets the frontend pair by identity (ENG-232).
+    if tool_use_id:
+        result_payload["tool_use_id"] = str(tool_use_id)
     hook_tool_name = input_data.get("tool_name", "")
     if hook_tool_name:
         result_payload["tool_name"] = hook_tool_name
