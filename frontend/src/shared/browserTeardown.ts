@@ -29,12 +29,38 @@ export async function detachBrowserCdp(browserId: string): Promise<void> {
   ]);
 }
 
-// Clean-detach a browser card's CDP, THEN remove it. All three card-removal paths (the X button, the agent-finish timer, and keyboard delete) route through here so none of them tears the webview down with the debugger still attached. The detach is bounded, so removal is never blocked by a dead pipe.
+// Park each doomed webview at about:blank and wait for the COMMIT EVENT (plus one settle frame), so
+// React never unmounts a live GPU surface mid-composite; browser cards are the heaviest surfaces and
+// had no quiesce at all while app cards did (ENG-228). Bounded generously; the card is already gone
+// from the user's view, so the wait costs nothing visible.
+const QUIESCE_BUDGET_MS = 1500;
+export async function quiesceBrowserWebviews(browserId: string): Promise<void> {
+  const waits: Promise<void>[] = [];
+  for (const wv of getBrowserWebviews(browserId)) {
+    try {
+      const committed = new Promise<void>((resolve) => {
+        const done = (): void => { wv.removeEventListener('did-navigate', done); resolve(); };
+        wv.addEventListener('did-navigate', done);
+      });
+      void (wv as unknown as { loadURL: (u: string) => Promise<void> }).loadURL('about:blank').catch(() => {});
+      waits.push(Promise.race([committed, new Promise<void>((r) => setTimeout(r, QUIESCE_BUDGET_MS))]));
+    } catch {
+      // webview already torn down; nothing to quiesce
+    }
+  }
+  if (waits.length) {
+    await Promise.allSettled(waits);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  }
+}
+
+// Clean-detach a browser card's CDP, quiesce its GPU surfaces, THEN remove it. All three card-removal paths (the X button, the agent-finish timer, and keyboard delete) route through here so none of them tears the webview down with the debugger still attached or a live surface still compositing. Every step is bounded, so removal is never blocked by a dead pipe.
 export async function removeBrowserCardCleanly(
   browserId: string,
   dispatch: Dispatch,
 ): Promise<void> {
   await detachBrowserCdp(browserId);
+  await quiesceBrowserWebviews(browserId);
   forgetBrowser(browserId);
   dispatch(removeBrowserCard(browserId));
 }
@@ -56,6 +82,10 @@ export async function removeBrowserCardsCleanly(
   dispatch: Dispatch,
 ): Promise<void> {
   await detachBrowsersCdpBounded(browserIds);
+  // Same batching rationale as detach: a mass close (multi-select delete) quiesces in bounded waves, so the surfaces release before any unmount without flooding the compositor.
+  for (let i = 0; i < browserIds.length; i += DETACH_CONCURRENCY) {
+    await Promise.allSettled(browserIds.slice(i, i + DETACH_CONCURRENCY).map((id) => quiesceBrowserWebviews(id)));
+  }
   for (const id of browserIds) {
     forgetBrowser(id);
     dispatch(removeBrowserCard(id));
