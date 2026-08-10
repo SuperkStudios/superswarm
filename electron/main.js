@@ -3672,7 +3672,11 @@ ipcMain.handle('set-allow-prerelease', async (_e, value) => {
   // Built-in autoUpdater has no allowPrerelease; experimental channel on Windows is a TODO once we wire a separate Squirrel prerelease feed.
   if (isSquirrelUpdater) return { success: false, error: 'Experimental channel not yet supported on Windows Squirrel target' };
   const next = Boolean(value);
-  if (autoUpdater.allowPrerelease === next) return { success: true, changed: false };
+  // Opting OUT while running an experimental build must offer the CURRENT stable, which is a semver downgrade; without this a tester who flips the toggle off is stranded on the prerelease until the next stable overtakes it.
+  const wantDowngrade = !next && String(app.getVersion()).includes('-');
+  const downgradeChanged = autoUpdater.allowDowngrade !== wantDowngrade;
+  autoUpdater.allowDowngrade = wantDowngrade;
+  if (autoUpdater.allowPrerelease === next && !downgradeChanged) return { success: true, changed: false };
   autoUpdater.allowPrerelease = next;
   if (!isPackaged) return { success: true, changed: true };
   try {
