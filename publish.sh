@@ -44,7 +44,7 @@ bash scripts/build-app.sh --publish
 # Post-publish belt-and-suspenders: explicitly draft any experimental release in case EP_DRAFT didn't get picked up by electron-builder.
 if [[ "$VERSION" == *-* ]]; then
     echo "==> Marking v$VERSION as draft on GitHub..."
-    gh release edit "v$VERSION" --draft=true 2>/dev/null || echo "WARN: could not mark draft via gh CLI (release may not exist yet)"
+    gh release edit "v$VERSION" --draft=true --prerelease 2>/dev/null || echo "WARN: could not mark draft+prerelease via gh CLI (release may not exist yet)"
 fi
 
 cd -
