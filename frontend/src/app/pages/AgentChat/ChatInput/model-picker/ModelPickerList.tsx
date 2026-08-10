@@ -7,7 +7,7 @@ import Tooltip from '@mui/material/Tooltip';
 import Collapse from '@mui/material/Collapse';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { ClaudeTokens } from '@/shared/styles/claudeTokens';
-import { PROVIDER_COLORS, OR_AUTO_COLLAPSE_THRESHOLD } from './modelPicker';
+import { PROVIDER_COLORS, OR_AUTO_COLLAPSE_THRESHOLD, orderGroupsByTier, TIER_LABELS } from './modelPicker';
 import { formatTokenCount } from '../helpers';
 import { ModelPickerRecents } from './ModelPickerRecents';
 
@@ -73,7 +73,19 @@ export const ModelPickerList: React.FC<Props> = ({
         </Box>
       )}
 
-      {Object.entries(filteredModelGroups).map(([prov, models]) => {
+      {(() => {
+        const ordered = orderGroupsByTier(filteredModelGroups);
+        let lastTier: string | null = null;
+        return ordered.map(([prov, models, tier]) => {
+        // A hard separator + tier label the first time each tier appears, so subs/API/routers never blur together.
+        const tierHeader = tier !== lastTier ? (
+          <Box key={`tier-${tier}`} sx={{ px: 1.5, pt: lastTier === null ? 0.5 : 1, pb: 0.5, mt: lastTier === null ? 0 : 0.5, borderTop: lastTier === null ? 'none' : `1px solid ${c.border.subtle}` }}>
+            <Typography sx={{ fontSize: '0.625rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: c.text.ghost }}>
+              {TIER_LABELS[tier]}
+            </Typography>
+          </Box>
+        ) : null;
+        lastTier = tier;
         const isOpenSwarmPro = prov === 'OpenSwarm Pro';
         const isOR = prov.startsWith('OpenRouter');
         const ms = models as any[];
@@ -105,6 +117,7 @@ export const ModelPickerList: React.FC<Props> = ({
         };
 
         return [
+          tierHeader,
           <MenuItem
             key={`header-${prov}`}
             onClick={(e) => {
@@ -233,7 +246,8 @@ export const ModelPickerList: React.FC<Props> = ({
               })}
           </Collapse>,
         ];
-      }).flat()}
+        }).flat().filter(Boolean);
+      })()}
     </>
   );
 };

@@ -112,6 +112,35 @@ export function sortModelsForPicker<T extends { label: string }>(models: T[]): T
   });
 }
 
+// The three billing tiers the picker groups by, in the order they render (Eric 2026-08-09): your
+// own subscriptions first, your own API keys second, pass-through routers last, never interleaved.
+export type ModelTier = 'subscription' | 'api_key' | 'router';
+export const TIER_ORDER: ModelTier[] = ['subscription', 'api_key', 'router'];
+export const TIER_LABELS: Record<ModelTier, string> = {
+  subscription: 'Subscriptions',
+  api_key: 'API keys',
+  router: 'Routers',
+};
+
+/** A provider group's tier: OpenRouter/router prefixes are routers; otherwise the group's dominant
+ * billing_kind (subscription rows win ties so a mixed group sorts with the subs). */
+export function groupTier(prov: string, models: Array<{ billing_kind?: string }>): ModelTier {
+  if (/^(openrouter|router)\b/i.test(prov) || prov.includes('·')) return 'router';
+  if (models.some((m) => m.billing_kind === 'subscription' || m.billing_kind === 'free')) return 'subscription';
+  return 'api_key';
+}
+
+/** Reorder group entries into subscription -> api_key -> router, keeping each provider's existing
+ * order within its tier. The one place tier order is decided, so headers and list can't drift. */
+export function orderGroupsByTier(
+  grouped: Record<string, Array<{ billing_kind?: string }>>,
+): Array<[string, Array<any>, ModelTier]> {
+  const entries = Object.entries(grouped).map(
+    ([prov, models]) => [prov, models, groupTier(prov, models as any[])] as [string, any[], ModelTier],
+  );
+  return entries.sort((a, b) => TIER_ORDER.indexOf(a[2]) - TIER_ORDER.indexOf(b[2]));
+}
+
 // Superseded generations we no longer surface in the picker; the ids still work if saved as a default.
 const DEPRECATED_PATTERNS: RegExp[] = [
   /\bgpt[-_ ]?[34](\b|o|\.|-)/,
