@@ -242,11 +242,39 @@ def seed_hints_for_task(prompt: str) -> str:
     return ("\n\nKnown site facts (use their URL patterns for ENTRY):\n" + "\n".join(lines)) if lines else ""
 
 
+def connected_integration_names() -> list[str]:
+    """Names of MCP integrations the user has actually connected (Slack, Notion, ...), lowercase."""
+    try:
+        from backend.apps.tools_lib.tools_lib import load_all_tools
+        return [
+            t.name.lower() for t in load_all_tools()
+            if t.mcp_config and t.enabled and t.auth_status in ("configured", "connected")
+        ]
+    except Exception:
+        return []
+
+
+def browsy_beyond_connected(prompt: str, connected: list[str]) -> bool:
+    """True when browser-ish evidence survives after removing connected-integration names. "Make a
+    Slack skill" with Slack connected has none left and must route to the orchestrator's native
+    tools (ENG-225); "go to slack.com and click around" still reads browser."""
+    stripped = prompt
+    for name in connected:
+        for token in name.split():
+            if len(token) >= 3:
+                stripped = re.sub(re.escape(token), " ", stripped, flags=re.I)
+    return bool(P_BROWSY_RE.search(stripped))
+
+
 async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> tuple[str, str]:
     """One cheap aux call returns a READ/ACT/NO verdict plus a routing brief
     (entry URL + step outline), timeboxed; any failure means NO (normal path)."""
     t0 = time.monotonic()
     try:
+        p_connected = connected_integration_names()
+        if p_connected and not browsy_beyond_connected(prompt, p_connected):
+            logger.info("[browser-fast-path] only connected-integration names matched; normal path (native tools win)")
+            return "no", ""
         from backend.apps.settings.credentials import get_anthropic_client_for_model
         from backend.apps.agents.providers.registry import resolve_aux_model
 
@@ -264,7 +292,8 @@ async def classify_and_brief(prompt: str, settings, primary_api: str | None) -> 
                     temperature=0,
                     system=P_CLASSIFIER_SYSTEM,
                     messages=[{"role": "user", "content": (
-                        normalize_for_classifier(prompt[:2000]) + seed_hints_for_task(prompt))}],
+                        (f"[The user has these integrations natively connected, and tasks doable through them are NOT browser tasks, answer NO: {', '.join(p_connected)}]\n" if p_connected else "")
+                        + normalize_for_classifier(prompt[:2000]) + seed_hints_for_task(prompt))}],
                 ),
                 timeout=8.0,
             )

@@ -176,3 +176,16 @@ def test_results_url_shapes():
         assert RESULTS_URL_RE.search(u), u
     for u in misses:
         assert not RESULTS_URL_RE.search(u), u
+
+
+def test_connected_integration_names_route_native_not_browser():
+    """ENG-225: 'make a Slack skill' with Slack connected must NOT read browser-ish; the same words
+    with nothing connected keep the cookie-borrow browser path."""
+    from backend.apps.agents.browser import browser_fast_path as fp
+    haik = ("Send a note in the Miscellaneous Slack channel. Better yet, make a Slack skill that "
+            "activates every time any of the Slack tools are called and prepends [AI].")
+    assert fp.browsy_beyond_connected(haik, ["slack"]) is False
+    assert fp.browsy_beyond_connected(haik, []) is True
+    assert fp.browsy_beyond_connected("go to slack.com and read the pricing page", ["slack"]) is True
+    assert fp.browsy_beyond_connected("add a row to my Notion tracker", ["notion"]) is False
+    assert fp.browsy_beyond_connected("send a linkedin message to my recruiter", ["slack", "notion"]) is True
