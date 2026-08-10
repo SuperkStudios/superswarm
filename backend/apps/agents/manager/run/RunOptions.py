@@ -205,6 +205,8 @@ class RunOptions(AgentManagerProtocol):
         await configure_provider_env(
             options_kwargs, session, resolved_model, api_type, global_settings
         )
+        # The CLI's own auto-memory keys its directory on cwd, and every chat has its own workspace cwd, so it silently files memories into per-chat buckets no other chat reads; MemoryRead/MemoryWrite on the shared store is the one memory surface (ENG-222).
+        options_kwargs.setdefault("env", {})["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         logger.info(f"[SPAWN-PHASE] provider-env done session={session_id[:8]} t={time.monotonic():.3f}")
         if mcp_servers:
             options_kwargs["mcp_servers"] = mcp_servers
