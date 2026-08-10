@@ -18,6 +18,9 @@ import backend.apps.web.web as W
 from backend.apps.web.web import search, SearchBody
 from backend.tests.web_cascade_fixtures import (  # noqa: F401
     allow_urls,
+    bing_refuses,
+    bing_returns,
+    brave_returns,
     fresh_breaker,
     patch_browser_bridge,
     ddg_returns,
@@ -188,6 +191,34 @@ async def test_browser_search_skipped_when_no_bridge(monkeypatch):
 
     res = await search(SearchBody(query="q"))
     assert res["backend"] == "openai_native"
+
+
+@pytest.mark.asyncio
+async def test_bing_rescues_a_ddg_challenge_before_any_paid_backend(monkeypatch):
+    """Bing is the unthrottled second rung: it went 50/50 on the burst that tripped DDG."""
+    ddg_throttled(monkeypatch)
+    bing_returns(monkeypatch, "[1] Rescued\n    https://bing-hit.example")
+
+    async def p_boom(*a, **k):
+        raise AssertionError("a paid backend must not run while a free engine still answers")
+    monkeypatch.setattr(W, "gemini_grounded_call", p_boom)
+
+    res = await search(SearchBody(query="x"))
+    assert res["backend"] == "bing"
+    assert "bing-hit.example" in res["results"]
+    assert any("ddg" in e for e in res["cascade_errors"])
+
+
+@pytest.mark.asyncio
+async def test_brave_rescues_when_ddg_and_bing_both_refuse(monkeypatch):
+    ddg_throttled(monkeypatch)
+    bing_refuses(monkeypatch)
+    brave_returns(monkeypatch, "[1] Independent index\n    https://brave-hit.example")
+
+    res = await search(SearchBody(query="x"))
+    assert res["backend"] == "brave"
+    assert "brave-hit.example" in res["results"]
+    assert any("Bing" in e for e in res["cascade_errors"])
 
 
 @pytest.mark.asyncio

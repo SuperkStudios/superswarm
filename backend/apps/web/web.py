@@ -138,7 +138,7 @@ async def search(body: SearchBody) -> Dict:
         return {"query": body.query, "results": text, "backend": "ddg"}
 
     async def try_startpage() -> Optional[Dict]:
-        # Second independent engine (Google's index), so DuckDuckGo's bot challenge is no longer a single point of failure for keyless users.
+        # Google's index, when its proof-of-work wall is down; benched by the breaker while it isn't.
         from backend.apps.agents.tools.search.search_startpage import search_startpage
         answer = await search_startpage(body.query, body.num_results)
         # Raise rather than return None: a refusal is the engine failing, and the breaker must count it so a closed Startpage stops costing its budget too.
@@ -147,6 +147,26 @@ async def search(body: SearchBody) -> Dict:
         if not answer.results:
             return None
         return {"query": body.query, "results": answer.results, "backend": "startpage"}
+
+    async def try_bing() -> Optional[Dict]:
+        # The index DuckDuckGo mostly serves, reachable directly even while DDG's challenge wall is up; went 50/50 on a zero-delay burst that tripped both DDG and Brave.
+        from backend.apps.agents.tools.search.search_bing import search_bing
+        answer = await search_bing(body.query, body.num_results)
+        if answer.refused:
+            raise RuntimeError("Bing answered with a challenge instead of results")
+        if not answer.results:
+            return None
+        return {"query": body.query, "results": answer.results, "backend": "bing"}
+
+    async def try_brave() -> Optional[Dict]:
+        # Brave's own crawler: coverage independent of both Bing-fed engines and Google, but it throttles bursts, so it sits behind Bing and only sees rescue traffic.
+        from backend.apps.agents.tools.search.search_brave import search_brave
+        answer = await search_brave(body.query, body.num_results)
+        if answer.refused:
+            raise RuntimeError("Brave answered with a challenge instead of results")
+        if not answer.results:
+            return None
+        return {"query": body.query, "results": answer.results, "backend": "brave"}
 
     async def try_browser_search() -> Optional[Dict]:
         # Packaged-app tier: a real Chromium's fingerprint isn't subject to the headless-client challenge, and it can scrape Google/Bing directly. Skipped (None) when no Electron main bridge is connected.
@@ -196,6 +216,8 @@ async def search(body: SearchBody) -> Dict:
     async def try_keyless_engines() -> Optional[Dict]:
         outcome = await race_keyless(
             [KeylessEngine(name="ddg", run=try_keyless),
+             KeylessEngine(name="bing", run=try_bing),
+             KeylessEngine(name="brave", run=try_brave),
              KeylessEngine(name="startpage", run=try_startpage)],
             KEYLESS_TIER_SECONDS,
         )

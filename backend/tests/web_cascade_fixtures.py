@@ -3,8 +3,10 @@
 import pytest
 
 import backend.apps.agents.tools.fetch.wayback as WB
+import backend.apps.agents.tools.search.search_bing as SBI
+import backend.apps.agents.tools.search.search_brave as SBR
 import backend.apps.agents.tools.search.search_startpage as SP
-from backend.apps.agents.tools.search.search_startpage import StartpageAnswer
+from backend.apps.agents.tools.search.engine_answer import EngineAnswer
 import backend.apps.web.web as W
 from backend.apps.agents.tools.web import DDGRateLimited, WebSearchTool
 import backend.apps.agents.tools.ssrf_guard as p_ssrf
@@ -35,9 +37,11 @@ def no_network(monkeypatch):
     monkeypatch.setattr(W, "gemini_grounded_via_9router", p_empty)
     monkeypatch.setattr(W, "openai_websearch_via_9router", p_empty)
 
-    async def p_startpage_closed(query, num):
-        return StartpageAnswer()
-    monkeypatch.setattr(SP, "search_startpage", p_startpage_closed)
+    async def p_engine_closed(query, num):
+        return EngineAnswer()
+    monkeypatch.setattr(SP, "search_startpage", p_engine_closed)
+    monkeypatch.setattr(SBR, "search_brave", p_engine_closed)
+    monkeypatch.setattr(SBI, "search_bing", p_engine_closed)
 
     async def p_no_snapshot(url):
         return None
@@ -65,14 +69,38 @@ def ddg_throttled(monkeypatch):
 
 def startpage_returns(monkeypatch, text):
     async def p_f(query, num):
-        return StartpageAnswer(results=text)
+        return EngineAnswer(results=text)
     monkeypatch.setattr(SP, "search_startpage", p_f)
 
 
 def startpage_refuses(monkeypatch):
     async def p_f(query, num):
-        return StartpageAnswer(refused=True)
+        return EngineAnswer(refused=True)
     monkeypatch.setattr(SP, "search_startpage", p_f)
+
+
+def bing_returns(monkeypatch, text):
+    async def p_f(query, num):
+        return EngineAnswer(results=text)
+    monkeypatch.setattr(SBI, "search_bing", p_f)
+
+
+def bing_refuses(monkeypatch):
+    async def p_f(query, num):
+        return EngineAnswer(refused=True)
+    monkeypatch.setattr(SBI, "search_bing", p_f)
+
+
+def brave_returns(monkeypatch, text):
+    async def p_f(query, num):
+        return EngineAnswer(results=text)
+    monkeypatch.setattr(SBR, "search_brave", p_f)
+
+
+def brave_refuses(monkeypatch):
+    async def p_f(query, num):
+        return EngineAnswer(refused=True)
+    monkeypatch.setattr(SBR, "search_brave", p_f)
 
 
 def patch_browser_bridge(monkeypatch, result):
