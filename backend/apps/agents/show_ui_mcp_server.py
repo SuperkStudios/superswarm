@@ -79,7 +79,10 @@ TOOLS = [
         "name": "ShowUI",
         "description": (
             "Render a rich inline UI component in the chat instead of describing data as text. "
-            "Use it whenever a result fits a component. Components: "
+            "Components are the DEFAULT presentation; plain prose is for content with no structure "
+            "or media. Any image URL you mention renders via image/image-gallery (remote URLs load "
+            "straight from the internet), video via video, sound via audio, never a bare link. "
+            "Components: "
             + ", ".join(COMPONENT_SPECS.keys())
             + ". Call it with the component name and a props object; if your props are off, the tool "
             "returns that component's exact required shape so you can fix and re-call. The component "

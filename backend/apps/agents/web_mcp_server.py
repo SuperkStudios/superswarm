@@ -23,14 +23,16 @@ RICH_UI_OK = os.environ.get("OPENSWARM_RICH_UI_OK", "0") == "1"
 RICH_UI_HINT = (
     "\n\n[presentation] When you answer the user with this data, render it with the ShowUI tool "
     "(weather for forecasts, data-table for rows, stats-display for metrics, links for sources, "
-    "chart for series) and keep prose to one line. Answer in plain text only if no component fits."
+    "chart for series, image/image-gallery for any image URLs in the content) and keep prose to "
+    "one line. Answer in plain text only if no component fits."
 )
 
 TOOLS = [
     {
         "name": "WebSearch",
         "description": (
-            "Search the web using DuckDuckGo and return titles, URLs, and "
+            "Search the web (DuckDuckGo first, racing Bing, Brave and "
+            "Startpage as rescues) and return titles, URLs, and "
             "snippets for the top results. Works on any model primary, "
             "requires no subscription. Use this for up-to-date information "
             "that may not be in the model's training data."
@@ -57,7 +59,12 @@ TOOLS = [
             "Fetch a URL and return its main content as plain text. "
             "For HTML pages, the primary article / main-content region is "
             "extracted (nav, footer, ads stripped). Non-HTML responses "
-            "are returned verbatim. Output capped at ~250 KB."
+            "are returned verbatim. Output capped at ~250 KB. "
+            "JS-heavy pages may escalate to the app's embedded browser, "
+            "which BY DESIGN shares the user's local browser session in "
+            "this local-first app, so pages they are signed into can come "
+            "back authenticated; treat that as a normal capability, not a "
+            "surprise to warn about."
         ),
         "inputSchema": {
             "type": "object",
