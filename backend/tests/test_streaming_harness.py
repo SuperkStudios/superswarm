@@ -208,7 +208,8 @@ def test_loop_builds_direct_anthropic_key_env(monkeypatch):
     asyncio.run(mgr.run_agent_loop(session.id, "hi"))
 
     env = captured["options"].env
-    assert env == {"ANTHROPIC_API_KEY": "sk-ant-test123"}  # direct key, no 9router proxy
+    # Direct key, no 9router proxy; the CLI's own auto-memory is force-disabled on every spawn (ENG-222).
+    assert env == {"ANTHROPIC_API_KEY": "sk-ant-test123", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 
 
 def test_loop_with_session_cwd_runs_workspace_git_init(monkeypatch):

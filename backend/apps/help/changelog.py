@@ -22,6 +22,26 @@ P_RELEASES: List[ReleaseNote] = [
     # GitHub body AND the Help agent's context, so a line written for a planned feature becomes the
     # agent confidently describing something that does not exist.
     ReleaseNote(
+        version="1.7.6",
+        headline="Agents remember, apps get lighter, and fullscreen stays put.",
+        highlights=[
+            "Agents can now save facts you tell them and recall them in any later chat. You curate the list in Settings.",
+            "Apps you built can use your connected tools after you approve each app once; nothing is granted by default.",
+            "Apps nobody is editing serve a prebuilt copy instead of a full dev server, cutting hundreds of megabytes per open app.",
+            "Agent questions and permission asks arrive as clean step-by-step cards instead of plain text forms.",
+            "The model picker groups your subscriptions first, then API keys, then routers, so plans and pay-per-use never mix.",
+            "Dictation starts faster: the microphone stays warm for a few minutes after each use.",
+        ],
+        fixes=[
+            "Creating a new app works again in the installed build; it previously hung on a blank preview forever.",
+            "Nothing can be dragged while a window is fullscreen, and older profiles with stuck fullscreen state are healed on load.",
+            "An agent that stops without answering now says so honestly instead of pretending it finished.",
+            "When a provider is retrying behind the scenes you see a live status pill instead of a frozen card.",
+            "App and browser icons in the sidebar are always real images, never letters or numbers.",
+            "Usage now reports the time agents actually spent working, not time spent waiting.",
+        ],
+    ),
+    ReleaseNote(
         version="1.7.5",
         headline="Off means off, and the canvas stops tearing.",
         highlights=[
