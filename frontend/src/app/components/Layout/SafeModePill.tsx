@@ -12,7 +12,7 @@ const SafeModePill: React.FC = () => {
   const c = useClaudeTokens();
   const [dismissed, setDismissed] = useState(false);
   const info = safeModeInfo();
-  if (!info.safeMode || dismissed) return null;
+  if ((!info.safeMode && !info.reducedGraphics) || dismissed) return null;
   return (
     <Box
       sx={{
@@ -26,7 +26,9 @@ const SafeModePill: React.FC = () => {
     >
       <ShieldOutlinedIcon sx={{ fontSize: 16, color: c.text.tertiary }} />
       <Typography sx={{ fontSize: '0.8125rem', color: c.text.primary }}>
-        Recovered after repeated crashes. Browsers and apps are paused; click one to resume it.
+        {info.safeMode
+          ? 'Recovered after repeated crashes. Browsers and apps are paused; click one to resume it.'
+          : 'Running in reduced graphics mode after repeated graphics crashes. Restart to return to full speed.'}
       </Typography>
       <Box
         role="button" aria-label="Dismiss safe mode notice" onClick={() => setDismissed(true)}

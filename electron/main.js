@@ -113,11 +113,16 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // child-process-gone fires for GPU/utility/renderer process deaths. The GPU one is especially useful: a GPU crash forces the renderer to recover its compositor, and that recovery can itself crash on Windows.
+let gpuCrashCount = 0;
 app.on('child-process-gone', (_event, details) => {
   console.error('[diag][main:child-process-gone]', JSON.stringify(details));
   // Clean exits and user kills are not crashes; reporting them would bury the real ones.
   if (details && details.reason && details.reason !== 'clean-exit' && details.reason !== 'killed') {
     crashReports.writeCrashReport('child-process-gone', details);
+    // Three GPU deaths in one session: the compositor is losing on this machine, so the NEXT boot runs software rendering (one boot only; the marker is consumed at startup). ENG-228.
+    if (details.type === 'GPU' && ++gpuCrashCount >= 3) {
+      try { fs.writeFileSync(GPU_FALLBACK_MARKER, String(Date.now())); } catch (_) {}
+    }
   }
 });
 // Platform-split auto-updater: electron-updater on Mac (full-featured), Electron's
@@ -602,6 +607,18 @@ async function startFrontendServer() {
   });
 }
 
+const GPU_FALLBACK_MARKER = path.join(os.homedir(), 'Library', 'Application Support', 'openswarm', 'gpu-fallback.marker');
+let reducedGraphicsThisBoot = false;
+// Must run BEFORE app ready: a marker from last session's repeated GPU crashes buys ONE boot of software rendering, then normal service resumes (the marker is consumed here). ENG-228.
+try {
+  if (process.platform === 'darwin' && fs.existsSync(GPU_FALLBACK_MARKER)) {
+    fs.unlinkSync(GPU_FALLBACK_MARKER);
+    app.disableHardwareAcceleration();
+    reducedGraphicsThisBoot = true;
+    console.warn('[gpu-fallback] repeated GPU crashes last session; this boot uses software rendering');
+  }
+} catch (_) {}
+
 const isPackaged = app.isPackaged;
 const isDev = process.env.ELECTRON_DEV === '1';
 
@@ -700,7 +717,7 @@ function detectDirtyExitAndArmSafeMode() {
   }
 }
 
-ipcMain.handle('get-safe-mode', () => safeModeInfo);
+ipcMain.handle('get-safe-mode', () => ({ ...safeModeInfo, reducedGraphics: reducedGraphicsThisBoot }));
 
 // Quit-cause forensics. On a real quit (Cmd+Q, dock Quit, app.quit()) Electron
 // fires before-quit BEFORE any window 'close' events; a window closing on its
@@ -1201,7 +1218,7 @@ async function startBackend() {
 
   backendProcess = spawn(
     pythonPath,
-    ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', String(backendPort)],
+    ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', String(backendPort), '--timeout-graceful-shutdown', '8'],
     {
       cwd: projectRoot,
       env,

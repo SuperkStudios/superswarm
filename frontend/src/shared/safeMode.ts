@@ -6,6 +6,7 @@ export interface SafeModeInfo {
   safeMode: boolean;
   dirtyCount: number;
   fingerprint: { exception: string | null; code: number | null; address: number | null } | null;
+  reducedGraphics?: boolean;
 }
 
 let cached: SafeModeInfo = { safeMode: false, dirtyCount: 0, fingerprint: null };

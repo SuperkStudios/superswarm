@@ -215,6 +215,9 @@ async def service_lifespan():
 
     yield
 
+    # Graceful shutdown just began; if it wedges (the ENG-223 quit race), the fuse hard-exits the tree.
+    from backend.apps.service.shutdown_fuse import arm_shutdown_fuse
+    arm_shutdown_fuse()
     if p_pulse_task:
         p_pulse_task.cancel()
         try:
