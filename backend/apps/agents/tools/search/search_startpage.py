@@ -92,6 +92,9 @@ async def search_startpage(query: str, num_results: int) -> StartpageAnswer:
     results = parse_startpage_results(reply.text, num_results)
     if results:
         return StartpageAnswer(results=results)
+    # Since ~2026-08 the POST gets the same ~10KB proof-of-work interstitial as GET (measured: 10,349 bytes, zero result anchors, 'challenge' markers); name it a refusal so the breaker benches the engine instead of treating the wall as a mystery empty page.
+    if "challenge" in reply.text and len(reply.text) < 40_000:
+        return StartpageAnswer(refused=True)
     # Measured once in 14 tight-loop requests: Startpage serves its own no-results page for a query that answered 10 results a second later, so an empty page is only trustworthy when it says so.
     if P_NO_RESULTS_MARKER in reply.text:
         return StartpageAnswer()
