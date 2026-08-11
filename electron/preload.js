@@ -230,16 +230,23 @@ contextBridge.exposeInMainWorld('openswarm', {
     return () => ipcRenderer.removeListener('openswarm:browser-shortcut', listener);
   },
 
-  // Deep-link callback: fires when the OS opens the app with an
-  // openswarm://auth?token=... URL (after Stripe-hosted checkout).
+  // Deep-link delivery is drain-based (ENG-240): main queues every openswarm://
+  // URL and nudges here; the renderer drains the queue on mount and on each nudge,
+  // so a link is never lost to the send-before-subscribe race or a single-slot overwrite.
+  onDeeplinkAvailable: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('openswarm:deeplink-available', listener);
+    return () => ipcRenderer.removeListener('openswarm:deeplink-available', listener);
+  },
+  drainDeeplinks: () => ipcRenderer.invoke('drain-deeplinks'),
+
+  // Legacy push channels, kept so an old renderer bundle still receives links; main
+  // no longer pushes to them (it queues + nudges instead), so on current builds these never fire.
   onAuthUrl: (cb) => {
     const listener = (_event, url) => cb(url);
     ipcRenderer.on('openswarm:auth-url', listener);
     return () => ipcRenderer.removeListener('openswarm:auth-url', listener);
   },
-
-  // OAuth claim deep-link channel. Receives openswarm://oauth/{provider}/complete
-  // after the user finishes an OAuth flow in their browser.
   onOauthClaim: (cb) => {
     const listener = (_event, url) => cb(url);
     ipcRenderer.on('openswarm:oauth-claim', listener);

@@ -404,15 +404,24 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('openswarm');
 }
 
-// Pending deep-link captured before mainWindow exists (cold-launch case).
-// Flushed to renderer once mainWindow is ready.
-let pendingDeepLink = null;
+// Deep links queue here until the RENDERER drains them. A single slot + a live
+// webContents.send lost links two ways that stranded a real user's sign-in
+// (ENG-240): !isLoading() means the page loaded, not that React subscribed, so a
+// link arriving in that gap was sent into the void; and a single slot dropped an
+// earlier link when a second arrived. A queue the renderer drains on mount AND on
+// a nudge has no window where a delivered link can be lost.
+const pendingDeepLinks = [];
+
+function notifyDeeplinkAvailable() {
+  if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+    try { mainWindow.webContents.send('openswarm:deeplink-available'); } catch (_) {}
+  }
+}
 
 function forwardDeepLinkToRenderer(url) {
   if (!url) return;
-  // openswarm:// URLs split by host: "auth" → subscription token,
-  // "oauth/{provider}/complete" → OAuth claim. Each goes to its own
-  // IPC channel so the renderer can route without parsing twice.
+  // openswarm:// URLs split by host: "auth" → sign-in / subscription token,
+  // "oauth/{provider}/complete" → OAuth claim. The renderer routes by host when it drains.
   let channel = 'openswarm:auth-url';
   try {
     const u = new URL(url);
@@ -420,16 +429,10 @@ function forwardDeepLinkToRenderer(url) {
       channel = 'openswarm:oauth-claim';
     }
   } catch (_) {
-    // Malformed URL — fall back to legacy channel; renderer ignores anything
-    // it doesn't recognise.
+    // Malformed URL — default channel; the renderer ignores anything it can't parse.
   }
-  if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isLoading()) {
-    mainWindow.webContents.send(channel, url);
-  } else {
-    // Stash both URL and target channel so we can flush correctly when
-    // the renderer is ready. Replaces the simple string with a {channel,url}.
-    pendingDeepLink = { channel, url };
-  }
+  pendingDeepLinks.push({ channel, url });
+  notifyDeeplinkAvailable();
 }
 
 function extractOpenswarmUrl(argv) {
@@ -1516,20 +1519,14 @@ function createWindow() {
     });
   }
 
-  // Once the renderer has loaded, flush any deep-link URL we captured before
-  // the window existed (cold-launch via openswarm://). pendingDeepLink may
-  // be a string (legacy) OR a {channel, url} object (v1.0.26+ OAuth claims).
+  // Once the renderer has loaded, nudge it to drain any deep link captured
+  // before the window existed (cold-launch via openswarm://). The renderer also
+  // drains on its own mount, so this is a belt over the same queue, never the
+  // only delivery.
   mainWindow.webContents.once('did-finish-load', () => {
     perfMark('first-paint');
     maybeSendBootBeacon();
-    if (pendingDeepLink) {
-      if (typeof pendingDeepLink === 'string') {
-        mainWindow.webContents.send('openswarm:auth-url', pendingDeepLink);
-      } else {
-        mainWindow.webContents.send(pendingDeepLink.channel, pendingDeepLink.url);
-      }
-      pendingDeepLink = null;
-    }
+    if (pendingDeepLinks.length) notifyDeeplinkAvailable();
   });
 
   // Identity-checked: on crash recovery we recreate the window, which means BOTH the old and new BrowserWindow are alive briefly. The OLD window's closed handler must not clobber the NEW mainWindow reference when the old finally destroys.
@@ -3423,6 +3420,11 @@ ipcMain.handle('get-auth-token', async () => {
 ipcMain.on('perf:first-agent-response', () => perfMark('first-agent-response'));
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// The renderer drains the deep-link queue on useDeepLink mount and on every
+// 'deeplink-available' nudge; returning + clearing here is the single consume
+// point, so a link is delivered exactly once no matter the timing (ENG-240).
+ipcMain.handle('drain-deeplinks', () => pendingDeepLinks.splice(0));
 ipcMain.handle('set-window-buttons-visible', (_e, visible) => {
   if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return;
   try { mainWindow.setWindowButtonVisibility(!!visible); } catch (err) { console.warn('[main] setWindowButtonVisibility failed:', err.message); }
