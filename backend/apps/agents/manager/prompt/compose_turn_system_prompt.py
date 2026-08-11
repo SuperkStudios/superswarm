@@ -84,9 +84,13 @@ def compose_turn_system_prompt(
         # Every other mode gets one line of discovery instead of the whole reference: CreateApp's result carries the reference when actually used, so the base prompt stays cheap.
         apps_note = (
             "<apps_capability>\n"
-            "You can build real web apps for the user: when they ask for an app, tool, game, or dashboard, "
-            "call the CreateApp tool — it seeds a workspace and puts a live preview card on their dashboard, "
-            "then you write the code. To change an existing app, have the user select its card (or use the "
+            "You can build real web apps for the user: CreateApp seeds a workspace and puts a live preview "
+            "card on their dashboard, then you write the code. HARD RULE: call CreateApp only when the user "
+            "explicitly says to build/make/create an app, tool, game, or dashboard. Wanting to track, "
+            "organize, plan, or compare something is NOT that ask: answer it in chat with rich components, "
+            "then ask one short question offering to build an app for it, and only build after a yes. This "
+            "offer-first rule intentionally overrides the act-don't-ask default, because an unwanted app is "
+            "expensive to undo. To change an existing app, have the user select its card (or use the "
             "workspace path in your context) and edit the files directly.\n"
             "</apps_capability>"
         )
