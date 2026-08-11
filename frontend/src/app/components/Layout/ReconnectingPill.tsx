@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 import Grow from '@mui/material/Grow';
 import Typography from '@mui/material/Typography';
@@ -29,7 +30,9 @@ const ReconnectingPill: React.FC = () => {
 
   const show = !reachable && showable;
 
-  return (
+  // Portal to body: `position: fixed` resolves against a transformed ancestor, not the viewport, and
+  // AppShell sits inside one, so the pill rendered visibly off-centre (measured on a screenshot).
+  return createPortal(
     <Grow in={show} unmountOnExit>
       <Box
         onClick={() => window.location.reload()}
@@ -62,7 +65,8 @@ const ReconnectingPill: React.FC = () => {
           click to reload
         </Typography>
       </Box>
-    </Grow>
+    </Grow>,
+    document.body,
   );
 };
 

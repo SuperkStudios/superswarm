@@ -2776,6 +2776,13 @@ app.on('web-contents-created', (_event, contents) => {
       // fired, Electron can still spawn the child fullscreen. Force it back.
       if (childWindow.isFullScreen()) childWindow.setFullScreen(false);
     }
+    // A sign-in popup opened FROM a browser card inherits that card's UA. The generic popup spoofer
+    // above hands out a BARE Chrome UA (what Slack's wall wants), but Google rejects bare Chrome as
+    // not-genuine-Chrome, which is why browser cards carry an openswarm product token in the first
+    // place; without this a site's "Continue with Google" was unreachable inside a card (ENG-238).
+    if (contents.getType() === 'webview' && !childWindow.isDestroyed()) {
+      try { childWindow.webContents.setUserAgent(contents.getUserAgent()); } catch (_) { /* popup already gone */ }
+    }
   });
 
   // OAuth callback URL interception. The npm `9router` package's /callback
