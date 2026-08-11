@@ -25,6 +25,7 @@ import { ackRun, runWorkflowNow } from '@/shared/state/workflowsSlice';
 import { setPendingBrowserUrl } from '@/shared/state/tempStateSlice';
 import { fetchOutputs } from '@/shared/state/outputsSlice';
 import UpdateReadyPill from '@/app/components/Layout/UpdateReadyPill';
+import ReconnectingPill from '@/app/components/Layout/ReconnectingPill';
 import SafeModePill from '@/app/components/Layout/SafeModePill';
 import WhatsNewCard from '@/app/components/Layout/WhatsNewCard';
 import ShareRequestHost from '@/app/components/share/ShareRequestHost';
@@ -561,6 +562,8 @@ const AppShell: React.FC = () => {
       </Collapse>
 
       {!fsHideChrome && <UpdateReadyPill />}
+      {/* Deliberately NOT behind fsHideChrome: a dead backend must be visible even in fullscreen, or the app reads as frozen (ENG-242). */}
+      <ReconnectingPill />
       {!fsHideChrome && <SafeModePill />}
 
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>

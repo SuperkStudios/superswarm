@@ -1,3 +1,5 @@
+import { noteBackendFailure, noteBackendSuccess, setBackendProber } from '@/shared/backendConnection';
+
 const _w = window as any;
 // Prefer the preload-injected port; if it's missing (preload raced the backend port being picked), re-query the live value before falling back to 8324. The bare 8324 guess is wrong on any machine where the backend landed on a fallback port (e.g. 8324 was held by a leftover backend); see the self-heal below.
 const port =
@@ -83,6 +85,25 @@ function _installAuthFetchInterceptor() {
   (window as any).__OPENSWARM_FETCH_PATCHED__ = true;
 
   const originalFetch = window.fetch.bind(window);
+  // Reachability probe uses the RAW fetch: any HTTP response (401 included) proves the backend
+  // is back, and it must never recurse into the retry/dedupe logic below.
+  setBackendProber(() => originalFetch(`http://${host}:${port}/`, { signal: AbortSignal.timeout(2000), cache: 'no-store' }));
+
+  // Loopback calls answer in ms; anything past this is a dead/wedged backend, and an unbounded
+  // hang here is exactly the silent forever-spinner class (ENG-241). Generous enough for a big
+  // .swarm export, still bounded. Callers with their own AbortSignal keep it via AbortSignal.any.
+  const ATTEMPT_TIMEOUT_MS = 30000;
+  // Spans the measured ~4.2s packaged-backend respawn (kill-to-listening), so a GET fired the
+  // instant the backend dies succeeds on the last attempt instead of surfacing a one-off error.
+  const GET_RETRY_DELAYS_MS = [500, 1500, 2600];
+  const isTransientStatus = (s: number) => s === 502 || s === 503 || s === 504;
+
+  const attemptInit = (finalInit: RequestInit | undefined): RequestInit => {
+    const timeout = AbortSignal.timeout(ATTEMPT_TIMEOUT_MS);
+    const callerSignal = finalInit?.signal;
+    return { ...(finalInit ?? {}), signal: callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout };
+  };
+
   window.fetch = async function patchedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     try {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
@@ -106,9 +127,18 @@ function _installAuthFetchInterceptor() {
         ?? (input instanceof Request ? input.method : 'GET')
       ).toUpperCase();
 
-      // Only GET is safe to dedupe/cache; mutations could collapse intentional double-clicks.
+      // Mutations never auto-retry (not idempotent) and keep their own timing (some POSTs are
+      // legitimately slow); they still feed the reachability signal so the UI stays honest.
       if (method !== 'GET') {
-        return originalFetch(input, finalInit);
+        try {
+          const resp = await originalFetch(input, finalInit);
+          noteBackendSuccess();
+          return resp;
+        } catch (err) {
+          noteBackendFailure();
+          _maybeHealBackendPort();
+          throw err;
+        }
       }
 
       const cacheKey = `GET ${url}`;
@@ -126,7 +156,36 @@ function _installAuthFetchInterceptor() {
         return resp.clone();
       }
 
-      const promise = originalFetch(input, finalInit).then((resp) => {
+      // Bounded retry: a backend respawn (measured ~4.2s door-to-door) or a transient 5xx must
+      // not permanently fail an idempotent read; a genuinely dead backend fails fast and flips
+      // the reachability signal instead of hanging forever.
+      const runWithRetry = async (): Promise<Response> => {
+        let lastErr: unknown = null;
+        for (let attempt = 0; attempt <= GET_RETRY_DELAYS_MS.length; attempt++) {
+          try {
+            const resp = await originalFetch(input, attemptInit(finalInit));
+            if (isTransientStatus(resp.status) && attempt < GET_RETRY_DELAYS_MS.length) {
+              await new Promise((r) => setTimeout(r, GET_RETRY_DELAYS_MS[attempt]));
+              continue;
+            }
+            noteBackendSuccess();
+            return resp;
+          } catch (err) {
+            lastErr = err;
+            // A caller-driven abort is a real answer, never something to retry through.
+            if (finalInit?.signal?.aborted) throw err;
+            if (attempt < GET_RETRY_DELAYS_MS.length) {
+              await new Promise((r) => setTimeout(r, GET_RETRY_DELAYS_MS[attempt]));
+              continue;
+            }
+          }
+        }
+        noteBackendFailure();
+        _maybeHealBackendPort();
+        throw lastErr;
+      };
+
+      const promise = runWithRetry().then((resp) => {
         if (resp.ok) {
           _cachedFetches.set(cacheKey, {
             resp: resp.clone(),
@@ -142,9 +201,9 @@ function _installAuthFetchInterceptor() {
       } finally {
         _inflightFetches.delete(cacheKey);
       }
-    } catch {
-      // A network failure reaching our backend may mean we're on a stale port.
-      _maybeHealBackendPort();
+    } catch (err) {
+      // Interceptor plumbing must never turn a workable request into a failure; fall through raw.
+      if (err instanceof TypeError || (err as Error)?.name === 'AbortError' || (err as Error)?.name === 'TimeoutError') throw err;
       return originalFetch(input, init);
     }
   };
