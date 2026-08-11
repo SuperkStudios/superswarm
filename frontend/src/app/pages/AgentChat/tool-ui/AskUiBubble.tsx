@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import InputBase from '@mui/material/InputBase';
@@ -49,9 +49,12 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
 
   const componentId = payload && payload.component === 'vendored' ? String(payload.props.id || '') : '';
 
+  // message-draft's send gesture fires BOTH onAction('send') and onSend in one tick, before setSubmitted re-renders; the ref blocks the second POST (which would sit in the server's early buffer and could auto-answer a same-id re-ask).
+  const inFlight = useRef(false);
   const respond = useCallback(
     (response: Record<string, unknown>) => {
-      if (submitted) return;
+      if (submitted || inFlight.current) return;
+      inFlight.current = true;
       setSubmitted(true);
       if (response.action !== 'free_text') {
         setLocalChoice(response.choice ?? response.value ?? undefined);
@@ -65,19 +68,22 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
           const body = r.ok ? await r.json().catch(() => null) : null;
           if (!r.ok || (body && body.gone)) {
             // Nothing parked server-side (agent gone or this is a replayed transcript): say so instead of silently swallowing the click.
+            inFlight.current = false;
             setSubmitted(false);
             setLocalChoice(undefined);
             setOrphaned(true);
           }
         })
-        .catch(() => { setSubmitted(false); setLocalChoice(undefined); setOrphaned(true); });
+        .catch(() => { inFlight.current = false; setSubmitted(false); setLocalChoice(undefined); setOrphaned(true); });
     },
     [submitted, sessionId, componentId],
   );
 
-  const waiting = pair.result === null && !submitted;
+  // isPending gates clickability: once the session stops or completes, an unanswered ask must never look live (bounced asks used to revive as clickable dupes whose answers vanished into the 45s buffer, ENG-232).
+  const waiting = pair.result === null && !submitted && isPending;
   // A result that isn't the JSON answer envelope (timeout prose, validation bounce) means this ask is dead; it must not look answerable (ENG-232).
-  const expired = pair.result !== null && answered === null;
+  const expired = (pair.result !== null && answered === null)
+    || (pair.result === null && !isPending && !submitted && localChoice === undefined);
 
   // Their embedded-actions contract: onAction(actionId, state) delivers the component's full state,
   // and the components ship their own footer actions (Clear/Confirm), so we only wire the callback.
@@ -103,10 +109,35 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
       if (payload.name === 'message-draft') {
         return { ...base, onSend: () => respond({ action: 'send', value: null }) };
       }
+      // question-flow never fires onAction: the flat one-step wire shape routes to Progressive mode whose Next fires onSelect(ids), and the multi-step shape finishes via onComplete(answers); unwired, the flow completed visually while delivering nothing (ENG-232).
+      if (payload.name === 'question-flow') {
+        return {
+          ...base,
+          onSelect: (selection: unknown) => respond({ action: 'select', value: selection ?? null }),
+          onComplete: (answers: unknown) => respond({ action: 'complete', value: answers ?? null }),
+        };
+      }
       return base;
     }
     // A free-text answer isn't an option id; passing it as `choice` would fail their contract.
     if (freeTextAnswer !== null) return {};
+    const answeredValue = answered && 'value' in answered ? answered.value : localChoice;
+    // question-flow's receipt contract is {title, summary:[{label,value}]}, not the raw answer; a raw array or object crashes its summary.map (ENG-232).
+    if (payload.name === 'question-flow') {
+      if (answeredValue === undefined || answeredValue === null) return {};
+      const rp = (payload.props ?? {}) as Record<string, unknown>;
+      const receiptTitle = typeof rp.title === 'string' && rp.title.trim() ? rp.title : 'Answered';
+      const entries: Array<[string, string]> = Array.isArray(answeredValue)
+        ? [['Choice', answeredValue.map(String).join(', ')]]
+        : typeof answeredValue === 'object'
+          ? Object.entries(answeredValue as Record<string, unknown>).map(
+              ([k, v]): [string, string] => [k, Array.isArray(v) ? v.map(String).join(', ') : String(v)],
+            )
+          : [['Choice', String(answeredValue)]];
+      const summary = entries.filter(([, v]) => v.trim().length > 0).map(([label, value]) => ({ label, value }));
+      if (summary.length === 0) return {};
+      return { choice: { title: receiptTitle, summary } };
+    }
     if (answered && 'value' in answered) return { choice: answered.value };
     // Result not landed yet but the user already clicked: the captured choice renders the receipt now.
     return localChoice !== undefined ? { choice: localChoice } : {};
