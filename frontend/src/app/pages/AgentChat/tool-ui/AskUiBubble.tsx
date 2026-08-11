@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import InputBase from '@mui/material/InputBase';
@@ -7,6 +7,7 @@ import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
 import ToolCallBubble from '../tool-bubbles/ToolCallBubble';
 import type { ToolPair } from '../tool-bubbles/ToolCallBubble';
 import { parseShowUiPayload } from './showUiPayload';
+import { isAskAnswered, markAskAnswered, releaseAskAnswer, subscribeAskAnswers } from './askAnswerRegistry';
 import VendoredToolUi from '@toolui/VendoredToolUi';
 import { API_BASE, getAuthToken } from '@/shared/config';
 
@@ -51,10 +52,16 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
 
   // message-draft's send gesture fires BOTH onAction('send') and onSend in one tick, before setSubmitted re-renders; the ref blocks the second POST (which would sit in the server's early buffer and could auto-answer a same-id re-ask).
   const inFlight = useRef(false);
+  // Shared across every surface this same question renders on, so answering here disables it there too.
+  const answeredElsewhere = useSyncExternalStore(
+    subscribeAskAnswers,
+    () => isAskAnswered(sessionId, componentId),
+  );
   const respond = useCallback(
     (response: Record<string, unknown>) => {
-      if (submitted || inFlight.current) return;
+      if (submitted || inFlight.current || isAskAnswered(sessionId, componentId)) return;
       inFlight.current = true;
+      markAskAnswered(sessionId, componentId);
       setSubmitted(true);
       if (response.action !== 'free_text') {
         setLocalChoice(response.choice ?? response.value ?? undefined);
@@ -69,18 +76,19 @@ function AskUiBubble({ pair, sessionId, isPending, suppressReveal }: AskUiBubble
           if (!r.ok || (body && body.gone)) {
             // Nothing parked server-side (agent gone or this is a replayed transcript): say so instead of silently swallowing the click.
             inFlight.current = false;
+            releaseAskAnswer(sessionId, componentId);
             setSubmitted(false);
             setLocalChoice(undefined);
             setOrphaned(true);
           }
         })
-        .catch(() => { inFlight.current = false; setSubmitted(false); setLocalChoice(undefined); setOrphaned(true); });
+        .catch(() => { inFlight.current = false; releaseAskAnswer(sessionId, componentId); setSubmitted(false); setLocalChoice(undefined); setOrphaned(true); });
     },
     [submitted, sessionId, componentId],
   );
 
   // isPending gates clickability: once the session stops or completes, an unanswered ask must never look live (bounced asks used to revive as clickable dupes whose answers vanished into the 45s buffer, ENG-232).
-  const waiting = pair.result === null && !submitted && isPending;
+  const waiting = pair.result === null && !submitted && isPending && !answeredElsewhere;
   // A result that isn't the JSON answer envelope (timeout prose, validation bounce) means this ask is dead; it must not look answerable (ENG-232).
   const expired = (pair.result !== null && answered === null)
     || (pair.result === null && !isPending && !submitted && localChoice === undefined);

@@ -277,6 +277,13 @@ def handle_tool_call(tool_name: str, arguments: dict) -> dict:
     # Same isError-False rule as AskUI: a bounce that never persists leaves a phantom pending row in the transcript.
     if not isinstance(props, dict):
         return {"content": [{"type": "text", "text": "props must be an object."}]}
+    # Every vendored component's schema already demands an id; stats and links (ours) did not, so an
+    # id-less re-call minted a duplicate card instead of updating in place (ENG-232 P2). One rule for all.
+    if not str(props.get("id", "")).strip():
+        return {"content": [{"type": "text", "text": (
+            "props.id (a stable string) is required. Re-call with the SAME id to update this card in "
+            "place; a new id makes a new card."
+        )}]}
     # A display-only render wires no click handlers, so an interactive component via ShowUI draws dead buttons (message-draft even animates a send that sent nothing); teach instead of rendering a lie.
     if component in INTERACTIVE_COMPONENTS:
         return {"content": [{"type": "text", "text": (
