@@ -11,9 +11,11 @@ export interface ToolUiEntry {
 /* Every entry lazy-loads both the component and its zod contract so the chat bundle only pays
    for components a transcript actually uses. Names mirror upstream tool-ui component slugs. */
 // The social-post components take their data nested as {post}; the wire props ARE the post.
-function wrapAsPost<P extends { id?: unknown }>(Inner: React.ComponentType<{ post: P }>): React.ComponentType<P> {
-  return function PostAdapter(props: P) {
-    return <Inner post={props} />;
+// onOpen is the component's own top-level prop, not part of the post payload; nesting it made every post unclickable (ENG-234).
+function wrapAsPost<P extends { id?: unknown }>(Inner: React.ComponentType<{ post: P; onOpen?: () => void }>): React.ComponentType<P & { onOpen?: () => void }> {
+  return function PostAdapter(props: P & { onOpen?: () => void }) {
+    const { onOpen, ...post } = props;
+    return <Inner post={post as unknown as P} onOpen={onOpen} />;
   };
 }
 
