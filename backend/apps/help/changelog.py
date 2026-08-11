@@ -33,6 +33,12 @@ P_RELEASES: List[ReleaseNote] = [
             "Dictation starts faster: the microphone stays warm for a few minutes after each use.",
         ],
         fixes=[
+            "Signing in with Google lands every time. The sign-in could previously finish in your browser and never reach the app, leaving you signed out after a reload.",
+            "Experimental builds stop flipping back and forth with the stable version on every restart.",
+            "If the app briefly loses its local connection it now retries and heals itself, and tells you plainly when it cannot, instead of spinning forever with no explanation.",
+            "Buttons on the question cards agents show you always respond, including on a collapsed chat, and answered questions never leave a second dead copy behind.",
+            "Images, posts and links agents show you open when you click them, and a click from fullscreen takes you there instead of doing nothing.",
+            "Agents stop building a whole app when you only asked to track or plan something; they offer first.",
             "Creating a new app works again in the installed build; it previously hung on a blank preview forever.",
             "Nothing can be dragged while a window is fullscreen, and older profiles with stuck fullscreen state are healed on load.",
             "An agent that stops without answering now says so honestly instead of pretending it finished.",
