@@ -461,6 +461,15 @@ const AgentCard: React.FC<Props> = ({
 
   const handleDragPointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // A press on an interactive control (an AskUI option/Confirm/Send, a composer field, any
+    // button/input) must reach that control. Without this the pill-host's pointer capture ate the
+    // click, so a live question in the collapsed pill looked dead until you expanded the card (ENG-232).
+    let ctrl = e.target as HTMLElement | null;
+    while (ctrl && ctrl !== e.currentTarget) {
+      const tag = ctrl.tagName;
+      if (tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || ctrl.isContentEditable || ctrl.getAttribute('role') === 'button') return;
+      ctrl = ctrl.parentElement;
+    }
     // A fullscreen window has no drag (macOS rule); arming the machinery here let a title wiggle
     // untile the card mid-click and a plain click wipe tiledGeometry's camera transform, which is
     // the "fullscreen shifted left with the traffic lights cut off" bug.
