@@ -1866,6 +1866,13 @@ function setupAutoUpdater() {
     autoUpdater.autoInstallOnAppQuit = true;
     // Renderer pushes the user's experimental-updates setting via IPC right after settings load.
     autoUpdater.allowPrerelease = false;
+    // The boot check below must not race that IPC push: with allowDowngrade on, a prerelease build checking while allowPrerelease is still false sees latest-stable as a valid target and silently self-downgrades, then upgrades again next boot (the 1.7.5 <-> 1.7.6-exp1 ping-pong). Read the toggle straight from disk so the first check already knows it.
+    try {
+      const onDisk = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'data', 'settings', 'settings.json'), 'utf8'));
+      autoUpdater.allowPrerelease = !!onDisk.allow_experimental_updates;
+    } catch (_) {
+      // Fresh install or unreadable settings: stays false, and a fresh install is never on a prerelease.
+    }
     // Lets us un-ship a bad release: re-flip GH 'latest' to an older one and users hop back to it.
     autoUpdater.allowDowngrade = true;
   }

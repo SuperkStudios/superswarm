@@ -103,9 +103,9 @@ const SoftwareUpdateRow: React.FC<{ styles: SettingsStyles }> = ({ styles }) => 
           <Typography sx={descSx}>
             {updateStatus === 'checking' && 'Checking for updates…'}
             {updateStatus === 'not-available' && 'You\'re on the latest version.'}
-            {updateStatus === 'available' && `Version ${availableVersion} is available.`}
+            {updateStatus === 'available' && (availableVersion ? `Version ${availableVersion} is available.` : 'An update is available.')}
             {updateStatus === 'downloading' && `Downloading update… ${Math.round(downloadPercent)}%`}
-            {updateStatus === 'downloaded' && `Version ${availableVersion} is ready to install.`}
+            {updateStatus === 'downloaded' && (availableVersion ? `Version ${availableVersion} is ready to install.` : 'An update is ready to install.')}
             {updateStatus === 'error' && (updateError || 'Update check failed.')}
             {updateStatus === 'idle' && 'Check for new versions of OpenSwarm.'}
           </Typography>
