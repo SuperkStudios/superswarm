@@ -247,22 +247,23 @@ def p_post(url: str, body: dict, timeout: float) -> dict:
 def handle_ask_ui(arguments: dict) -> dict:
     component = str(arguments.get("component", "")).strip()
     props = arguments.get("props")
+    # Bounces return isError False on purpose: the CLI never fires PostToolUse for errored calls, so an isError bounce leaves no tool_result and the frontend renders the dead ask as a live clickable card forever (ENG-232).
     if not isinstance(props, dict):
-        return {"content": [{"type": "text", "text": "props must be an object."}], "isError": True}
+        return {"content": [{"type": "text", "text": "props must be an object."}]}
     if component not in INTERACTIVE_COMPONENTS:
-        return {"content": [{"type": "text", "text": f"AskUI only supports: {', '.join(INTERACTIVE_COMPONENTS)}. Use ShowUI for display-only components."}], "isError": True}
+        return {"content": [{"type": "text", "text": f"AskUI only supports: {', '.join(INTERACTIVE_COMPONENTS)}. Use ShowUI for display-only components."}]}
     # Registered RAW, not stripped: the frontend responds with the untrimmed id, and a mismatched key means the answer never lands.
     component_id = str(props.get("id", ""))
     if not component_id.strip():
-        return {"content": [{"type": "text", "text": "props.id (a stable string) is required so the answer can be correlated."}], "isError": True}
+        return {"content": [{"type": "text", "text": "props.id (a stable string) is required so the answer can be correlated."}]}
     problem = validate(component, props)
     if problem:
-        return {"content": [{"type": "text", "text": f"Not rendered: {problem}"}], "isError": True}
+        return {"content": [{"type": "text", "text": f"Not rendered: {problem}"}]}
     r = p_post(WAIT_URL, {"session_id": PARENT_SESSION_ID, "component_id": component_id, "timeout_s": ASK_TIMEOUT_S}, timeout=ASK_TIMEOUT_S + 20)
     if "error" in r:
-        return {"content": [{"type": "text", "text": f"AskUI failed: {r['error']}"}], "isError": True}
+        return {"content": [{"type": "text", "text": f"AskUI failed: {r['error']}"}]}
     if not r.get("ok"):
-        return {"content": [{"type": "text", "text": "The user didn't respond within 10 minutes. Continue without their input or ask again."}], "isError": True}
+        return {"content": [{"type": "text", "text": "The user didn't respond within 10 minutes. Continue without their input or ask again."}]}
     return {"content": [{"type": "text", "text": json.dumps(r.get("response"))}]}
 
 
@@ -273,18 +274,19 @@ def handle_tool_call(tool_name: str, arguments: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}], "isError": True}
     component = str(arguments.get("component", "")).strip()
     props = arguments.get("props")
+    # Same isError-False rule as AskUI: a bounce that never persists leaves a phantom pending row in the transcript.
     if not isinstance(props, dict):
-        return {"content": [{"type": "text", "text": "props must be an object."}], "isError": True}
+        return {"content": [{"type": "text", "text": "props must be an object."}]}
     # A display-only render wires no click handlers, so an interactive component via ShowUI draws dead buttons (message-draft even animates a send that sent nothing); teach instead of rendering a lie.
     if component in INTERACTIVE_COMPONENTS:
         return {"content": [{"type": "text", "text": (
             f"Not rendered: '{component}' is interactive and ShowUI is display-only, so its buttons "
             "would be dead. Call AskUI with the same component and props (props.id required) to "
             "collect the user's answer."
-        )}], "isError": True}
+        )}]}
     problem = validate(component, props)
     if problem:
-        return {"content": [{"type": "text", "text": f"Not rendered: {problem}"}], "isError": True}
+        return {"content": [{"type": "text", "text": f"Not rendered: {problem}"}]}
     return {"content": [{"type": "text", "text": f"Rendered a '{component}' component inline."}]}
 
 
