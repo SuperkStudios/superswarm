@@ -1,4 +1,4 @@
-import { noteBackendFailure, noteBackendSuccess, setBackendProber } from '@/shared/backendConnection';
+import { noteBackendFailure, noteBackendSuccess, noteRequestStalled, setBackendProber } from '@/shared/backendConnection';
 
 const _w = window as any;
 // Prefer the preload-injected port; if it's missing (preload raced the backend port being picked), re-query the live value before falling back to 8324. The bare 8324 guess is wrong on any machine where the backend landed on a fallback port (e.g. 8324 was held by a leftover backend); see the self-heal below.
@@ -104,6 +104,14 @@ function _installAuthFetchInterceptor() {
     return { ...(finalInit ?? {}), signal: callerSignal ? AbortSignal.any([callerSignal, timeout]) : timeout };
   };
 
+  // Anything on loopback that hasn't answered in 8s is stalled, not slow; ask the prober rather than
+  // waiting out the attempt timeout, so a squatted/wedged port surfaces in seconds (ENG-242).
+  const STALL_MS = 8000;
+  const withStallWatch = async (run: () => Promise<Response>): Promise<Response> => {
+    const stall = setTimeout(() => noteRequestStalled(), STALL_MS);
+    try { return await run(); } finally { clearTimeout(stall); }
+  };
+
   window.fetch = async function patchedFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     try {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
@@ -131,7 +139,7 @@ function _installAuthFetchInterceptor() {
       // legitimately slow); they still feed the reachability signal so the UI stays honest.
       if (method !== 'GET') {
         try {
-          const resp = await originalFetch(input, finalInit);
+          const resp = await withStallWatch(() => originalFetch(input, finalInit));
           noteBackendSuccess();
           return resp;
         } catch (err) {
@@ -163,7 +171,7 @@ function _installAuthFetchInterceptor() {
         let lastErr: unknown = null;
         for (let attempt = 0; attempt <= GET_RETRY_DELAYS_MS.length; attempt++) {
           try {
-            const resp = await originalFetch(input, attemptInit(finalInit));
+            const resp = await withStallWatch(() => originalFetch(input, attemptInit(finalInit)));
             if (isTransientStatus(resp.status) && attempt < GET_RETRY_DELAYS_MS.length) {
               await new Promise((r) => setTimeout(r, GET_RETRY_DELAYS_MS[attempt]));
               continue;
