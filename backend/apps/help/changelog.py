@@ -33,6 +33,7 @@ P_RELEASES: List[ReleaseNote] = [
             "Dictation starts faster: the microphone stays warm for a few minutes after each use.",
         ],
         fixes=[
+            "Apps no longer get stuck on \"Starting preview\" forever; one app that served a prebuilt bundle used to wedge every other app until a restart.",
             "Signing in with Google lands every time. The sign-in could previously finish in your browser and never reach the app, leaving you signed out after a reload.",
             "Experimental builds stop flipping back and forth with the stable version on every restart.",
             "If the app briefly loses its local connection it now retries and heals itself, and tells you plainly when it cannot, instead of spinning forever with no explanation.",
