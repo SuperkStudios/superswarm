@@ -22,7 +22,7 @@ P_RELEASES: List[ReleaseNote] = [
     # GitHub body AND the Help agent's context, so a line written for a planned feature becomes the
     # agent confidently describing something that does not exist.
     ReleaseNote(
-        version="1.7.6",
+        version="1.7.7",
         headline="Agents remember, apps get lighter, and fullscreen stays put.",
         highlights=[
             "Agents can now save facts you tell them and recall them in any later chat. You curate the list in Settings.",
