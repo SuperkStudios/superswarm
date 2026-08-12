@@ -33,6 +33,8 @@ P_RELEASES: List[ReleaseNote] = [
             "Dictation starts faster: the microphone stays warm for a few minutes after each use.",
         ],
         fixes=[
+            "Passkey and Touch ID sign-in works again; the account picker was answering \"none\" and cancelling every attempt.",
+            "A momentary read error can no longer wipe a dashboard's layout permanently; it is treated as an error instead of an empty board.",
             "Apps no longer get stuck on \"Starting preview\" forever; one app that served a prebuilt bundle used to wedge every other app until a restart.",
             "Signing in with Google lands every time. The sign-in could previously finish in your browser and never reach the app, leaving you signed out after a reload.",
             "Experimental builds stop flipping back and forth with the stable version on every restart.",
