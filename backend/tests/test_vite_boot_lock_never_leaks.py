@@ -11,12 +11,7 @@ each non-spawning exit, which is the invariant, rather than asserting the shape 
 import asyncio
 from typing import Any, List
 import pytest
-from backend.apps.outputs import runtime as p_runtime
-from backend.apps.outputs.runtime import AppRuntime
-
-
-def get_vite_boot_lock():
-    return p_runtime.p_vite_boot_lock
+from backend.apps.outputs.runtime import AppRuntime, get_vite_boot_lock
 
 
 def p_make_runtime(tmp_path: Any, name: str = "ws") -> AppRuntime:
