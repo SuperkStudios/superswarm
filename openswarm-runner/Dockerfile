@@ -21,7 +21,7 @@
 # Electron than the desktop app ships would quietly undo the point of this image.
 
 ARG PYTHON_VERSION=3.13
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22.23.4
 ARG ROUTER_VERSION=0.3.60
 ARG UV_VERSION=0.11.8
 # Must track electron/package.json's devDependency, or the container drives a different browser than the laptop does.

@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20.18.1' }
+        with: { node-version: '22.23.4' }
       - name: Fetch latest preflight-tunings from dogfood
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,7 +84,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           # Exact pin to match the bundled runtime + the Windows job.
-          node-version: '20.18.1'
+          node-version: '22.23.4'
 
       - name: Setup Python (for building bundled python-env)
         uses: actions/setup-python@v5

@@ -313,10 +313,10 @@ Write-Host ""
 # Windows but matches the macOS build for consistency); (2) shrinks
 # 9Router cold-start from ~10s (Electron-as-Node) to ~1-2s (real node),
 # which directly shrinks the splash window the user sees during boot.
-# Pinned to Node 20 LTS, NODE_MODULE_VERSION 115. 9router 0.3.60 has
+# Pinned to Node 22 LTS, NODE_MODULE_VERSION 127. 9router 0.3.60 has
 # no native bindings (sql.js, not better-sqlite3) so any Node 18+ works.
 Write-Host "[3b/5] Bundling Node.js runtime..."
-$NodeVersion = 'v20.18.1'
+$NodeVersion = 'v22.23.4'
 $NodeStageDir = Join-Path $Staging 'node\x64'
 New-Item -ItemType Directory -Force -Path $NodeStageDir | Out-Null
 $NodeZip = Join-Path $env:TEMP "node-win-$([guid]::NewGuid()).zip"

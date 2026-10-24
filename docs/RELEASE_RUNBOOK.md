@@ -17,7 +17,7 @@ build scripts set the pre-release channel automatically from that suffix.
 | Thing | Pin | Where |
 |-------|-----|-------|
 | uv | `0.11.16` | `scripts/build-app.sh`, `scripts/build-app-win.ps1` (override `UV_VERSION`) |
-| Node (bundled runtime + CI toolchain) | `20.18.1` | build scripts, `.nvmrc`, `.github/workflows/*` |
+| Node (bundled runtime + CI toolchain) | `22.23.4` | build scripts, `.nvmrc`, `.github/workflows/*` |
 | 9router | `0.3.60` | `scripts/fetch-router.{sh,ps1}` (override `ROUTER_VERSION`) |
 | Python | `3.13.2` standalone | `scripts/build-python-env*.{sh,ps1}` |
 | Python deps | fully hash-locked | `backend/requirements.lock` |

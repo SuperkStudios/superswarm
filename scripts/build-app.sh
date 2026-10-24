@@ -360,12 +360,12 @@ echo ""
 #      to boot. Real node starts in ~50ms. Shrinks the splash window
 #      proportionally and reduces the "frontend up but nothing works"
 #      tail (analytics.py:196 awaits 9Router during backend lifespan).
-# Pinned to Node 20 LTS (NODE_MODULE_VERSION 115). 9router 0.3.60 has zero
+# Pinned to Node 22 LTS (NODE_MODULE_VERSION 127). 9router 0.3.60 has zero
 # native bindings (sql.js, not better-sqlite3), so any Node 18+ works
 # regardless. The bundled MCP servers (mcp-bundles/) are esbuild outputs
-# with target=node22 — Node 20 covers the syntax + builtins they use.
+# with target=node22, matching the bundled runtime.
 echo "[3b/5] Bundling Node.js runtime..."
-NODE_VERSION="v20.18.1"
+NODE_VERSION="v22.23.4"
 NODE_STAGE_DIR="$STAGING_DIR/node"
 mkdir -p "$NODE_STAGE_DIR"
 

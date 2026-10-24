@@ -9,7 +9,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
-// ESM config (.mts): the packaged app's bundled node 20 cannot require() ESM-only plugins like @tailwindcss/vite, so the config itself must load as ESM.
+// ESM config (.mts) loads ESM-only plugins like @tailwindcss/vite natively.
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 // Shared, hash-keyed vite optimization cache. Every webapp-template
